@@ -7,7 +7,7 @@
       "configureZshAsDefaultShell": true
     }
   },
-  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y ffmpeg imagemagick webp && npm install",
+  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y ffmpeg imagemagick webp && sudo npm install -g pnpm && pnpm install --no-frozen-lockfile",
   "forwardPorts": [3000],
   "portsAttributes": {
     "3000": {
