@@ -39,7 +39,9 @@ function saveSettings(settings) {
 }
 
 // =========================================================================
-//  IN-MEMORY STATE & LISTENERS for multi-step plain-text reply config flow
+//  IN-MEMORY STATE & DIRECT COMMAND HANDLER
+//  Bypasses the obfuscated framework's command dispatch entirely.
+//  All DanieWatch commands are handled here via raw messages.upsert.
 // =========================================================================
 function cleanJid(jid) {
     if (!jid) return '';
@@ -51,6 +53,12 @@ function cleanJid(jid) {
 
 const pendingConfig = {};
 
+// Our command prefix
+const PREFIX = '.';
+
+// Map of our command names to handler functions (populated after they're defined)
+const DANIE_COMMANDS = {};
+
 function initUpsertListener(conn) {
     if (conn.danieDownloadUpsertRegistered) return;
     conn.danieDownloadUpsertRegistered = true;
@@ -60,31 +68,45 @@ function initUpsertListener(conn) {
             if (chatUpdate.type !== 'notify') return;
             const mek = chatUpdate.messages[0];
             if (!mek || !mek.message) return;
+            if (mek.key.fromMe) return; // skip own messages
 
             const from = mek.key.remoteJid;
             const senderJid = mek.key.participant || mek.key.remoteJid;
             const cleanSender = cleanJid(senderJid);
 
-            if (!pendingConfig[cleanSender]) return;
-
-            const body = mek.message.conversation || 
-                         mek.message.extendedTextMessage?.text || 
-                         mek.message.buttonsResponseMessage?.selectedButtonId || 
-                         mek.message.listResponseMessage?.singleSelectReply?.selectedRowId || 
+            const body = mek.message.conversation ||
+                         mek.message.extendedTextMessage?.text ||
+                         mek.message.buttonsResponseMessage?.selectedButtonId ||
+                         mek.message.listResponseMessage?.singleSelectReply?.selectedRowId ||
                          '';
             const trimmedText = body.trim();
             if (!trimmedText) return;
-
-            // If it starts with prefix, let the command registry handle it
-            if (trimmedText.startsWith('.')) return;
 
             const reply = async (textMsg) => {
                 return conn.sendMessage(from, { text: textMsg }, { quoted: mek });
             };
 
-            await handleConfigReply(conn, mek, null, senderJid, trimmedText, reply);
+            // ---- Check if it's one of our dot-commands ----
+            if (trimmedText.startsWith(PREFIX)) {
+                const withoutPrefix = trimmedText.slice(PREFIX.length);
+                const spaceIdx = withoutPrefix.indexOf(' ');
+                const cmdName = (spaceIdx === -1 ? withoutPrefix : withoutPrefix.slice(0, spaceIdx)).toLowerCase();
+                const args = spaceIdx === -1 ? '' : withoutPrefix.slice(spaceIdx + 1).trim();
+
+                if (DANIE_COMMANDS[cmdName]) {
+                    console.log(`[DanieWatch] Handling command: .${cmdName} args="${args}"`);
+                    await DANIE_COMMANDS[cmdName](conn, mek, from, senderJid, args, reply);
+                    return;
+                }
+            }
+
+            // ---- Check if it's a plain-number reply for pending config ----
+            if (pendingConfig[cleanSender] && !trimmedText.startsWith(PREFIX)) {
+                await handleConfigReply(conn, mek, null, senderJid, trimmedText, reply);
+                return;
+            }
         } catch (err) {
-            console.error('[DanieDownload] Error in messages.upsert config listener:', err);
+            console.error('[DanieDownload] Error in messages.upsert handler:', err);
         }
     });
 }
@@ -771,3 +793,69 @@ cmd({
         reply(`❌ Error: ${error.message}`);
     }
 });
+
+// =========================================================================
+//  REGISTER DIRECT COMMAND HANDLERS
+//  These bypass the obfuscated framework entirely via messages.upsert
+// =========================================================================
+DANIE_COMMANDS['config'] = async (conn, mek, from, senderJid, args, reply) => {
+    if (!isOwner(senderJid)) return reply('❌ Only the bot owner can use this command.');
+    initUpsertListener(conn);
+    const current = loadSettings();
+    let modeLabel = '📥 *Private Chat*';
+    if (current.mode === 'group') modeLabel = `📤 *Group* → ${current.groupName || current.groupJid}`;
+    else if (current.mode === 'private' && current.privateJid) modeLabel = `📥 *Private Chat* → ${current.privateName || current.privateJid}`;
+    if (args) return handleConfigReply(conn, mek, null, senderJid, args, reply);
+    const cleanSender = cleanJid(senderJid);
+    pendingConfig[cleanSender] = { step: 'mode', groups: [], chats: [] };
+    await reply(
+        `⚙️ *DanieWatch Download Config*\n\n` +
+        `Current setting: ${modeLabel}\n\n` +
+        `Where should downloaded files be sent?\n\n` +
+        `*Reply with:*\n` +
+        `  \`1\` — 📥 Private Chats\n` +
+        `  \`2\` — 📤 WhatsApp Groups\n\n` +
+        `_Reply with just the number to select._`
+    );
+};
+
+DANIE_COMMANDS['setgroup'] = async (conn, mek, from, senderJid, args, reply) => {
+    if (!isOwner(senderJid)) return reply('❌ Only the bot owner can use this command.');
+    initUpsertListener(conn);
+    let groupsObj;
+    try { groupsObj = await conn.groupFetchAllParticipating(); } catch (err) { return reply(`❌ Failed to fetch groups: ${err.message}`); }
+    const groups = Object.values(groupsObj).map(g => ({ jid: g.id, subject: g.subject || 'Unknown Group' }));
+    if (groups.length === 0) return reply('❌ No groups found.');
+    const cleanSender = cleanJid(senderJid);
+    const arg = (args || '').trim().toLowerCase();
+    if (!arg || arg === 'list') {
+        pendingConfig[cleanSender] = { step: 'group', groups };
+        let list = '📋 *Your Groups:*\n\n';
+        groups.forEach((g, i) => { list += `  \`${i + 1}\` — ${g.subject}\n`; });
+        list += `\n_Reply with just the number to select._`;
+        return reply(list);
+    }
+    const num = parseInt(arg, 10);
+    if (isNaN(num) || num < 1 || num > groups.length) return reply(`❌ Invalid selection. Use a number from 1 to ${groups.length}.`);
+    const chosen = groups[num - 1];
+    saveSettings({ mode: 'group', groupJid: chosen.jid, groupName: chosen.subject, privateJid: '', privateName: '' });
+    return reply(`✅ Download target set to group: *${chosen.subject}*\n🆔 \`${chosen.jid}\``);
+};
+
+DANIE_COMMANDS['groupid'] = async (conn, mek, from, senderJid, args, reply) => {
+    await reply(`*Current Chat ID:* \`${from}\``);
+};
+
+DANIE_COMMANDS['dlstatus'] = async (conn, mek, from, senderJid, args, reply) => {
+    const settings = loadSettings();
+    const modeEmoji = settings.mode === 'group' ? '📤' : '📥';
+    const modeLabel = settings.mode === 'group'
+        ? `Group → *${settings.groupName || 'Unknown'}*\n🆔 \`${settings.groupJid}\``
+        : `Private Chat → *${settings.privateName || 'You'}*\n🆔 \`${settings.privateJid || 'N/A'}\``;
+    await reply(`📊 *Download Config Status*\n\n${modeEmoji} Mode: *${settings.mode}*\n📍 Destination: ${modeLabel}\n\n_Use \`.config\` to change._`);
+};
+DANIE_COMMANDS['dlconfig'] = DANIE_COMMANDS['dlstatus'];
+DANIE_COMMANDS['downloadstatus'] = DANIE_COMMANDS['dlstatus'];
+
+// Export initUpsertListener so command.js can auto-initialize it
+module.exports.initUpsertListener = initUpsertListener;
