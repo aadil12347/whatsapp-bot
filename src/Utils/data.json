@@ -1,0 +1,146 @@
+[
+  {
+    "3EB06C92AD5D420412BC1C": [
+      {
+        "cmdId": "1",
+        "cmd": ".menu"
+      },
+      {
+        "cmdId": "2",
+        "cmd": ".ping"
+      }
+    ]
+  },
+  {
+    "3EB0B43B1B8E6C90DECAE7": [
+      {
+        "cmdId": "1",
+        "cmd": ".list 1"
+      },
+      {
+        "cmdId": "2",
+        "cmd": ".list 2"
+      },
+      {
+        "cmdId": "3",
+        "cmd": ".list 3"
+      },
+      {
+        "cmdId": "4",
+        "cmd": ".list 4"
+      },
+      {
+        "cmdId": "5",
+        "cmd": ".list 5"
+      },
+      {
+        "cmdId": "6",
+        "cmd": ".list 6"
+      },
+      {
+        "cmdId": "7",
+        "cmd": ".list 7"
+      },
+      {
+        "cmdId": "8",
+        "cmd": ".list 8"
+      },
+      {
+        "cmdId": "9",
+        "cmd": ".list 9"
+      },
+      {
+        "cmdId": "10",
+        "cmd": ".list 10"
+      },
+      {
+        "cmdId": "11",
+        "cmd": ".list 11"
+      }
+    ]
+  },
+  {
+    "3EB0A989E40AE33A32C8CB": [
+      {
+        "cmdId": "1",
+        "cmd": ".cine deadpool"
+      },
+      {
+        "cmdId": "2",
+        "cmd": ".mvdl deadpool"
+      },
+      {
+        "cmdId": "3",
+        "cmd": ".SINHALASUB deadpool"
+      },
+      {
+        "cmdId": "4",
+        "cmd": ".mvinfo deadpool"
+      }
+    ]
+  },
+  {
+    "3EB091785166283D575B82": [
+      {
+        "cmdId": "1",
+        "cmd": ".mvdlinfo eyJhY3Rpb24iOiJpbmZvIiwiZGV0YWlsUGF0aCI6ImRlYWRwb29sLU1pVE9zYlRjMkMxIiwidHlwZSI6Im1vdmllIn0="
+      },
+      {
+        "cmdId": "2",
+        "cmd": ".mvdlinfo eyJhY3Rpb24iOiJpbmZvIiwiZGV0YWlsUGF0aCI6ImRlYWRwb29sLTItSVkxazN2bjhkcTQiLCJ0eXBlIjoibW92aWUifQ=="
+      },
+      {
+        "cmdId": "3",
+        "cmd": ".mvdlinfo eyJhY3Rpb24iOiJpbmZvIiwiZGV0YWlsUGF0aCI6ImRlYWRwb29sLWFuZC13b2x2ZXJpbmUtVW1EMXBIWTZ4VTkiLCJ0eXBlIjoibW92aWUifQ=="
+      },
+      {
+        "cmdId": "4",
+        "cmd": ".mvdlinfo eyJhY3Rpb24iOiJpbmZvIiwiZGV0YWlsUGF0aCI6Im9uY2UtdXBvbi1hLWRlYWRwb29sLU9QSjI5Nmw2OWkzIiwidHlwZSI6Im1vdmllIn0="
+      },
+      {
+        "cmdId": "5",
+        "cmd": ".mvdlinfo eyJhY3Rpb24iOiJpbmZvIiwiZGV0YWlsUGF0aCI6ImRlYWRwb29sLW9wZW5pbmctZGFuY2Utc2NlbmUtc29uZy1uc3luYy1ieWUtYnllLWJ5ZS1kZWFkcG9vbC1hbmQtd29sdmVyaW5lLXNvdW5kdHJhY2stR250SUJCUzFmbzUiLCJ0eXBlIjoib3RoZXIifQ=="
+      },
+      {
+        "cmdId": "6",
+        "cmd": ".mvdlinfo eyJhY3Rpb24iOiJpbmZvIiwiZGV0YWlsUGF0aCI6ImRlYWRwb29sLWhvdC1uLWNvbGQtaUphanhXTGJneiIsInR5cGUiOiJvdGhlciJ9"
+      },
+      {
+        "cmdId": "7",
+        "cmd": ".mvdlinfo eyJhY3Rpb24iOiJpbmZvIiwiZGV0YWlsUGF0aCI6ImF2ZW5nZXJzLWluZmluaXR5LXdhci1rcXlVY2ZLRHV5YSIsInR5cGUiOiJtb3ZpZSJ9"
+      }
+    ]
+  },
+  {
+    "3EB05DF4C693D71231D9CB": [
+      {
+        "cmdId": "1",
+        "cmd": ".mvdlget eyJhY3Rpb24iOiJkb3dubG9hZCIsImRldGFpbFBhdGgiOiJkZWFkcG9vbC1NaVRPc2JUYzJDMSIsInF1YWxpdHkiOiI3MjAiLCJzdHJlYW1VcmwiOiJodHRwczovL2JjZG54dy5oYWt1bmF5bWF0YXRhLmNvbS9yZXNvdXJjZS8xOWVmYzI4MDlmNjgzZDA3OGFmYWQwNDRiM2UwOGVjZC5tcDQ/c2lnbj0wZjU3ZDVmMDc5MTY2YjVlNTFjNDlkNjRmZmIxYzY0MCZ0PTE3ODQwMjY4MjEiLCJzaXplIjo0MDkyOTYzOTgsInRodW1ibmFpbCI6Imh0dHBzOi8vcGJjZG53LmFvbmVyb29tLmNvbS9pbWFnZS8yMDI2LzAxLzI3L2I2NTcyNjNjOTRkNmQ4NjkzYjFlZDgwYmUzNTc3MTg5LmpwZyIsInRpdGxlIjoiRGVhZHBvb2wiLCJzZWFzb24iOjAsImVwaXNvZGUiOjB9"
+      },
+      {
+        "cmdId": "2",
+        "cmd": ".mvdlget eyJhY3Rpb24iOiJkb3dubG9hZCIsImRldGFpbFBhdGgiOiJkZWFkcG9vbC1NaVRPc2JUYzJDMSIsInF1YWxpdHkiOiI0ODAiLCJzdHJlYW1VcmwiOiJodHRwczovL2JjZG54dy5oYWt1bmF5bWF0YXRhLmNvbS9yZXNvdXJjZS9kNjI4MmEyYTY0Y2Y2NWVlNjU5MmJkM2YxMzMzMzRiYy5tcDQ/c2lnbj1lMTNiZTAyNTg5MTFhNzI5NWQwM2ViNWFkNmUxMDQ4ZSZ0PTE3ODQwMjM5ODIiLCJzaXplIjo0MDkyOTYzOTgsInRodW1ibmFpbCI6Imh0dHBzOi8vcGJjZG53LmFvbmVyb29tLmNvbS9pbWFnZS8yMDI2LzAxLzI3L2I2NTcyNjNjOTRkNmQ4NjkzYjFlZDgwYmUzNTc3MTg5LmpwZyIsInRpdGxlIjoiRGVhZHBvb2wiLCJzZWFzb24iOjAsImVwaXNvZGUiOjB9"
+      },
+      {
+        "cmdId": "3",
+        "cmd": ".mvdlget eyJhY3Rpb24iOiJkb3dubG9hZCIsImRldGFpbFBhdGgiOiJkZWFkcG9vbC1NaVRPc2JUYzJDMSIsInF1YWxpdHkiOiIzNjAiLCJzdHJlYW1VcmwiOiJodHRwczovL2JjZG54dy5oYWt1bmF5bWF0YXRhLmNvbS9idC80ZTA0ZjQwNDk1NWM2MDlhNGY4OTQ4MTkyNDc5MDcxZi5tcDQ/c2lnbj01YzcyYjk3MmM3NzM4MjFhYmNhNjY3YWU5ZWUxNzgxMyZ0PTE3ODQwMjYzMjgiLCJzaXplIjoyNTkwMzgzNzMsInRodW1ibmFpbCI6Imh0dHBzOi8vcGJjZG53LmFvbmVyb29tLmNvbS9pbWFnZS8yMDI2LzAxLzI3L2I2NTcyNjNjOTRkNmQ4NjkzYjFlZDgwYmUzNTc3MTg5LmpwZyIsInRpdGxlIjoiRGVhZHBvb2wiLCJzZWFzb24iOjAsImVwaXNvZGUiOjB9"
+      },
+      {
+        "cmdId": "4",
+        "cmd": ".mvdlsub eyJhY3Rpb24iOiJzdWJ0aXRsZV9zZWxlY3QiLCJkZXRhaWxQYXRoIjoiZGVhZHBvb2wtTWlUT3NiVGMyQzEiLCJzZWFzb24iOjAsImVwaXNvZGUiOjB9"
+      }
+    ]
+  },
+  {
+    "3EB07A595892CB56DBFF89": [
+      {
+        "cmdId": "1",
+        "cmd": ".menu"
+      },
+      {
+        "cmdId": "2",
+        "cmd": ".ping"
+      }
+    ]
+  }
+]

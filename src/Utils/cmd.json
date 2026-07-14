@@ -1,0 +1,23 @@
+{
+    "gemini,ai,meta,aiimage,totext":"ai.js",
+    "tts,toptt,sticker,emojimix,trt":"convert.js",
+    "tiktok,tnw,tww,ta,fb,fbhd,twitter,fetch,mediafire,ig,apk,gdrive,spotify,spot":"download.js",
+    "forward,pair,rename,getdp":"functions.js",
+    "kick,add,delete,kickall,opentime,closetime,tagall,tagadmin,mute,unmute,promote,demote,setname,setdesc,invite,join,leave":"group.js",
+    "hwaifu,hneko,trap,blowjob":"hentai.js",
+    "write,starsnight,leaves,metalstar,starzodiac,avatargold,frozen,neondevil,snow3d,birthday,colorfulangel,makingneon,beautifulgold,thunder,galaxy1,write,advancedglow,typography,pixelglitch,neonglitch,glitch,flag,flag3,deleting,blackpink,glowing,underwater,logomaker,cartoon,papercut,glitch,watercolor,effectcloud,gradien,summerbeach,luxurygold,multicolourneon,sandsummer,galaxywallpaper,1971,makingneon,royal,freecreate,galaxystyle,lighteffect":"logo.js",
+    "alive,system,runtime,ping,owner":"main.js",
+    "menu,menu2,list,menu3":"menu.js",
+    "slsubepisode,slsubseason,mvinfo,imdbinfo,filmp,filpinfo,filmpdl,downloadallshowquality,downloadshowquality,sinhalasub,slsubinfo,slsubdl,cine,moviec,cineshow,downloadshow,cineshowalldl,sinhalamovie,moviesinhala,downloadsinhala,awamovie,movieaw,downloadaw,anime,animemovie,animeshow,downloadanimeshow,baisco,baiscomovie,18movie,18movieinfo,18dl,getxximgs,animo,animoinfo,animodl":"movie.js",
+    "download":"danie_download.js",
+    "mvdl,mvdlinfo,mvdldownload,mvdlsub,mvdlget,mvdlshowep,mvdlseason,mv,movie":"mvdl.js",
+    "anime,animeinfo,animesearch,animedetails,animeep,animedl,animedownload":"anime.js",
+    "baiscope,bsinfo,bsget":"baisco.js",
+    "xnxx,xnxxdl,xvideos,xvideosdl,phub,phubdl,dlph":"nsfw.js",
+    "shutdown,broadcast,block,unblock,clearchats,jid,gjid,restart,update,setfullpp,vv":"owner.js",
+    "bully,cuddle,cry,hug,awoo,kiss,lick,pat,smug,bonk,yeet,blush,smile,wave,highfive,handhold,nom,bite,glomp,slap,kill,kick,happy,wink,poke,dance,cringe":"reaction.js",
+    "esananews,img,bingimg,movie,lyrics,pinterest,wallpaper":"search.js",
+    "btnmsg,autohistory,autobirthday,setbirthday,sethistory,autosong,setsong,nightmode,addsetting,addreply,setautomovie,automovie,antideljid,setai,setprefix,setmtype,setnews,addmovie,delmovie,resetmovie,resetmovie,setadmin,ban,unban,addsudo,delsudo,setreact,autoreadstatus,setmode,setbotnumber,autovoice,autosticker,autoreply,autoreact,welcome,antibad,antibot,antilink,anticall,antidelete,allwaysonline,moroccoblock,readcmd,autotyping,autorecording,autonews,ownerreact,aimode":"settings.js",
+    "githubstalk,srepo,weather,cal,currency,tempmail,checkmail,delmail,password,hijact,fancy,removebg,toimg,tourl,boom,enhance,getdetails,ss":"usefull.js",
+    "csong,csongdl,song,yt1s,yts,yts1,video,yt2s,yt3s":"youtube.js"
+}

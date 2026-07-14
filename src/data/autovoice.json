@@ -1,0 +1,10 @@
+{
+  "hi":"./src/media/Auto_voice/hi.mp3",
+  "palayan":"./src/media/Auto_voice/media_palayan.mp3",
+  "gm":"./src/media/Auto_voice/gm.opus",
+  "gn":"./src/media/Auto_voice/gn.opus",
+  "bye":"./src/media/Auto_voice/bye.mp3",
+  "kawada":"./src/media/Auto_voice/kawada.opus",
+  "mk":"./src/media/Auto_voice/mk.mp3",
+  "thanks":"./src/media/Auto_voice/thanks.mp3"
+}

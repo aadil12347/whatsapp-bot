@@ -1,0 +1,9 @@
+packages:
+  - '.'
+allowBuilds:
+  "sharp": true
+  "protobufjs": true
+  "anju-xpro-baileys": true
+  "puppeteer": true
+  "es5-ext": true
+  "@whiskeysockets/baileys": true
