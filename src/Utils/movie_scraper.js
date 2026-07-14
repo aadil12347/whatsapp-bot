@@ -356,10 +356,15 @@ async function resolveVcloudLink(url) {
                 }
             });
 
-            // Prioritize raw R2 Direct Cloud Storage links, then 10Gbps Server, then Pixeldrain, then Mega
-            let best = finalLinks.find(l => l.text.toLowerCase().includes('fslv2') || l.text.toLowerCase().includes('fsl server'));
-            if (!best) best = finalLinks.find(l => l.text.toLowerCase().includes('10gbps') || l.text.toLowerCase().includes('10gbps server'));
+            // Prioritize: 1. fsl (non-fslv2), 2. fslv2, 3. gdrive/g-drive, 4. pixeldrain, 5. 10gbps/mega/others
+            let best = finalLinks.find(l => {
+                const txt = l.text.toLowerCase();
+                return (txt.includes('fsl') || txt.includes('fsl server')) && !txt.includes('fslv2');
+            });
+            if (!best) best = finalLinks.find(l => l.text.toLowerCase().includes('fslv2'));
+            if (!best) best = finalLinks.find(l => l.text.toLowerCase().includes('gdrive') || l.text.toLowerCase().includes('drive') || l.text.toLowerCase().includes('g-drive'));
             if (!best) best = finalLinks.find(l => l.text.toLowerCase().includes('pixeldrain') || l.text.toLowerCase().includes('pixelserver'));
+            if (!best) best = finalLinks.find(l => l.text.toLowerCase().includes('10gbps') || l.text.toLowerCase().includes('10gbps server'));
             if (!best) best = finalLinks.find(l => l.text.toLowerCase().includes('mega server'));
             if (!best) best = finalLinks.find(l => l.text.toLowerCase().includes('download file'));
             if (!best) best = finalLinks[0];
