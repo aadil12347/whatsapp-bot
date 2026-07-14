@@ -1,12 +1,14 @@
 // ==UserScript==
 // @name         DanieWatch Bot Link Grabber
 // @namespace    http://tampermonkey.net/
-// @version      1.1
+// @version      1.2
 // @description  Adds a floating "Copy Bot Command" button to easily copy download links in the WhatsApp bot format.
 // @author       Danie
 // @match        *://*/*
+// @connect      *
 // @grant        GM_setClipboard
 // @grant        GM_addStyle
+// @grant        GM_xmlhttpRequest
 // @run-at       document-end
 // ==/UserScript==
 
@@ -92,6 +94,22 @@
         }, 3000);
     }
 
+    // Helper for cross-origin background fetches
+    function gmFetch(url) {
+        return new Promise((resolve, reject) => {
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url: url,
+                headers: {
+                    'User-Agent': navigator.userAgent,
+                    'Referer': window.location.origin
+                },
+                onload: (res) => resolve(res.responseText),
+                onerror: (err) => reject(err)
+            });
+        });
+    }
+
     // Copy to clipboard
     function copyCommand(filename, url) {
         const cleanName = filename.replace(/\.mp4$/i, '').trim();
@@ -108,7 +126,6 @@
             let checks = 0;
             while (prevSibling && checks < 5) {
                 const text = prevSibling.textContent.trim();
-                // If it contains resolution keywords and year, it is a valid heading title
                 if (text.match(/480p|720p|1080p|2160p|4k/i)) {
                     return text.replace(/^download\s+/i, '').replace(/\s+/g, ' ').trim();
                 }
@@ -141,15 +158,124 @@
         return '720p';
     }
 
-    // Auto-Bypasser for redirect / landing pages
-    function autoBypassShortener() {
-        // Find links and buttons with redirect keywords
-        const targetSelectors = [
-            'a[href*="vgmlink"]', 'a[href*="gdflix"]', 'a[href*="nexdrive"]', 'a[href*="vcloud"]', 'a[href*="hubcloud"]',
-            'input[type="submit"]', 'button', 'a.btn', '.btn', '#download', '#download-btn'
-        ];
+    // Background Link Resolver Pipeline
+    async function resolveDirectLink(landingUrl) {
+        const landingHtml = await gmFetch(landingUrl);
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(landingHtml, 'text/html');
 
-        // 1. Automatically click "Verify", "Double click to generate link", etc.
+        // Find redirect cloud target url
+        const matchKeywords = ['vcloud', 'hubcloud', 'gdflix', 'katdrive', 'kmhd', 'vgmlink', 'fastdl', 'filebee'];
+        let nextUrl = null;
+        
+        const anchors = doc.querySelectorAll('a[href]');
+        for (const a of anchors) {
+            const href = a.href;
+            if (href && matchKeywords.some(kw => href.toLowerCase().includes(kw))) {
+                if (!href.includes('/category/') && !href.includes('/tag/')) {
+                    nextUrl = href;
+                    break;
+                }
+            }
+        }
+
+        if (!nextUrl) {
+            throw new Error('Redirect link not found on landing page');
+        }
+
+        // Case A: Fastdl
+        if (nextUrl.includes('fastdl.zip')) {
+            const fastdlHtml = await gmFetch(nextUrl);
+            const match = /reurl\s*=\s*['"]([^'"]+)['"]/i.exec(fastdlHtml);
+            if (match && match[1]) {
+                try {
+                    const parsed = new URL(match[1]);
+                    const link = parsed.searchParams.get('link');
+                    if (link) return link;
+                } catch (e) {}
+                return match[1];
+            }
+        }
+
+        // Case B: Filebee
+        if (nextUrl.includes('filebee.xyz')) {
+            const filebeeHtml = await gmFetch(nextUrl);
+            const fdoc = parser.parseFromString(filebeeHtml, 'text/html');
+            const dlLink = fdoc.querySelector('a[href*="cdn-cgi/content"], a[href*="filepress"]');
+            if (dlLink) return dlLink.href;
+        }
+
+        // Case C: VCloud / HubCloud / GDFlix
+        if (nextUrl.includes('vcloud') || nextUrl.includes('hubcloud') || nextUrl.includes('gdflix') || nextUrl.includes('kmhd')) {
+            const vcloudHtml = await gmFetch(nextUrl);
+            
+            let decodedLink = null;
+            const atobMatch = /atob\(\s*atob\(\s*['"]([^'"]+)['"]\s*\)\s*\)/.exec(vcloudHtml);
+            if (atobMatch && atobMatch[1]) {
+                try {
+                    const step1 = atob(atobMatch[1]);
+                    decodedLink = atob(step1);
+                } catch(e){}
+            }
+            
+            if (!decodedLink) {
+                const varMatch = /var\s+url\s*=\s*['"]([^'"]+)['"]/i.exec(vcloudHtml);
+                if (varMatch && varMatch[1]) {
+                    decodedLink = varMatch[1];
+                }
+            }
+
+            if (!decodedLink && nextUrl.includes('/video/')) {
+                const vdoc = parser.parseFromString(vcloudHtml, 'text/html');
+                const videoDl = vdoc.querySelector('div.vd > center > a');
+                if (videoDl) decodedLink = videoDl.href;
+            }
+
+            if (decodedLink) {
+                if (!decodedLink.startsWith('http')) {
+                    const parsed = new URL(nextUrl);
+                    decodedLink = `${parsed.protocol}//${parsed.host}${decodedLink.startsWith('/') ? '' : '/'}${decodedLink}`;
+                }
+
+                const dlHtml = await gmFetch(decodedLink);
+                const dldoc = parser.parseFromString(dlHtml, 'text/html');
+
+                const finalLinks = [];
+                dldoc.querySelectorAll('h2 a.btn, div.card-body a.btn, a.btn, a[href]').forEach(el => {
+                    const href = el.href;
+                    const text = el.textContent.trim();
+                    if (href && (href.startsWith('http') || href.startsWith('/'))) {
+                        finalLinks.push({ text, href });
+                    }
+                });
+
+                let best = finalLinks.find(l => l.text.toLowerCase().includes('fslv2') || l.text.toLowerCase().includes('fsl server'));
+                if (!best) best = finalLinks.find(l => l.text.toLowerCase().includes('10gbps') || l.text.toLowerCase().includes('10gbps server'));
+                if (!best) best = finalLinks.find(l => l.text.toLowerCase().includes('pixeldrain') || l.text.toLowerCase().includes('pixelserver'));
+                if (!best) best = finalLinks.find(l => l.text.toLowerCase().includes('mega server'));
+                if (!best) best = finalLinks.find(l => l.text.toLowerCase().includes('download file'));
+                if (!best) best = finalLinks[0];
+
+                if (best) {
+                    let directUrl = best.href;
+                    if (!directUrl.startsWith('http')) {
+                        const parsed = new URL(decodedLink);
+                        directUrl = `${parsed.protocol}//${parsed.host}${directUrl.startsWith('/') ? '' : '/'}${directUrl}`;
+                    }
+                    if (directUrl.includes('pixeldrain.com/u/')) {
+                        const id = directUrl.split('/u/')[1].split('?')[0];
+                        directUrl = `https://pixeldrain.com/api/file/${id}?download`;
+                    }
+                    return directUrl;
+                }
+            }
+        }
+
+        return nextUrl;
+    }
+
+    // Auto-Bypasser for redirect / landing pages (in case users browse them manually)
+    function autoBypassShortener() {
         const verifyTexts = [
             'click to verify', 'double click to generate link', 'click here to continue', 
             'verify', 'generate link', 'please wait', 'dual tap to go to link'
@@ -158,14 +284,12 @@
         document.querySelectorAll('a, button, div, span, input').forEach(el => {
             const txt = el.textContent.trim().toLowerCase() || el.value?.toLowerCase() || '';
             if (verifyTexts.some(vt => txt.includes(vt))) {
-                // If it is a hidden element or has a timer, show it
                 if (el.style.display === 'none') el.style.display = 'block';
                 if (el.disabled) el.disabled = false;
                 el.click();
             }
         });
 
-        // 2. Automatically click "Get Link" or "Go to Link" or "Download Now"
         const finalLinkTexts = ['get link', 'go to link', 'download now', 'direct download', 'download link'];
         document.querySelectorAll('a, button, input').forEach(el => {
             const txt = el.textContent.trim().toLowerCase() || el.value?.toLowerCase() || '';
@@ -177,7 +301,6 @@
         });
     }
 
-    // Run bypasser loop if on shortener domain
     if (host.includes('vgmlink') || host.includes('gdflix') || host.includes('nexdrive') || host.includes('heymovies') || host.includes('kmhd')) {
         setInterval(autoBypassShortener, 1000);
     }
@@ -231,10 +354,25 @@
             btn.className = 'dw-btn';
             btn.textContent = `📋 Bot [${res}]`;
             btn.style.marginLeft = '10px';
-            btn.addEventListener('click', (e) => {
+            btn.addEventListener('click', async (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                copyCommand(displayTitle, link.href);
+                
+                showToast('⏳ Resolving direct download link in background...');
+                btn.textContent = '⏳ Resolving...';
+                btn.disabled = true;
+                
+                try {
+                    const directUrl = await resolveDirectLink(link.href);
+                    copyCommand(displayTitle, directUrl);
+                } catch (err) {
+                    console.error('[DanieWatch] Resolve failed:', err);
+                    showToast('⚠️ Direct resolve failed. Copied landing URL.');
+                    copyCommand(displayTitle, link.href); // Fallback to landing URL
+                } finally {
+                    btn.textContent = `📋 Bot [${res}]`;
+                    btn.disabled = false;
+                }
             });
 
             link.parentNode.insertBefore(btn, link.nextSibling);
