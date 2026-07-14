@@ -85,6 +85,43 @@ async function fetchTmdbMetadata(query, mediaType = 'movie', imdbId = null) {
     }
 }
 
+/**
+ * Fetch movie/series metadata from TMDB using a specific TMDB ID
+ */
+async function fetchTmdbById(tmdbId, mediaType = 'movie') {
+    try {
+        const url = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
+        const res = await axios.get(url, { headers: HEADERS, timeout: 10000 });
+        if (!res.data) return null;
+
+        const details = res.data;
+        const title = details.title || details.name || '';
+        const overview = details.overview || '';
+        const posterUrl = details.poster_path ? `https://image.tmdb.org/t/p/w500${details.poster_path}` : null;
+        const releaseDate = details.release_date || details.first_air_date || '';
+        const year = releaseDate ? releaseDate.split('-')[0] : 'N/A';
+        const genres = details.genres ? details.genres.map(g => g.name).join(', ') : 'Unknown';
+
+        return {
+            tmdbId,
+            title,
+            year,
+            overview,
+            genres,
+            posterUrl,
+            type: mediaType,
+            releaseDate,
+            seasons: details.seasons || [],
+            numberOfSeasons: details.number_of_seasons || 0,
+            numberOfEpisodes: details.number_of_episodes || 0
+        };
+    } catch (err) {
+        console.error('[MovieScraper] TMDB fetch by ID failed:', err.message);
+        return null;
+    }
+}
+
+
 function getGenreName(id) {
     const genreMap = {
         28: 'Action', 12: 'Adventure', 16: 'Animation', 35: 'Comedy', 80: 'Crime',
@@ -398,6 +435,7 @@ async function resolveVcloudLink(url) {
 
 module.exports = {
     fetchTmdbMetadata,
+    fetchTmdbById,
     scrapePostPage,
     resolveLandingLink,
     resolveVcloudLink,

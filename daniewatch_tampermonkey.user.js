@@ -112,10 +112,10 @@
 
     // Copy to clipboard
     function copyCommand(filename, url) {
-        const cleanName = filename.replace(/\.mp4$/i, '').trim();
-        const command = `.download ${cleanName}.mp4 = ${url}`;
+        const cleanName = filename.replace(/\.(mp4|mkv|avi|webm|mov|3gp)$/i, '').trim();
+        const command = `.download ${cleanName} = ${url}`;
         GM_setClipboard(command);
-        showToast(`📋 Copied: "${cleanName}.mp4"`);
+        showToast(`📋 Copied: "${cleanName}"`);
     }
 
     // Clean title from headings
@@ -406,7 +406,7 @@
                         directUrl = `https://pixeldrain.com/api/file/${id}?download`;
                     }
                     const cleanTitle = getCleanTitle();
-                    copyCommand(`${cleanTitle}.mp4`, directUrl);
+                    copyCommand(cleanTitle, directUrl);
                 });
                 btn.parentNode.insertBefore(copyBtn, btn.nextSibling);
             }

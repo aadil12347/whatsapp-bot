@@ -3,7 +3,13 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const fileType = require('file-type');
-const { fetchTmdbMetadata, scrapePostPage, resolveLandingLink, resolveVcloudLink } = require('../Utils/movie_scraper');
+const { fetchTmdbMetadata, fetchTmdbById, scrapePostPage, resolveLandingLink, resolveVcloudLink } = require('../Utils/movie_scraper');
+
+function cleanFileName(filename) {
+    if (!filename) return '';
+    // Strip extensions like .mp4, .mkv, .avi, .webm, etc.
+    return filename.replace(/\.(mp4|mkv|avi|webm|mov|3gp|srt)$/i, '').trim();
+}
 
 // =========================================================================
 //  SETTINGS PERSISTENCE — saves to session/download_settings.json
@@ -294,16 +300,28 @@ cmd({
                     const overviewText = tmdb ? tmdb.overview : '— No summary available —';
                     
                     // Format message details caption
-                    let detailsMessage = `🎬 *『 𝑫𝑨𝑵𝑰𝑬𝑾𝑨𝑻𝑪𝑯 𝑪𝑰𝑵𝑬𝑴𝑨 』* 🍿\n`;
-                    detailsMessage += `───────────────────\n`;
-                    detailsMessage += `📝 *Title:* ${titleText}\n`;
-                    detailsMessage += `📅 *Year:* ${yearText}\n`;
+                    let seasonText = '';
+                    let episodeText = '';
                     if (scraped.season !== null) {
-                        detailsMessage += `📺 *Season:* ${scraped.season} | *Episode:* ${scraped.episode || 'All/Pack'}\n`;
+                        const sLabel = `S${String(scraped.season).padStart(2, '0')}`;
+                        seasonText = `📺 *Season:* *${sLabel}*\n`;
+                        if (scraped.episode !== null) {
+                            const eLabel = `E${String(scraped.episode).padStart(2, '0')}`;
+                            episodeText = `🔢 *Episodes:* *${eLabel}*\n`;
+                        } else {
+                            episodeText = `🔢 *Episodes:* *All/Pack*\n`;
+                        }
                     }
-                    detailsMessage += `🎭 *Genres:* ${genresText}\n\n`;
-                    detailsMessage += `📝 *Summary:* \n${overviewText}\n`;
-                    detailsMessage += `───────────────────`;
+
+                    let detailsMessage = `🎬 *『 𝑫𝑨𝑵𝑰𝑬𝑾𝑨𝑻𝑪𝑯 』* 🍿\n`;
+                    detailsMessage += `───────────────────\n`;
+                    detailsMessage += `📝 *Title:* *${titleText}*\n`;
+                    detailsMessage += `📅 *Year:* *${yearText}*\n`;
+                    if (seasonText) detailsMessage += seasonText;
+                    detailsMessage += `🎭 *Genre:* *${genresText}*\n`;
+                    if (episodeText) detailsMessage += episodeText;
+                    detailsMessage += `───────────────────\n`;
+                    detailsMessage += `*『 𝑫𝑨𝑵𝑰𝑬𝑾𝑨𝑻𝑪𝑯 』*`;
                     
                     // Send TMDB poster and movie details first to the configured chat destination
                     const posterUrl = tmdb && tmdb.posterUrl ? tmdb.posterUrl : null;
@@ -340,7 +358,7 @@ cmd({
                             displayFilename += `E${String(scraped.episode).padStart(2, '0')}`;
                         }
                     }
-                    displayFilename += ` [${scraped.resolution}].${ext}`;
+                    displayFilename += ` [${scraped.resolution}]`;
                     
                     // Redirect downloader to resolved direct link
                     url = directUrl;
@@ -348,6 +366,12 @@ cmd({
                     
                 } catch (err) {
                     await reply(`❌ Movie scraper failed: ${err.message}\nUsing original link as fallback.`);
+                }
+            } else if (url.includes('vcloud') || url.includes('hubcloud') || url.includes('gdflix') || url.includes('fastdl') || url.includes('filebee')) {
+                try {
+                    url = await resolveVcloudLink(url);
+                } catch (err) {
+                    console.error('[DownloadCommand] Vcloud resolution failed:', err.message);
                 }
             }
 
@@ -410,6 +434,17 @@ cmd({
                 continue;
             }
 
+            let ext = 'mp4';
+            try {
+                const urlPath = new URL(url).pathname;
+                const urlFile = urlPath.substring(urlPath.lastIndexOf('/') + 1);
+                if (urlFile && urlFile.includes('.')) {
+                    ext = urlFile.split('.').pop();
+                } else if (tempFilename && tempFilename.includes('.')) {
+                    ext = tempFilename.split('.').pop();
+                }
+            } catch (err) {}
+
             // Detect mime type
             let mime = response.headers['content-type'] || 'application/octet-stream';
             try {
@@ -417,20 +452,27 @@ cmd({
                 const detectedType = await fileType.fromBuffer(fileBuffer);
                 if (detectedType) {
                     mime = detectedType.mime;
+                    ext = detectedType.ext;
                 }
             } catch (err) {}
 
-            await reply(`📤 Uploading file: *${tempFilename}* (${sizeInMB} MB)\n📍 To: ${destLabel}`);
+            const cleanDisplayFilename = cleanFileName(tempFilename);
+            await reply(`📤 Uploading file: *${cleanDisplayFilename}* (${sizeInMB} MB)\n📍 To: ${destLabel}`);
+
+            let finalFileName = cleanDisplayFilename;
+            if (!finalFileName.toLowerCase().endsWith('.' + ext.toLowerCase())) {
+                finalFileName += '.' + ext;
+            }
 
             // Send the file to destination
             await conn.sendMessage(destJid, {
                 document: { url: tempFilePath },
                 mimetype: mime,
-                fileName: tempFilename
+                fileName: finalFileName
             }, isGroupMode ? {} : { quoted: mek });
 
             if (isGroupMode && destJid !== from) {
-                await reply(`✅ *${tempFilename}* (${sizeInMB} MB) successfully sent to the group!`);
+                await reply(`✅ *${cleanDisplayFilename}* (${sizeInMB} MB) successfully sent to the group!`);
             }
 
             // Delete temporary file
@@ -442,6 +484,312 @@ cmd({
     } catch (error) {
         console.error('Download command error:', error);
         reply(`❌ Failed to download/upload file: ${error.message}`);
+    }
+});
+
+// =========================================================================
+//  .p — Fetch TMDB poster and details, then download files sequentially
+// =========================================================================
+cmd({
+    pattern: 'p',
+    react: '🎬',
+    desc: 'Downloads files with TMDB metadata. The first item\'s name should be a TMDB URL.',
+    category: 'download',
+    use: '.p <TMDB_URL> = <link1>, <name2> = <link2>, ...',
+    filename: __filename
+}, async (conn, mek, m, { from, quoted, q, reply }) => {
+    console.log("=== P COMMAND TRIGGERED ===");
+    console.log("q:", q);
+    try {
+        if (!q) {
+            return reply(
+                '❌ Please provide a TMDB link and download url(s)!\n\n' +
+                '*Usage:*\n' +
+                '`.p https://www.themoviedb.org/movie/550 = https://example.com/file1.mp4`\n' +
+                '`.p https://www.themoviedb.org/movie/550 = https://example.com/file1.mp4, Episode 2 = https://example.com/file2.mp4`'
+            );
+        }
+
+        const items = q.split(',').map(item => item.trim()).filter(Boolean);
+        
+        // Find TMDB URL in the first item
+        let { customFilename: firstCustomName, url: firstUrl } = parseDownloadItem(items[0]);
+        let tmdbUrl = '';
+        if (firstCustomName && /themoviedb\.org\/(movie|tv)\/(\d+)/i.test(firstCustomName)) {
+            tmdbUrl = firstCustomName;
+        } else if (/themoviedb\.org\/(movie|tv)\/(\d+)/i.test(firstUrl)) {
+            tmdbUrl = firstUrl;
+        }
+
+        if (!tmdbUrl) {
+            return reply('❌ Error: First item must specify a valid TMDB URL (e.g. `.p https://www.themoviedb.org/movie/550 = ...`)');
+        }
+
+        const match = tmdbUrl.match(/themoviedb\.org\/(movie|tv)\/(\d+)/i);
+        const mediaType = match[1];
+        const tmdbId = match[2];
+
+        await reply(`⏳ Fetching TMDB metadata...`);
+        const tmdb = await fetchTmdbById(tmdbId, mediaType);
+
+        if (!tmdb) {
+            return reply('❌ Error: Could not fetch metadata for that TMDB URL.');
+        }
+
+        const settings = loadSettings();
+        const isGroupMode = settings.mode === 'group' && settings.groupJid;
+        const destJid = isGroupMode ? settings.groupJid : from;
+        const destLabel = isGroupMode ? `📤 Group: *${settings.groupName}*` : '📥 *Private Chat*';
+
+        // 1. Format details message
+        let seasonText = '';
+        let episodeText = '';
+        if (mediaType === 'tv') {
+            const seasonMatch = tmdbUrl.match(/\/season\/(\d+)/i);
+            const specifiedSeason = seasonMatch ? parseInt(seasonMatch[1], 10) : null;
+
+            if (specifiedSeason !== null) {
+                const targetSeason = tmdb.seasons.find(s => s.season_number === specifiedSeason);
+                const epCount = targetSeason ? targetSeason.episode_count : 0;
+                const sLabel = `S${String(specifiedSeason).padStart(2, '0')}`;
+                seasonText = `📺 *Season:* *${sLabel}*\n`;
+                episodeText = `🔢 *Episodes:* *E01 - E${String(epCount).padStart(2, '0')}*\n`;
+                
+                if (targetSeason && targetSeason.overview) {
+                    tmdb.overview = targetSeason.overview;
+                }
+            } else {
+                const validSeasons = tmdb.seasons.filter(s => s.season_number > 0);
+                if (validSeasons.length > 0) {
+                    const minSeason = Math.min(...validSeasons.map(s => s.season_number));
+                    const maxSeason = Math.max(...validSeasons.map(s => s.season_number));
+                    const minLabel = `S${String(minSeason).padStart(2, '0')}`;
+                    const maxLabel = `S${String(maxSeason).padStart(2, '0')}`;
+                    
+                    if (minSeason === maxSeason) {
+                        seasonText = `📺 *Season:* *${minLabel}*\n`;
+                    } else {
+                        seasonText = `📺 *Season:* *${minLabel} - ${maxLabel}*\n`;
+                    }
+                    
+                    episodeText = `🔢 *Episodes:*\n`;
+                    validSeasons.forEach(s => {
+                        const epCount = s.episode_count;
+                        episodeText += `   • Season ${s.season_number}: *E01 - E${String(epCount).padStart(2, '0')}*\n`;
+                    });
+                }
+            }
+        }
+
+        let detailsMessage = `🎬 *『 𝑫𝑨𝑵𝑰𝑬𝑾𝑨𝑻𝑪𝑯 』* 🍿\n`;
+        detailsMessage += `───────────────────\n`;
+        detailsMessage += `📝 *Title:* *${tmdb.title}*\n`;
+        detailsMessage += `📅 *Year:* *${tmdb.year}*\n`;
+        if (seasonText) detailsMessage += seasonText;
+        detailsMessage += `🎭 *Genre:* *${tmdb.genres}*\n`;
+        if (episodeText) detailsMessage += episodeText;
+        detailsMessage += `───────────────────\n`;
+        detailsMessage += `*『 𝑫𝑨𝑵𝑰𝑬𝑾𝑨𝑻𝑪𝑯 』*`;
+
+        // 2. Download and send poster image first
+        const posterUrl = tmdb.posterUrl;
+        let posterSent = false;
+        if (posterUrl) {
+            const tempPosterPath = path.join(__dirname, 'tmp_poster_' + Date.now() + '.jpg');
+            try {
+                const parsedPosterUrl = new URL(posterUrl);
+                const posterResponse = await axios({
+                    method: 'get',
+                    url: posterUrl,
+                    responseType: 'stream',
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                        'Accept': 'image/*',
+                        'Referer': parsedPosterUrl.origin + '/'
+                    },
+                    timeout: 30000
+                });
+                
+                const posterWriter = fs.createWriteStream(tempPosterPath);
+                posterResponse.data.pipe(posterWriter);
+                
+                await new Promise((resolve, reject) => {
+                    posterWriter.on('finish', resolve);
+                    posterWriter.on('error', reject);
+                });
+                
+                if (fs.existsSync(tempPosterPath)) {
+                    await conn.sendMessage(destJid, {
+                        image: { url: tempPosterPath },
+                        caption: detailsMessage
+                    });
+                    posterSent = true;
+                    fs.unlinkSync(tempPosterPath);
+                }
+            } catch (err) {
+                console.error('[DanieDownload] Failed to download/send local TMDB poster:', err.message);
+                if (fs.existsSync(tempPosterPath)) {
+                    try { fs.unlinkSync(tempPosterPath); } catch (_) {}
+                }
+            }
+        }
+        
+        if (!posterSent) {
+            await conn.sendMessage(destJid, {
+                text: detailsMessage
+            });
+        }
+
+        // 3. Process download files in sequence
+        for (let i = 0; i < items.length; i++) {
+            let { customFilename, url } = parseDownloadItem(items[i]);
+            
+            // If this is the first item and the customFilename was the TMDB URL, we determine a default name
+            let targetFilename = customFilename;
+            if (i === 0 && customFilename && /themoviedb\.org\/(movie|tv)\/(\d+)/i.test(customFilename)) {
+                // Fetch resolution if in the URL
+                let resMatch = url.match(/\b(480p|720p|1080p|2160p|4k)\b/i);
+                let resolution = resMatch ? ` [${resMatch[1]}]` : '';
+                targetFilename = `${tmdb.title} (${tmdb.year})${resolution}`;
+            }
+
+            // If no customFilename at all (e.g. for item 2 onwards), try to get clean filename or use movie title
+            if (!targetFilename) {
+                try {
+                    const urlPath = new URL(url).pathname;
+                    const urlFile = urlPath.substring(urlPath.lastIndexOf('/') + 1);
+                    if (urlFile && urlFile.includes('.')) {
+                        targetFilename = decodeURIComponent(urlFile);
+                    }
+                } catch (err) {}
+                if (!targetFilename) {
+                    let resMatch = url.match(/\b(480p|720p|1080p|2160p|4k)\b/i);
+                    let resolution = resMatch ? ` [${resMatch[1]}]` : '';
+                    targetFilename = `${tmdb.title} (${tmdb.year})${resolution}`;
+                }
+            }
+
+            // Strip format extension from targetFilename for WhatsApp display
+            const displayFilename = cleanFileName(targetFilename);
+
+            await reply(`⏳ Processing file *${i + 1}/${items.length}*...\n📍 Name: *${displayFilename}*`);
+
+            // Let's resolve redirects / landing pages (in case they paste shorteners)
+            let directUrl = url;
+            const isScraperLink = ['vegamovies', 'rogmovies', 'hdhub4u'].some(domain => url.toLowerCase().includes(domain));
+            if (isScraperLink) {
+                try {
+                    const scraped = await scrapePostPage(url);
+                    const landingUrl = await resolveLandingLink(scraped.chosenUrl);
+                    directUrl = landingUrl;
+                    if (landingUrl.includes('vcloud') || landingUrl.includes('hubcloud') || landingUrl.includes('gdflix')) {
+                        directUrl = await resolveVcloudLink(landingUrl);
+                    }
+                } catch (err) {
+                    console.error('[PCommand] Link resolution failed, using original:', err.message);
+                }
+            } else if (url.includes('vcloud') || url.includes('hubcloud') || url.includes('gdflix') || url.includes('fastdl') || url.includes('filebee')) {
+                try {
+                    directUrl = await resolveVcloudLink(url);
+                } catch (err) {
+                    console.error('[PCommand] Vcloud resolution failed:', err.message);
+                }
+            }
+
+            // Basic URL validation
+            if (!directUrl.startsWith('http://') && !directUrl.startsWith('https://')) {
+                await reply(`❌ Invalid link format for item ${i + 1}! Skipping.`);
+                continue;
+            }
+
+            // Keep extension on disk for correct mimetype detection
+            let ext = 'mp4';
+            try {
+                const urlPath = new URL(directUrl).pathname;
+                const urlFile = urlPath.substring(urlPath.lastIndexOf('/') + 1);
+                if (urlFile && urlFile.includes('.')) {
+                    ext = urlFile.split('.').pop();
+                }
+            } catch (err) {}
+
+            const tempFilePath = path.join(__dirname, `tmp_${Date.now()}_${i}.${ext}`);
+
+            // Fetch file
+            const parsedUrl = new URL(directUrl);
+            const response = await axios({
+                method: 'get',
+                url: directUrl,
+                responseType: 'stream',
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': '*/*',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Referer': parsedUrl.origin + '/',
+                    'Origin': parsedUrl.origin
+                },
+                timeout: 600000 // 10 minutes timeout
+            });
+
+            const writer = fs.createWriteStream(tempFilePath);
+            response.data.pipe(writer);
+
+            await new Promise((resolve, reject) => {
+                writer.on('finish', resolve);
+                writer.on('error', reject);
+            });
+
+            if (!fs.existsSync(tempFilePath)) {
+                throw new Error('Downloaded file does not exist on disk.');
+            }
+
+            const stats = fs.statSync(tempFilePath);
+            const sizeInBytes = stats.size;
+            const sizeInMB = (sizeInBytes / (1024 * 1024)).toFixed(2);
+
+            if (sizeInBytes > 2000 * 1024 * 1024) {
+                fs.unlinkSync(tempFilePath);
+                await reply(`❌ File is too large (${sizeInMB} MB). Max upload limit is 2 GB.`);
+                continue;
+            }
+
+            // Detect mime type
+            let mime = response.headers['content-type'] || 'application/octet-stream';
+            try {
+                const fileBuffer = fs.readFileSync(tempFilePath, { start: 0, end: 4100 });
+                const detectedType = await fileType.fromBuffer(fileBuffer);
+                if (detectedType) {
+                    mime = detectedType.mime;
+                    ext = detectedType.ext;
+                }
+            } catch (err) {}
+
+            await reply(`📤 Uploading file: *${displayFilename}* (${sizeInMB} MB)\n📍 To: ${destLabel}`);
+
+            let finalFileName = displayFilename;
+            if (!finalFileName.toLowerCase().endsWith('.' + ext.toLowerCase())) {
+                finalFileName += '.' + ext;
+            }
+
+            // Send the file to destination
+            await conn.sendMessage(destJid, {
+                document: { url: tempFilePath },
+                mimetype: mime,
+                fileName: finalFileName
+            }, isGroupMode ? {} : { quoted: mek });
+
+            if (isGroupMode && destJid !== from) {
+                await reply(`✅ *${displayFilename}* (${sizeInMB} MB) successfully sent to the group!`);
+            }
+
+            // Delete temporary file
+            fs.unlinkSync(tempFilePath);
+        }
+
+        await reply('✅ Processed all items in sequence.');
+
+    } catch (error) {
+        console.error('P command error:', error);
+        reply(`❌ Failed to process P command: ${error.message}`);
     }
 });
 
