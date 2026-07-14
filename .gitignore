@@ -10,3 +10,5 @@ yarn-error.log*
 .pnpm-debug.log*
 .npm/
 .pnpm-store/
+tmp_*
+src/commands/tmp_*
