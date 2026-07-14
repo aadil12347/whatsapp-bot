@@ -41,6 +41,14 @@ function saveSettings(settings) {
 // =========================================================================
 //  IN-MEMORY STATE & LISTENERS for multi-step plain-text reply config flow
 // =========================================================================
+function cleanJid(jid) {
+    if (!jid) return '';
+    const parts = jid.split('@');
+    const user = parts[0].split(':')[0];
+    const server = parts[1] || 's.whatsapp.net';
+    return `${user}@${server}`;
+}
+
 const pendingConfig = {};
 
 function initUpsertListener(conn) {
@@ -55,8 +63,9 @@ function initUpsertListener(conn) {
 
             const from = mek.key.remoteJid;
             const senderJid = mek.key.participant || mek.key.remoteJid;
+            const cleanSender = cleanJid(senderJid);
 
-            if (!pendingConfig[senderJid]) return;
+            if (!pendingConfig[cleanSender]) return;
 
             const body = mek.message.conversation || 
                          mek.message.extendedTextMessage?.text || 
@@ -84,7 +93,7 @@ function isOwner(senderJid) {
     const ownerNum = (process.env.BOT_NUMBER || '').trim();
     const sudoNums = (process.env.SUDO || '').split(',').map(n => n.trim()).filter(Boolean);
     const allOwners = [ownerNum, ...sudoNums];
-    const senderNum = senderJid.replace(/@.*/, '');
+    const senderNum = cleanJid(senderJid).split('@')[0];
     return allOwners.includes(senderNum);
 }
 
@@ -115,6 +124,9 @@ function parseDownloadItem(item) {
 // =========================================================================
 //  .config — Interactive owner-only configuration wizard
 // =========================================================================
+// =========================================================================
+//  .config — Interactive owner-only configuration wizard
+// =========================================================================
 cmd({
     pattern: 'config',
     react: '⚙️',
@@ -122,7 +134,10 @@ cmd({
     category: 'download',
     use: '.config',
     filename: __filename
-}, async (conn, mek, m, { from, quoted, q, reply }) => {
+}, async (conn, mek, m, { from, quoted, q }) => {
+    const reply = async (textMsg) => {
+        return conn.sendMessage(from, { text: textMsg }, { quoted: mek });
+    };
     try {
         const senderJid = m.sender || mek.sender || from;
         if (!isOwner(senderJid)) {
@@ -143,7 +158,8 @@ cmd({
             return handleConfigReply(conn, mek, m, senderJid, q.trim(), reply);
         }
 
-        pendingConfig[senderJid] = { step: 'mode', groups: [], chats: [] };
+        const cleanSender = cleanJid(senderJid);
+        pendingConfig[cleanSender] = { step: 'mode', groups: [], chats: [] };
 
         await reply(
             `⚙️ *DanieWatch Download Config*\n\n` +
@@ -161,7 +177,8 @@ cmd({
 });
 
 async function handleConfigReply(conn, mek, m, senderJid, text, reply) {
-    const state = pendingConfig[senderJid];
+    const cleanSender = cleanJid(senderJid);
+    const state = pendingConfig[cleanSender];
     const step = state ? state.step : 'mode';
 
     if (step === 'mode') {
@@ -186,13 +203,13 @@ async function handleConfigReply(conn, mek, m, senderJid, text, reply) {
                 });
 
                 // Always include oneself first
-                const selfChat = { id: senderJid, name: 'You (Private Chat)' };
-                privateChats = [selfChat, ...privateChats.filter(c => c.id !== senderJid)];
+                const selfChat = { id: cleanSender, name: 'You (Private Chat)' };
+                privateChats = [selfChat, ...privateChats.filter(c => cleanJid(c.id) !== cleanSender)];
 
                 // Limit top 15
                 privateChats = privateChats.slice(0, 15);
 
-                pendingConfig[senderJid] = { step: 'private_chat', chats: privateChats };
+                pendingConfig[cleanSender] = { step: 'private_chat', chats: privateChats };
 
                 let list = '📋 *Select a Private Chat:*\n\n';
                 privateChats.forEach((c, i) => {
@@ -203,7 +220,7 @@ async function handleConfigReply(conn, mek, m, senderJid, text, reply) {
 
                 return reply(list);
             } catch (err) {
-                delete pendingConfig[senderJid];
+                delete pendingConfig[cleanSender];
                 return reply(`❌ Failed to fetch private chats: ${err.message}`);
             }
         }
@@ -218,11 +235,11 @@ async function handleConfigReply(conn, mek, m, senderJid, text, reply) {
                 }));
 
                 if (groups.length === 0) {
-                    delete pendingConfig[senderJid];
+                    delete pendingConfig[cleanSender];
                     return reply('❌ No groups found. Make sure the bot is added to at least one group.');
                 }
 
-                pendingConfig[senderJid] = { step: 'group', groups };
+                pendingConfig[cleanSender] = { step: 'group', groups };
 
                 let list = '📋 *Select a WhatsApp Group:*\n\n';
                 groups.forEach((g, i) => {
@@ -232,7 +249,7 @@ async function handleConfigReply(conn, mek, m, senderJid, text, reply) {
 
                 return reply(list);
             } catch (err) {
-                delete pendingConfig[senderJid];
+                delete pendingConfig[cleanSender];
                 return reply(`❌ Failed to fetch groups: ${err.message}`);
             }
         }
@@ -251,7 +268,7 @@ async function handleConfigReply(conn, mek, m, senderJid, text, reply) {
         const chosenName = chosen.name || chosen.id.split('@')[0];
         const settings = { mode: 'private', privateJid: chosen.id, privateName: chosenName, groupJid: '', groupName: '' };
         saveSettings(settings);
-        delete pendingConfig[senderJid];
+        delete pendingConfig[cleanSender];
         return reply(`✅ Download destination set to Private Chat:\n👤 Name: *${chosenName}*\n🆔 \`${chosen.id}\``);
     }
 
@@ -266,7 +283,7 @@ async function handleConfigReply(conn, mek, m, senderJid, text, reply) {
         const chosen = groups[num - 1];
         const settings = { mode: 'group', groupJid: chosen.jid, groupName: chosen.subject, privateJid: '', privateName: '' };
         saveSettings(settings);
-        delete pendingConfig[senderJid];
+        delete pendingConfig[cleanSender];
         return reply(`✅ Download destination set to Group:\n📤 Name: *${chosen.subject}*\n🆔 \`${chosen.jid}\``);
     }
 }
@@ -281,7 +298,10 @@ cmd({
     category: 'download',
     use: '.setgroup list  OR  .setgroup <number>',
     filename: __filename
-}, async (conn, mek, m, { from, quoted, q, reply }) => {
+}, async (conn, mek, m, { from, quoted, q }) => {
+    const reply = async (textMsg) => {
+        return conn.sendMessage(from, { text: textMsg }, { quoted: mek });
+    };
     try {
         const senderJid = m.sender || mek.sender || from;
         if (!isOwner(senderJid)) {
@@ -306,14 +326,16 @@ cmd({
             return reply('❌ No groups found.');
         }
 
+        const cleanSender = cleanJid(senderJid);
+
         if (!arg || arg === 'list') {
-            pendingConfig[senderJid] = { step: 'group', groups };
+            pendingConfig[cleanSender] = { step: 'group', groups };
 
             let list = '📋 *Your Groups:*\n\n';
             groups.forEach((g, i) => {
                 list += `  \`${i + 1}\` — ${g.subject}\n`;
             });
-            list += `\n_Reply with \`.setgroup <number>\` to select._`;
+            list += `\n_Reply with just the number to select._`;
             return reply(list);
         }
 
@@ -323,8 +345,9 @@ cmd({
         }
 
         const chosen = groups[num - 1];
-        const settings = { mode: 'group', groupJid: chosen.jid, groupName: chosen.subject };
+        const settings = { mode: 'group', groupJid: chosen.jid, groupName: chosen.subject, privateJid: '', privateName: '' };
         saveSettings(settings);
+        delete pendingConfig[cleanSender];
         return reply(`✅ Download target set to group: *${chosen.subject}*\n🆔 \`${chosen.jid}\``);
 
     } catch (error) {
@@ -343,7 +366,10 @@ cmd({
     category: 'download',
     use: '.download <link>  OR  .download name = <link>  OR  .download name1 = link1, name2 link2',
     filename: __filename
-}, async (conn, mek, m, { from, quoted, q, reply }) => {
+}, async (conn, mek, m, { from, quoted, q }) => {
+    const reply = async (textMsg) => {
+        return conn.sendMessage(from, { text: textMsg }, { quoted: mek });
+    };
     console.log("=== DOWNLOAD COMMAND TRIGGERED ===");
     console.log("q:", q);
     try {
@@ -540,7 +566,10 @@ cmd({
     category: 'download',
     use: '.p <TMDB_URL> = <link1>, <name2> = <link2>, ...',
     filename: __filename
-}, async (conn, mek, m, { from, quoted, q, reply }) => {
+}, async (conn, mek, m, { from, quoted, q }) => {
+    const reply = async (textMsg) => {
+        return conn.sendMessage(from, { text: textMsg }, { quoted: mek });
+    };
     console.log("=== P COMMAND TRIGGERED ===");
     console.log("q:", q);
     try {
@@ -698,7 +727,10 @@ cmd({
     desc: 'Get the ID of the current group/chat.',
     category: 'download',
     filename: __filename
-}, async (conn, mek, m, { from, reply }) => {
+}, async (conn, mek, m, { from }) => {
+    const reply = async (textMsg) => {
+        return conn.sendMessage(from, { text: textMsg }, { quoted: mek });
+    };
     try {
         await reply(`*Current Chat ID:* \`${from}\``);
     } catch (error) {
@@ -718,7 +750,10 @@ cmd({
     category: 'download',
     use: '.dlstatus',
     filename: __filename
-}, async (conn, mek, m, { from, reply }) => {
+}, async (conn, mek, m, { from }) => {
+    const reply = async (textMsg) => {
+        return conn.sendMessage(from, { text: textMsg }, { quoted: mek });
+    };
     try {
         const settings = loadSettings();
         const modeEmoji = settings.mode === 'group' ? '📤' : '📥';
