@@ -481,12 +481,23 @@ async function scrapeAllPostLinks(url) {
             }
 
             let precedingHeading = '';
-            let prev = $(el).closest('p, div').prev();
-            while (prev.length && !/^h[1-6]$/i.test(prev[0].name)) {
-                prev = prev.prev();
+            let prevParent = $(el).parent();
+            while (prevParent.length && prevParent[0].name !== 'p' && prevParent[0].name !== 'div' && prevParent[0].name !== 'body') {
+                prevParent = prevParent.parent();
             }
-            if (prev.length) {
-                precedingHeading = prev.text().trim();
+            if (prevParent.length && prevParent[0].name !== 'body') {
+                let sib = prevParent.prev();
+                while (sib.length) {
+                    const tagName = sib[0].name.toLowerCase();
+                    const text = sib.text().trim();
+                    if (/^h[1-6]$/.test(tagName) || (tagName === 'p' && text && text !== 'Download Now' && !text.toLowerCase().includes('click here') && !text.toLowerCase().includes('download'))) {
+                        if (text && !text.includes('Quality') && !text.includes('Audio')) {
+                            precedingHeading = text;
+                            break;
+                        }
+                    }
+                    sib = sib.prev();
+                }
             }
 
             const combinedText = `${linkText} ${precedingHeading}`.toLowerCase();
