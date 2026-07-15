@@ -555,6 +555,23 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply) {
                 timeout: 600000 // 10 minutes timeout
             });
 
+            // Extract real filename from Content-Disposition header (CDN/R2/S3 links often have the real name here)
+            const contentDisposition = response.headers['content-disposition'] || '';
+            if (contentDisposition) {
+                try {
+                    const cdMatch = contentDisposition.match(/filename\*?=['"]?(?:UTF-8'')?([^;\n"']+)/i);
+                    if (cdMatch && cdMatch[1]) {
+                        const cdFilename = decodeURIComponent(cdMatch[1].trim());
+                        if (cdFilename && cdFilename.includes('.')) {
+                            if (!targetFilename) tempFilename = cdFilename;
+                            console.log('[DanieDownload] Detected filename from Content-Disposition:', cdFilename);
+                        }
+                    }
+                } catch (err) {
+                    console.error('[DanieDownload] Content-Disposition parse error:', err.message);
+                }
+            }
+
             // Write stream to file
             const writer = fs.createWriteStream(tempFilePath);
             response.data.pipe(writer);
@@ -578,30 +595,38 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply) {
                 continue;
             }
 
-            let ext = 'mp4';
+            // Determine extension from URL path, tempFilename, or Content-Disposition
+            let ext = '';
             try {
                 const urlPath = new URL(url).pathname;
                 const urlFile = urlPath.substring(urlPath.lastIndexOf('/') + 1);
                 if (urlFile && urlFile.includes('.')) {
                     ext = urlFile.split('.').pop();
-                } else if (tempFilename && tempFilename.includes('.')) {
-                    ext = tempFilename.split('.').pop();
                 }
             } catch (err) {}
+            if (!ext && tempFilename && tempFilename.includes('.')) {
+                ext = tempFilename.split('.').pop();
+            }
+            if (!ext) ext = 'mp4'; // fallback
 
-            // Detect mime type
+            // Detect mime type using file magic bytes (read only first 4100 bytes, not the whole file)
             let mime = response.headers['content-type'] || 'application/octet-stream';
             try {
-                const fileBuffer = fs.readFileSync(tempFilePath, { start: 0, end: 4100 });
-                const detectedType = await fileType.fromBuffer(fileBuffer);
+                const fd = fs.openSync(tempFilePath, 'r');
+                const magicBuffer = Buffer.alloc(4100);
+                fs.readSync(fd, magicBuffer, 0, 4100, 0);
+                fs.closeSync(fd);
+                const detectedType = await fileType.fromBuffer(magicBuffer);
                 if (detectedType) {
                     mime = detectedType.mime;
                     ext = detectedType.ext;
                 }
-            } catch (err) {}
+            } catch (err) {
+                console.error('[DanieDownload] file-type detection error:', err.message);
+            }
 
             const extLower = ext.toLowerCase();
-            const isArchive = ['.zip', '.tar', '.gz', '.tgz', '.rar', '.rar5'].some(e => extLower.endsWith(e)) ||
+            const isArchive = ['zip', 'tar', 'gz', 'tgz', 'rar', 'rar5', '7z'].includes(extLower) ||
                               ['application/zip', 'application/x-tar', 'application/x-rar-compressed', 'application/x-gzip', 'application/x-zip-compressed'].includes(mime.toLowerCase());
 
             if (isArchive) {
