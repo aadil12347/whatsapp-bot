@@ -386,5 +386,17 @@
         "cmd": ".ta https://video-hkg4-1.xx.fbcdn.net/o1/v/t2/f2/m412/AQO_g_s0RfiIQa80TFi2dm8yHDSKWpD2HZSYzoPwuX77aGnshq6kEiyX0IsCf5Uiwsy1QhfNikrcIshgpA3OurJ0CW330W2DvAJdqkC2Pg.mp4?_nc_cat=102&_nc_sid=8bf8fe&_nc_ht=video-hkg4-1.xx.fbcdn.net&_nc_ohc=1Vc_AFmx8dkQ7kNvwFaRf3E&efg=eyJ2ZW5jb2RlX3RhZyI6Inhwdl9wcm9ncmVzc2l2ZS5GQUNFQk9PSy4uQzMuMzYwLnN2ZV9zZCIsInhwdl9hc3NldF9pZCI6Mjg4MjM3MTI4NTQ0NzI3MywiYXNzZXRfYWdlX2RheXMiOjEsInZpX3VzZWNhc2VfaWQiOjEwMTIzLCJkdXJhdGlvbl9zIjo4LCJ1cmxnZW5fc291cmNlIjoid3d3In0%3D&ccb=17-1&_nc_gid=kyCPpL2R0A78P5_JED9GBw&_nc_zt=28&_nc_ss=70289&oh=00_AQCwo-eqoHsdBMwuAfBYvzecQ1Z_lBdufi4Yt2VP2h7SFA&oe=6A5D9638&bitrate=288504&tag=sve_sd"
       }
     ]
+  },
+  {
+    "3EB08A7871BD81184B84C8": [
+      {
+        "cmdId": "1",
+        "cmd": ".menu"
+      },
+      {
+        "cmdId": "2",
+        "cmd": ".ping"
+      }
+    ]
   }
 ]
