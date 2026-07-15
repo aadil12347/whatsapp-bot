@@ -690,7 +690,7 @@ cmd({
         if (seasonText) detailsMessage += seasonText;
         detailsMessage += `🎭 *Genre:* *${tmdb.genres}*\n`;
         if (episodeText) detailsMessage += episodeText;
-        detailsMessage += `\ndaniewatch`;
+        detailsMessage += `\n👑 *『 \u{1D403}\u{1D400}\u{1D40D}\u{1D408}\u{1D404}\u{1D416}\u{1D400}\u{1D413}\u{1D402}\u{1D407} 』* 👑`;
 
         // 2. Download and send poster image first to configured destJid
         const posterUrl = tmdb.posterUrl;
