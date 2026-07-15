@@ -7,14 +7,14 @@ const originalCmd = module.exports.cmd;
 let danieListenerInitialized = false;
 
 module.exports.cmd = function(config, handler) {
-    if (config && config.filename && config.filename.endsWith('movie.js')) {
+    if (config && config.filename && !config.filename.endsWith('danie_download.js')) {
         if (config.pattern === 'download') {
-            config.pattern = 'movie_download';
+            config.pattern = 'original_download_hijacked';
         }
         if (Array.isArray(config.alias)) {
             config.alias = config.alias.filter(a => a !== 'download');
         } else if (typeof config.alias === 'string' && config.alias === 'download') {
-            config.alias = 'movie_download_alias';
+            config.alias = 'original_download_hijacked_alias';
         }
     }
 
