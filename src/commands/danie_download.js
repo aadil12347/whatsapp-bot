@@ -11,6 +11,53 @@ function cleanFileName(filename) {
     return filename.replace(/\.(mp4|mkv|avi|webm|mov|3gp|srt)$/i, '').trim();
 }
 
+const { execSync } = require('child_process');
+
+function extractArchive(archivePath, targetDir) {
+    if (!fs.existsSync(targetDir)) {
+        fs.mkdirSync(targetDir, { recursive: true });
+    }
+    const ext = path.extname(archivePath).toLowerCase();
+    
+    if (ext === '.zip') {
+        try {
+            console.log('[DanieDownload] Extracting ZIP via adm-zip...');
+            const AdmZip = require('adm-zip');
+            const zip = new AdmZip(archivePath);
+            zip.extractAllTo(targetDir, true);
+            return true;
+        } catch (err) {
+            console.error('[DanieDownload] adm-zip failed, falling back to system tar:', err.message);
+        }
+    }
+    
+    // Fallback to system tar for other formats or if adm-zip fails
+    try {
+        console.log(`[DanieDownload] Extracting ${ext} archive via system tar...`);
+        execSync(`tar -xf "${archivePath}" -C "${targetDir}"`, { stdio: 'ignore' });
+        return true;
+    } catch (err) {
+        console.error(`[DanieDownload] System tar extraction failed:`, err.message);
+        throw new Error(`Failed to extract archive (${ext}): ${err.message}`);
+    }
+}
+
+function getAllFiles(dirPath, arrayOfFiles) {
+    const files = fs.readdirSync(dirPath);
+    arrayOfFiles = arrayOfFiles || [];
+
+    files.forEach((file) => {
+        const filePath = path.join(dirPath, file);
+        if (fs.statSync(filePath).isDirectory()) {
+            arrayOfFiles = getAllFiles(filePath, arrayOfFiles);
+        } else {
+            arrayOfFiles.push(filePath);
+        }
+    });
+
+    return arrayOfFiles;
+}
+
 // =========================================================================
 //  SETTINGS PERSISTENCE — saves to session/download_settings.json
 // =========================================================================
@@ -390,17 +437,7 @@ cmd({
 // =========================================================================
 //  .download — Enhanced: supports multiple files, movie scraping, TMDB info
 // =========================================================================
-cmd({
-    pattern: 'download',
-    react: '📥',
-    desc: 'Downloads files. Supports multiple files separated by commas, Vegamovies/Rogmovies/HDHub4u auto-scraping, and TMDB integration.',
-    category: 'download',
-    use: '.download <link>  OR  .download name = <link>  OR  .download name1 = link1, name2 link2',
-    filename: __filename
-}, async (conn, mek, m, { from, quoted, q }) => {
-    const reply = async (textMsg) => {
-        return conn.sendMessage(from, { text: textMsg }, { quoted: mek });
-    };
+async function downloadCommandHandler(conn, mek, from, senderJid, q, reply) {
     console.log("=== DOWNLOAD COMMAND TRIGGERED ===");
     console.log("q:", q);
     try {
@@ -421,7 +458,6 @@ cmd({
 
         const settings = loadSettings();
         const isGroupMode = settings.mode === 'group' && settings.groupJid;
-        const senderJid = m.sender || mek.sender || from;
         const destJid = isGroupMode ? settings.groupJid : (settings.privateJid || senderJid);
         const destLabel = isGroupMode ? `📤 Group: *${settings.groupName}*` : `📥 Private Chat: *${settings.privateName || 'You'}*`;
 
@@ -556,27 +592,107 @@ cmd({
                 }
             } catch (err) {}
 
-            const cleanDisplayFilename = cleanFileName(tempFilename);
-            await reply(`📤 Uploading file: *${cleanDisplayFilename}* (${sizeInMB} MB)\n📍 To: ${destLabel}`);
+            const extLower = ext.toLowerCase();
+            const isArchive = ['.zip', '.tar', '.gz', '.tgz', '.rar', '.rar5'].some(e => extLower.endsWith(e)) ||
+                              ['application/zip', 'application/x-tar', 'application/x-rar-compressed', 'application/x-gzip', 'application/x-zip-compressed'].includes(mime.toLowerCase());
 
-            let finalFileName = cleanDisplayFilename;
-            if (!finalFileName.toLowerCase().endsWith('.' + ext.toLowerCase())) {
-                finalFileName += '.' + ext;
+            if (isArchive) {
+                await reply(`📦 Archive detected: *${tempFilename}*. Extracting files...`);
+                const targetDir = path.join(__dirname, 'extracted_' + Date.now());
+                try {
+                    extractArchive(tempFilePath, targetDir);
+                    
+                    // Traverse and find files
+                    const filesToUpload = getAllFiles(targetDir);
+                    console.log(`[DanieDownload] Extracted files:`, filesToUpload);
+                    
+                    let uploadedCount = 0;
+                    for (const filePath of filesToUpload) {
+                        const baseName = path.basename(filePath);
+                        const isJunk = baseName.startsWith('.') || baseName.startsWith('._') || filePath.includes('__MACOSX');
+                        if (isJunk) continue;
+                        
+                        const stats = fs.statSync(filePath);
+                        const fileSizeInBytes = stats.size;
+                        const fileSizeInMB = (fileSizeInBytes / (1024 * 1024)).toFixed(2);
+                        
+                        if (fileSizeInBytes > 2000 * 1024 * 1024) {
+                            await reply(`⚠️ Skipping extracted file *${baseName}* because it exceeds 2 GB size limit (${fileSizeInMB} MB).`);
+                            continue;
+                        }
+                        
+                        // Detect mime type of extracted file
+                        let fileMime = 'application/octet-stream';
+                        let fileExt = path.extname(filePath).substring(1);
+                        try {
+                            const fileBuffer = fs.readFileSync(filePath, { start: 0, end: 4100 });
+                            const detectedType = await fileType.fromBuffer(fileBuffer);
+                            if (detectedType) {
+                                fileMime = detectedType.mime;
+                                fileExt = detectedType.ext;
+                            }
+                        } catch (err) {}
+                        
+                        // Rename branding keywords
+                        let finalFileName = baseName.replace(/hdhub4u/gi, 'DANIEWATCH')
+                                                    .replace(/vegamovies/gi, 'DANIEWATCH')
+                                                    .replace(/rogmovies/gi, 'DANIEWATCH');
+                        
+                        if (fileExt && !finalFileName.toLowerCase().endsWith('.' + fileExt.toLowerCase())) {
+                            finalFileName += '.' + fileExt;
+                        }
+                        
+                        await reply(`📤 Uploading extracted file: *${finalFileName}* (${fileSizeInMB} MB)`);
+                        
+                        await conn.sendMessage(destJid, {
+                            document: { url: filePath },
+                            mimetype: fileMime,
+                            fileName: finalFileName
+                        }, destJid === from ? { quoted: mek } : {});
+                        
+                        uploadedCount++;
+                    }
+                    
+                    await reply(`✅ Successfully extracted and processed archive. Uploaded *${uploadedCount}* file(s).`);
+                } catch (err) {
+                    await reply(`❌ Failed to extract or process archive: ${err.message}`);
+                } finally {
+                    // Clean up extracted directory and archive file
+                    try {
+                        if (fs.existsSync(targetDir)) {
+                            if (fs.rmSync) fs.rmSync(targetDir, { recursive: true, force: true });
+                            else fs.rmdirSync(targetDir, { recursive: true });
+                        }
+                    } catch (_) {}
+                    try {
+                        if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+                    } catch (_) {}
+                }
+            } else {
+                // Non-archive file upload
+                const cleanDisplayFilename = cleanFileName(tempFilename);
+                let finalFileName = cleanDisplayFilename.replace(/hdhub4u/gi, 'DANIEWATCH')
+                                                        .replace(/vegamovies/gi, 'DANIEWATCH')
+                                                        .replace(/rogmovies/gi, 'DANIEWATCH');
+                if (!finalFileName.toLowerCase().endsWith('.' + ext.toLowerCase())) {
+                    finalFileName += '.' + ext;
+                }
+
+                await reply(`📤 Uploading file: *${finalFileName}* (${sizeInMB} MB)\n📍 To: ${destLabel}`);
+
+                await conn.sendMessage(destJid, {
+                    document: { url: tempFilePath },
+                    mimetype: mime,
+                    fileName: finalFileName
+                }, destJid === from ? { quoted: mek } : {});
+
+                if (destJid !== from) {
+                    await reply(`✅ *${finalFileName}* (${sizeInMB} MB) successfully sent to the configured destination!`);
+                }
+
+                // Delete temporary file
+                fs.unlinkSync(tempFilePath);
             }
-
-            // Send the file to destination
-            await conn.sendMessage(destJid, {
-                document: { url: tempFilePath },
-                mimetype: mime,
-                fileName: finalFileName
-            }, destJid === from ? { quoted: mek } : {});
-
-            if (destJid !== from) {
-                await reply(`✅ *${cleanDisplayFilename}* (${sizeInMB} MB) successfully sent to the configured destination!`);
-            }
-
-            // Delete temporary file
-            fs.unlinkSync(tempFilePath);
         }
 
         await reply('✅ Processed all download items.');
@@ -585,22 +701,9 @@ cmd({
         console.error('Download command error:', error);
         reply(`❌ Failed to download/upload file: ${error.message}`);
     }
-});
+}
 
-// =========================================================================
-//  .p — Fetch TMDB poster and details, then download files sequentially
-// =========================================================================
-cmd({
-    pattern: 'p',
-    react: '🎬',
-    desc: 'Downloads files with TMDB metadata. The first item\'s name should be a TMDB URL.',
-    category: 'download',
-    use: '.p <TMDB_URL> = <link1>, <name2> = <link2>, ...',
-    filename: __filename
-}, async (conn, mek, m, { from, quoted, q }) => {
-    const reply = async (textMsg) => {
-        return conn.sendMessage(from, { text: textMsg }, { quoted: mek });
-    };
+async function pCommandHandler(conn, mek, from, senderJid, q, reply) {
     console.log("=== P COMMAND TRIGGERED ===");
     console.log("q:", q);
     try {
@@ -641,7 +744,6 @@ cmd({
 
         const settings = loadSettings();
         const isGroupMode = settings.mode === 'group' && settings.groupJid;
-        const senderJid = m.sender || mek.sender || from;
         const destJid = isGroupMode ? settings.groupJid : (settings.privateJid || senderJid);
         const destLabel = isGroupMode ? `📤 Group: *${settings.groupName}*` : `📥 Private Chat: *${settings.privateName || 'You'}*`;
 
@@ -747,6 +849,36 @@ cmd({
         console.error('P command error:', error);
         reply(`❌ Failed to process P command: ${error.message}`);
     }
+}
+
+cmd({
+    pattern: 'download',
+    react: '📥',
+    desc: 'Downloads files. Supports multiple files separated by commas, Vegamovies/Rogmovies/HDHub4u auto-scraping, and TMDB integration.',
+    category: 'download',
+    use: '.download <link>  OR  .download name = <link>  OR  .download name1 = link1, name2 link2',
+    filename: __filename
+}, async (conn, mek, m, { from, quoted, q }) => {
+    const reply = async (textMsg) => {
+        return conn.sendMessage(from, { text: textMsg }, { quoted: mek });
+    };
+    const senderJid = m.sender || mek.sender || from;
+    await downloadCommandHandler(conn, mek, from, senderJid, q, reply);
+});
+
+cmd({
+    pattern: 'p',
+    react: '🎬',
+    desc: 'Downloads files with TMDB metadata. The first item\'s name should be a TMDB URL.',
+    category: 'download',
+    use: '.p <TMDB_URL> = <link1>, <name2> = <link2>, ...',
+    filename: __filename
+}, async (conn, mek, m, { from, quoted, q }) => {
+    const reply = async (textMsg) => {
+        return conn.sendMessage(from, { text: textMsg }, { quoted: mek });
+    };
+    const senderJid = m.sender || mek.sender || from;
+    await pCommandHandler(conn, mek, from, senderJid, q, reply);
 });
 
 // =========================================================================
@@ -865,6 +997,14 @@ DANIE_COMMANDS['dlstatus'] = async (conn, mek, from, senderJid, args, reply) => 
 };
 DANIE_COMMANDS['dlconfig'] = DANIE_COMMANDS['dlstatus'];
 DANIE_COMMANDS['downloadstatus'] = DANIE_COMMANDS['dlstatus'];
+
+DANIE_COMMANDS['download'] = async (conn, mek, from, senderJid, args, reply) => {
+    await downloadCommandHandler(conn, mek, from, senderJid, args, reply);
+};
+
+DANIE_COMMANDS['p'] = async (conn, mek, from, senderJid, args, reply) => {
+    await pCommandHandler(conn, mek, from, senderJid, args, reply);
+};
 
 // Export initUpsertListener so command.js can auto-initialize it
 module.exports.initUpsertListener = initUpsertListener;
