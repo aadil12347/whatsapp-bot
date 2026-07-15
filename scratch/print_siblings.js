@@ -2,7 +2,7 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 
 async function printSiblings() {
-    const url = 'https://vegamovies.navy/download-obsession-2026-hindi-dubbed-org-dd5-1-480p-720p-1080p-2160p-4k-amazon-prime/';
+    const url = 'https://nexdrive.fit/genxfm784776375789/';
     try {
         const response = await axios.get(url, {
             headers: {
@@ -11,16 +11,32 @@ async function printSiblings() {
         });
         const $ = cheerio.load(response.data);
         
-        const content = $('main.page-body, .page-body, .entry-content, #main-content, div.content-kuss, div.content-area');
-        content.find('a[href*="nexdrive.fit"]').each((i, el) => {
-            console.log(`\n--- Button ${i + 1} SIBLINGS ---`);
-            const parent = $(el).parent();
-            console.log(`Parent tag: ${parent[0].name}, html: ${parent.html().substring(0, 150)}`);
-            
-            // Let's get the siblings around parent
-            parent.prevAll().slice(0, 4).each((j, sib) => {
-                console.log(`  Prev ${j+1}: <${sib.name}> -> "${$(sib).text().trim()}"`);
-            });
+        $('a[href]').each((i, el) => {
+            const href = $(el).attr('href');
+            if (href && (href.includes('fastdl') || href.includes('filebee') || href.includes('vcloud'))) {
+                // Find preceding heading (h1-h6 or strong or p text containing Episode)
+                let heading = '';
+                
+                // Traverse backwards from the anchor's parent to find the closest heading or label
+                let curr = $(el).closest('p, div');
+                let found = false;
+                while (curr.length && !found) {
+                    let sib = curr.prev();
+                    while (sib.length) {
+                        const name = sib[0].name.toLowerCase();
+                        const text = sib.text().trim();
+                        if (/^h[1-6]$/.test(name) || (name === 'p' && text.toLowerCase().includes('episode'))) {
+                            heading = text;
+                            found = true;
+                            break;
+                        }
+                        sib = sib.prev();
+                    }
+                    curr = curr.parent();
+                }
+
+                console.log(`Link: "${$(el).text().trim()}" -> Href: "${href}" [Heading: "${heading}"]`);
+            }
         });
     } catch(e) {
         console.error(e);

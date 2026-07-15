@@ -547,6 +547,64 @@ async function scrapeAllPostLinks(url) {
 }
 
 /**
+ * Helper to find episode text from preceding headings or surrounding elements
+ */
+function findEpisodeText($, el) {
+    // 1. Check if the text itself or its parent has episode text
+    const selfText = ($(el).text().trim() + ' ' + $(el).parent().text().trim()).toLowerCase();
+    const selfMatch = selfText.match(/episode[s]?[:]?\s*(\d+)/i);
+    if (selfMatch) {
+        return `Episode ${parseInt(selfMatch[1], 10)}`;
+    }
+
+    // 2. Check if there's a table cell in the same row
+    const row = $(el).closest('tr');
+    if (row.length) {
+        // Look at the text of the first td in this row
+        const firstTd = row.find('td').first().text().trim();
+        const firstTdMatch = firstTd.match(/episode[s]?[:]?\s*(\d+)/i);
+        if (firstTdMatch) {
+            return `Episode ${parseInt(firstTdMatch[1], 10)}`;
+        }
+        // Or if the first td contains a number
+        if (/^\d+$/.test(firstTd)) {
+            return `Episode ${parseInt(firstTd, 10)}`;
+        }
+    }
+
+    // 3. Check preceding elements
+    let curr = $(el).closest('p, div, td, tr, li');
+    let found = false;
+    let episodeText = '';
+    while (curr.length && !found) {
+        let sib = curr.prev();
+        while (sib.length) {
+            const name = sib[0].name.toLowerCase();
+            const sibText = sib.text().trim();
+            if (/^h[1-6]$/.test(name) || (name === 'p' && sibText.toLowerCase().includes('episode'))) {
+                if (sibText) {
+                    episodeText = sibText;
+                    found = true;
+                    break;
+                }
+            }
+            sib = sib.prev();
+        }
+        curr = curr.parent();
+    }
+
+    if (episodeText) {
+        const matchEp = episodeText.match(/episode[s]?[:]?\s*(\d+)/i);
+        if (matchEp) {
+            return `Episode ${parseInt(matchEp[1], 10)}`;
+        }
+        // Clean up common decoration like "-:Episodes: 04:-"
+        return episodeText.replace(/^[-:\s]+|[-:\s]+$/g, '').trim();
+    }
+    return '';
+}
+
+/**
  * Follow redirects and extract all available direct download buttons/links (FSL, GDrive, PixelDrain, Mega, etc.) from the landing page
  */
 async function extractDirectDownloadLinks(url) {
@@ -588,9 +646,15 @@ async function extractDirectDownloadLinks(url) {
                     } catch(e) {}
                 }
                 
+                const episodeText = findEpisodeText($, el);
+                
                 // Avoid duplicates
                 if (!hosts.some(h => h.href === href)) {
-                    hosts.push({ text: text || 'Download Link', href });
+                    hosts.push({ 
+                        text: text || 'Download Link', 
+                        href,
+                        episode: episodeText || undefined
+                    });
                 }
             }
         });

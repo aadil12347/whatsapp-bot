@@ -1291,9 +1291,9 @@ async function searchCommandHandler(conn, mek, from, senderJid, q, reply) {
 
         let responseText = `🔍 *Vegamovies Search Results for "${query}":*\n\n`;
         results.forEach((r, idx) => {
-            responseText += `  \`${idx + 1}\` — ${r.title}\n`;
+            responseText += `  \`${idx + 1}\` — ${r.title}\n\n`;
         });
-        responseText += `\n_Reply with the number of the movie you want to select._`;
+        responseText = responseText.trim() + `\n\n_Reply with the number of the movie you want to select._`;
 
         const sent = await reply(responseText);
         if (sent && sent.key) {
@@ -1320,7 +1320,6 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
         }
 
         const selectedMovie = movies[num - 1];
-        await reply(`⏳ Fetching resolutions and download links for:\n🎬 *${selectedMovie.title}*...`);
 
         try {
             const postUrl = selectedMovie.permalink.startsWith('http') 
@@ -1434,7 +1433,6 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                         console.log(`[DanieSearch] Deleted old temp file: ${fp}`);
                     }
                 }
-                await reply('🛑 Previous download has been aborted. Fetching download hosts for your new selection...');
             } catch (abortErr) {
                 console.error('[DanieSearch] Failed to abort active download:', abortErr.message);
             }
@@ -1442,7 +1440,6 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
         }
 
         const selectedLink = links[num - 1];
-        await reply(`⏳ Resolving download hosts for:\n*${selectedLink.heading || selectedLink.text}*...\nThis may take up to 45 seconds.`);
 
         try {
             console.log(`[DanieSearch] Resolving direct host links for redirect url: ${selectedLink.href}`);
@@ -1458,14 +1455,14 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
             let mergedOptions = [];
             
             if (landingHosts.length > 0) {
-                await reply(`⏳ Resolving download servers from multiple landing routes concurrently...`);
                 const subOptsResults = await Promise.all(landingHosts.map(async (host) => {
                     try {
                         const subOpts = await extractSubOptions(host.href);
                         return subOpts.map(opt => ({
                             parentHost: host.text,
                             text: opt.text,
-                            href: opt.href
+                            href: opt.href,
+                            episode: host.episode
                         }));
                     } catch (err) {
                         console.error(`[DanieSearch] Failed to extract options for host ${host.text}:`, err.message);
@@ -1481,22 +1478,38 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                 mergedOptions.push({
                     parentHost: host.text,
                     text: 'Direct Link',
-                    href: host.href
+                    href: host.href,
+                    episode: host.episode
                 });
             });
 
-            if (mergedOptions.length === 0) {
-                return reply(`❌ No download links could be resolved for this resolution.`);
+            // Filter mergedOptions to only include: FSL, FSLv2, GDrive, and 10gbps
+            const filteredOptions = mergedOptions.filter(host => {
+                const parentLower = host.parentHost.toLowerCase();
+                const textLower = host.text.toLowerCase();
+                
+                // Matches FSL/V-Cloud
+                const matchesFsl = parentLower.includes('v-cloud') || parentLower.includes('vcloud') || textLower.includes('fsl') || textLower.includes('vcloud') || textLower.includes('v-cloud');
+                // Matches GDrive (fastdl, filepress, g-direct, filebee, etc.)
+                const matchesGdrive = parentLower.includes('g-direct') || parentLower.includes('filepress') || parentLower.includes('gdrive') || parentLower.includes('fastdl') || parentLower.includes('filebee') || textLower.includes('gdrive') || textLower.includes('drive') || textLower.includes('fastdl') || textLower.includes('filepress');
+                // Matches 10gbps
+                const matches10gbps = parentLower.includes('10gbps') || textLower.includes('10gbps');
+                
+                return matchesFsl || matchesGdrive || matches10gbps;
+            });
+
+            if (filteredOptions.length === 0) {
+                return reply(`❌ No supported servers (FSL, FSLv2, GDrive, 10gbps) resolved for this resolution.`);
             }
 
             // Update state to wait for sub-option selection
             state.step = 'select_sub_option';
             state.resolutionHeading = selectedLink.heading || selectedLink.text;
-            state.directHosts = mergedOptions;
+            state.directHosts = filteredOptions;
             state.messageId = null;
 
             let serverListText = `🌐 *Select a download server for:* \n_${selectedLink.heading || selectedLink.text}_\n\n`;
-            mergedOptions.forEach((host, idx) => {
+            filteredOptions.forEach((host, idx) => {
                 // Rename Fastdl to GDrive Link
                 let serverName = host.text;
                 if (serverName.toLowerCase().includes('fastdl')) {
@@ -1508,7 +1521,10 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                 }
                 
                 let cleanParent = host.parentHost.replace(/⚡\s*/, '').trim();
-                serverListText += `  \`${idx + 1}\` — ${cleanParent} (${serverName})\n`;
+                
+                // Format with episode name if available
+                const epPrefix = host.episode ? `*${host.episode}* — ` : '';
+                serverListText += `  \`${idx + 1}\` — ${epPrefix}${cleanParent} (${serverName})\n`;
             });
             serverListText += `\n_Reply to this message with the server number to start download/upload._`;
 
@@ -1551,8 +1567,6 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
         // Transition step back to select_resolution so the user can make another choice immediately
         state.step = 'select_resolution';
 
-        await reply(`✅ Server selected: *${chosenHost.text}*\n⏳ Initiating background download/upload pipeline...\n\n_You can reply with another quality/resolution number from the list above at any time to start a new download (which will automatically cancel this one)._`);
-
         // Resolve direct link and trigger downloadCommandHandler asynchronously (in the background)
         (async () => {
             try {
@@ -1563,6 +1577,11 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                 let sanitizedTitle = (state.resolutionHeading || state.title || 'Movie')
                     .replace(/[:*?"<>|\\/]/g, '') // remove invalid filename chars
                     .trim();
+                
+                // Append episode label if available
+                if (chosenHost.episode) {
+                    sanitizedTitle = `${sanitizedTitle} ${chosenHost.episode}`;
+                }
                 
                 const downloadQuery = `${sanitizedTitle} = ${finalDirectUrl}`;
                 console.log(`[DanieSearch] Handing over background query: "${downloadQuery}"`);
