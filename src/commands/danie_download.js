@@ -5,6 +5,14 @@ const path = require('path');
 const fileType = require('file-type');
 const { fetchTmdbMetadata, fetchTmdbById, scrapePostPage, resolveLandingLink, resolveVcloudLink, scrapeAllPostLinks, extractDirectDownloadLinks } = require('../Utils/movie_scraper');
 
+// Global handlers to prevent background network disconnect errors from crashing the Node process
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('[DanieWatch] Unhandled Promise Rejection at:', promise, 'reason:', reason);
+});
+process.on('uncaughtException', (err) => {
+    console.error('[DanieWatch] Uncaught Exception thrown:', err);
+});
+
 function cleanFileName(filename) {
     if (!filename) return '';
     // Strip extensions like .mp4, .mkv, .avi, .webm, etc.
@@ -809,7 +817,11 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
             return;
         }
         console.error('Download command error:', error);
-        reply(`❌ Failed to download/upload file: ${error.message}`);
+        try {
+            await reply(`❌ Failed to download/upload file: ${error.message}`);
+        } catch (replyErr) {
+            console.error('[DanieDownload] Failed to send error reply (connection likely closed):', replyErr.message);
+        }
     }
 }
 
@@ -1391,7 +1403,11 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                     console.log('[DanieSearch] Background download successfully aborted.');
                 } else {
                     console.error('[DanieSearch] Background download failed:', err.message);
-                    reply(`❌ Failed to process download for host *${chosenHost.text}*: ${err.message}`);
+                    try {
+                        await reply(`❌ Failed to process download for host *${chosenHost.text}*: ${err.message}`);
+                    } catch (replyErr) {
+                        console.error('[DanieSearch] Failed to send error reply (connection likely closed):', replyErr.message);
+                    }
                 }
             } finally {
                 // Clear active download if it was this controller
