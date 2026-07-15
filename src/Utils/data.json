@@ -346,5 +346,45 @@
         "cmd": ".ping"
       }
     ]
+  },
+  {
+    "3EB03527BF790A991174E5": [
+      {
+        "cmdId": "1",
+        "cmd": ".menu"
+      },
+      {
+        "cmdId": "2",
+        "cmd": ".ping"
+      }
+    ]
+  },
+  {
+    "3EB0E91430EA16301B02E6": [
+      {
+        "cmdId": "1",
+        "cmd": ".menu"
+      },
+      {
+        "cmdId": "2",
+        "cmd": ".ping"
+      }
+    ]
+  },
+  {
+    "3EB083BFFE7CCB66D78D5A": [
+      {
+        "cmdId": "1",
+        "cmd": ".fbhd https://video-hkg4-1.xx.fbcdn.net/o1/v/t2/f2/m412/AQO_g_s0RfiIQa80TFi2dm8yHDSKWpD2HZSYzoPwuX77aGnshq6kEiyX0IsCf5Uiwsy1QhfNikrcIshgpA3OurJ0CW330W2DvAJdqkC2Pg.mp4?_nc_cat=102&_nc_sid=8bf8fe&_nc_ht=video-hkg4-1.xx.fbcdn.net&_nc_ohc=1Vc_AFmx8dkQ7kNvwFaRf3E&efg=eyJ2ZW5jb2RlX3RhZyI6Inhwdl9wcm9ncmVzc2l2ZS5GQUNFQk9PSy4uQzMuMzYwLnN2ZV9zZCIsInhwdl9hc3NldF9pZCI6Mjg4MjM3MTI4NTQ0NzI3MywiYXNzZXRfYWdlX2RheXMiOjEsInZpX3VzZWNhc2VfaWQiOjEwMTIzLCJkdXJhdGlvbl9zIjo4LCJ1cmxnZW5fc291cmNlIjoid3d3In0%3D&ccb=17-1&_nc_gid=kyCPpL2R0A78P5_JED9GBw&_nc_zt=28&_nc_ss=70289&oh=00_AQCwo-eqoHsdBMwuAfBYvzecQ1Z_lBdufi4Yt2VP2h7SFA&oe=6A5D9638&bitrate=288504&tag=sve_sd"
+      },
+      {
+        "cmdId": "2",
+        "cmd": ".fbhd https://video-hkg4-2.xx.fbcdn.net/o1/v/t2/f2/m366/AQOc_VpXXafnL9tLPsSzanbz82v_jioBLIbcP5ITc13uDeDwe2By8LA6WeU4Ly8Z2zoYkP9SABs5U19BxB44TLaH4SmKlDSdHchgbeo0gaTcDg.mp4?_nc_cat=104&_nc_sid=5e9851&_nc_ht=video-hkg4-2.xx.fbcdn.net&_nc_ohc=L9WV3rcHPqYQ7kNvwHWsKCu&efg=eyJ2ZW5jb2RlX3RhZyI6Inhwdl9wcm9ncmVzc2l2ZS5GQUNFQk9PSy4uQzMuNzIwLmRhc2hfaDI2NC1iYXNpYy1nZW4yXzcyMHAiLCJ4cHZfYXNzZXRfaWQiOjI4ODIzNzEyODU0NDcyNzMsImFzc2V0X2FnZV9kYXlzIjoxLCJ2aV91c2VjYXNlX2lkIjoxMDEyMywiZHVyYXRpb25fcyI6OCwidXJsZ2VuX3NvdXJjZSI6Ind3dyJ9&ccb=17-1&vs=2f67f6bf734b26ab&_nc_vs=HBksFQIYRWZiX2VwaGVtZXJhbC9DNjQxRUI2NjUyNkU1RTRFNDI4RjI2QjkzMEQ5OERCRl9tdF8xX3ZpZGVvX2Rhc2hpbml0Lm1wNBUAAsgBEgAVAhhAZmJfcGVybWFuZW50Lzc3NDhCQTk5MzQwREMwNTIwRjFCNEZBMTMzRDczRkFGX2F1ZGlvX2Rhc2hpbml0Lm1wNBUCAsgBEgAoABgAGwKIB3VzZV9vaWwBMRJwcm9ncmVzc2l2ZV9yZWNpcGUBMRUAACbSyaPJi-CeChUCKAJDMywXQCAAAAAAAAAYGWRhc2hfaDI2NC1iYXNpYy1nZW4yXzcyMHARAHUCZZaeAQA&_nc_gid=kyCPpL2R0A78P5_JED9GBw&_nc_zt=28&_nc_ss=70289&oh=00_AQCFJsf386tGQAhJIrp3xM1--9NHNwbuM9Ui2t1cXWo9eA&oe=6A5D82E8&bitrate=979149&tag=dash_h264-basic-gen2_720p"
+      },
+      {
+        "cmdId": "3",
+        "cmd": ".ta https://video-hkg4-1.xx.fbcdn.net/o1/v/t2/f2/m412/AQO_g_s0RfiIQa80TFi2dm8yHDSKWpD2HZSYzoPwuX77aGnshq6kEiyX0IsCf5Uiwsy1QhfNikrcIshgpA3OurJ0CW330W2DvAJdqkC2Pg.mp4?_nc_cat=102&_nc_sid=8bf8fe&_nc_ht=video-hkg4-1.xx.fbcdn.net&_nc_ohc=1Vc_AFmx8dkQ7kNvwFaRf3E&efg=eyJ2ZW5jb2RlX3RhZyI6Inhwdl9wcm9ncmVzc2l2ZS5GQUNFQk9PSy4uQzMuMzYwLnN2ZV9zZCIsInhwdl9hc3NldF9pZCI6Mjg4MjM3MTI4NTQ0NzI3MywiYXNzZXRfYWdlX2RheXMiOjEsInZpX3VzZWNhc2VfaWQiOjEwMTIzLCJkdXJhdGlvbl9zIjo4LCJ1cmxnZW5fc291cmNlIjoid3d3In0%3D&ccb=17-1&_nc_gid=kyCPpL2R0A78P5_JED9GBw&_nc_zt=28&_nc_ss=70289&oh=00_AQCwo-eqoHsdBMwuAfBYvzecQ1Z_lBdufi4Yt2VP2h7SFA&oe=6A5D9638&bitrate=288504&tag=sve_sd"
+      }
+    ]
   }
 ]
