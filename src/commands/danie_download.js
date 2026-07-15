@@ -3,7 +3,7 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const fileType = require('file-type');
-const { fetchTmdbMetadata, fetchTmdbById, scrapePostPage, resolveLandingLink, resolveVcloudLink, scrapeAllPostLinks, extractDirectDownloadLinks } = require('../Utils/movie_scraper');
+const { fetchTmdbMetadata, fetchTmdbById, scrapePostPage, resolveLandingLink, resolveVcloudLink, scrapeAllPostLinks, extractDirectDownloadLinks, extractSubOptions } = require('../Utils/movie_scraper');
 
 // Global handlers to prevent background network disconnect errors from crashing the Node process
 process.on('unhandledRejection', (reason, promise) => {
@@ -90,6 +90,101 @@ function saveSettings(settings) {
         console.log('[DanieDownload] Settings saved:', settings);
     } catch (err) {
         console.error('[DanieDownload] Failed to save settings:', err.message);
+    }
+}
+
+async function downloadFileWithResume(url, tempFilePath, customHeaders = {}, abortSignal = null) {
+    const parsedUrl = new URL(url);
+    const defaultHeaders = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': '*/*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Referer': parsedUrl.origin + '/',
+        'Origin': parsedUrl.origin
+    };
+    const headers = { ...defaultHeaders, ...customHeaders };
+
+    let downloadedBytes = 0;
+    let attempts = 0;
+    const maxAttempts = 3;
+
+    if (fs.existsSync(tempFilePath)) {
+        fs.unlinkSync(tempFilePath);
+    }
+
+    while (attempts < maxAttempts) {
+        attempts++;
+        let writer = null;
+        try {
+            const requestHeaders = { ...headers };
+            if (downloadedBytes > 0) {
+                requestHeaders['Range'] = `bytes=${downloadedBytes}-`;
+                writer = fs.createWriteStream(tempFilePath, { flags: 'a' });
+                console.log(`[DanieDownload] Attempt ${attempts}: Resuming download from byte ${downloadedBytes}`);
+            } else {
+                writer = fs.createWriteStream(tempFilePath);
+                console.log(`[DanieDownload] Attempt ${attempts}: Starting download`);
+            }
+
+            const response = await axios({
+                method: 'get',
+                url: url,
+                responseType: 'stream',
+                headers: requestHeaders,
+                timeout: 300000 // 5 minutes timeout per connection attempt
+            });
+
+            const status = response.status;
+            if (downloadedBytes > 0 && status !== 206) {
+                console.log(`[DanieDownload] Server returned status ${status} instead of 206. Restarting download.`);
+                writer.end();
+                fs.unlinkSync(tempFilePath);
+                writer = fs.createWriteStream(tempFilePath);
+                downloadedBytes = 0;
+            }
+
+            response.data.pipe(writer);
+
+            let streamError = null;
+            await new Promise((resolve, reject) => {
+                writer.on('finish', resolve);
+                writer.on('error', (err) => {
+                    streamError = err;
+                    reject(err);
+                });
+                response.data.on('error', (err) => {
+                    streamError = err;
+                    reject(err);
+                });
+                response.data.on('data', (chunk) => {
+                    downloadedBytes += chunk.length;
+                });
+                if (abortSignal) {
+                    abortSignal.addEventListener('abort', () => {
+                        reject(new Error('Aborted'));
+                    });
+                }
+            });
+
+            if (!streamError) {
+                console.log(`[DanieDownload] Download completed. Total bytes: ${downloadedBytes}`);
+                return response.headers; // success!
+            }
+        } catch (err) {
+            if (err.message === 'Aborted') {
+                if (writer) writer.destroy();
+                throw err;
+            }
+            console.error(`[DanieDownload] Attempt ${attempts} failed:`, err.message);
+            if (writer) writer.destroy();
+
+            if (attempts >= maxAttempts) {
+                throw new Error(`Download failed after ${maxAttempts} attempts. Error: ${err.message}`);
+            }
+            
+            // Wait 2 seconds before retry
+            await new Promise(r => setTimeout(r, 2000));
+        }
     }
 }
 
@@ -551,24 +646,30 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
 
             const tempFilePath = path.join(__dirname, 'tmp_' + Date.now() + '_' + tempFilename);
 
-            // Fetch file with axios as a stream
-            const parsedUrl = new URL(url);
-            const response = await axios({
-                method: 'get',
-                url: url,
-                responseType: 'stream',
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Accept': '*/*',
-                    'Accept-Language': 'en-US,en;q=0.9',
-                    'Referer': parsedUrl.origin + '/',
-                    'Origin': parsedUrl.origin
-                },
-                timeout: 600000 // 10 minutes timeout
-            });
+            // If the URL points to a redirector/landing page, resolve it first
+            const isLanding = url.includes('vcloud') || url.includes('hubcloud') || url.includes('gdflix') || url.includes('fastdl') || url.includes('filebee');
+            if (isLanding) {
+                await reply(`⏳ Resolving redirect link: \`${url}\`...`);
+                try {
+                    const resolved = await resolveVcloudLink(url);
+                    if (resolved && resolved !== url) {
+                        url = resolved;
+                        console.log('[DanieDownload] Resolved redirect URL:', url);
+                    }
+                } catch (e) {
+                    console.error('[DanieDownload] Failed to resolve redirect link:', e.message);
+                }
+            }
 
-            // Extract real filename from Content-Disposition header (CDN/R2/S3 links often have the real name here)
-            const contentDisposition = response.headers['content-disposition'] || '';
+            if (activeDownloadRef) {
+                activeDownloadRef.filePath = tempFilePath;
+            }
+
+            // Download using resume-enabled download function
+            const responseHeaders = await downloadFileWithResume(url, tempFilePath, {}, abortSignal);
+
+            // Extract real filename from Content-Disposition header
+            const contentDisposition = (responseHeaders && responseHeaders['content-disposition']) || '';
             if (contentDisposition) {
                 try {
                     const cdMatch = contentDisposition.match(/filename\*?=['"]?(?:UTF-8'')?([^;\n"']+)/i);
@@ -582,48 +683,6 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
                 } catch (err) {
                     console.error('[DanieDownload] Content-Disposition parse error:', err.message);
                 }
-            }
-
-            if (activeDownloadRef) {
-                activeDownloadRef.filePath = tempFilePath;
-            }
-
-            // Write stream to file
-            const writer = fs.createWriteStream(tempFilePath);
-            response.data.pipe(writer);
-
-            let aborted = false;
-            let abortListener = null;
-            if (abortSignal) {
-                abortListener = () => {
-                    aborted = true;
-                    try {
-                        response.data.destroy();
-                        writer.destroy();
-                        if (fs.existsSync(tempFilePath)) {
-                            fs.unlinkSync(tempFilePath);
-                            console.log('[DanieDownload] Aborted: deleted temporary file:', tempFilePath);
-                        }
-                    } catch(e) {}
-                };
-                abortSignal.addEventListener('abort', abortListener);
-            }
-
-            await new Promise((resolve, reject) => {
-                writer.on('finish', () => {
-                    if (aborted) reject(new Error('Aborted'));
-                    else resolve();
-                });
-                writer.on('error', reject);
-                if (abortSignal) {
-                    abortSignal.addEventListener('abort', () => {
-                        reject(new Error('Aborted'));
-                    });
-                }
-            });
-
-            if (abortSignal && abortListener) {
-                abortSignal.removeEventListener('abort', abortListener);
             }
 
             if (!fs.existsSync(tempFilePath)) {
@@ -1328,26 +1387,87 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                 return reply(`❌ No direct download links could be resolved for this resolution.`);
             }
 
-            // Update state to wait for host selection
-            state.step = 'select_direct_link';
-            state.resolutionHeading = selectedLink.heading || selectedLink.text;
-            state.directHosts = directHosts;
-
-            let hostListText = `🌐 *Select a download host for:* \n_${selectedLink.heading || selectedLink.text}_\n\n`;
-            directHosts.forEach((host, idx) => {
-                hostListText += `  \`${idx + 1}\` — ${host.text}\n`;
+            // Automatically find the primary landing/redirect host
+            let chosenHost = directHosts.find(h => {
+                const lower = h.href.toLowerCase();
+                return lower.includes('vcloud') || lower.includes('hubcloud') || lower.includes('gdflix') || lower.includes('fastdl') || lower.includes('filebee');
             });
-            hostListText += `\n_Reply with the host number to start the download/upload process._`;
 
-            await reply(hostListText);
+            // Fallback to the first host if none matches the preferred landing hosts
+            if (!chosenHost) {
+                chosenHost = directHosts[0];
+            }
+
+            const isLanding = chosenHost.href.includes('vcloud') || chosenHost.href.includes('hubcloud') || chosenHost.href.includes('gdflix') || chosenHost.href.includes('fastdl') || chosenHost.href.includes('filebee');
+
+            if (isLanding) {
+                await reply(`⏳ Resolving download servers for this resolution...`);
+                const subOptions = await extractSubOptions(chosenHost.href);
+
+                if (subOptions && subOptions.length > 0) {
+                    // Update state to wait for sub-option selection
+                    state.step = 'select_sub_option';
+                    state.resolutionHeading = selectedLink.heading || selectedLink.text;
+                    state.directHosts = subOptions;
+
+                    let serverListText = `🌐 *Select a download server for:* \n_${selectedLink.heading || selectedLink.text}_\n\n`;
+                    subOptions.forEach((host, idx) => {
+                        serverListText += `  \`${idx + 1}\` — ${host.text}\n`;
+                    });
+                    serverListText += `\n_Reply with the server number to start the download/upload process._`;
+
+                    return reply(serverListText);
+                }
+            }
+
+            // Fallback: if chosenHost is not landing or has no options, download chosenHost directly
+            state.step = 'select_resolution';
+            
+            // Setup abort controller and references
+            const controller = new AbortController();
+            const activeDownloadRef = { filePath: null };
+            state.activeDownload = {
+                controller,
+                ref: activeDownloadRef
+            };
+
+            await reply(`✅ Direct link resolved: *${chosenHost.text}*\n⏳ Initiating background download/upload pipeline...\n\n_You can reply with another quality/resolution number from the list above at any time to start a new download (which will automatically cancel this one)._`);
+
+            (async () => {
+                try {
+                    let finalDirectUrl = chosenHost.href;
+                    // Prepare download query format: "Movie_Title = URL"
+                    let sanitizedTitle = (selectedLink.heading || selectedLink.text || state.title || 'Movie')
+                        .replace(/[:*?"<>|\\/]/g, '') // remove invalid filename chars
+                        .trim();
+                    
+                    const downloadQuery = `${sanitizedTitle} = ${finalDirectUrl}`;
+                    console.log(`[DanieSearch] Handing over background query: "${downloadQuery}"`);
+
+                    await downloadCommandHandler(conn, mek, from, senderJid, downloadQuery, reply, controller.signal, activeDownloadRef);
+                } catch (err) {
+                    if (err.message === 'Aborted') {
+                        console.log('[DanieSearch] Background download successfully aborted.');
+                    } else {
+                        console.error('[DanieSearch] Background download failed:', err.message);
+                        try {
+                            await reply(`❌ Failed to process download: ${err.message}`);
+                        } catch (replyErr) {}
+                    }
+                } finally {
+                    if (state.activeDownload && state.activeDownload.controller === controller) {
+                        state.activeDownload = null;
+                    }
+                }
+            })();
         } catch (err) {
             console.error('[DanieSearch] Failed to resolve hosts:', err.message);
             reply(`❌ Failed to resolve download hosts: ${err.message}`);
         }
-    } else if (state.step === 'select_direct_link') {
+    } else if (state.step === 'select_sub_option') {
         const hosts = state.directHosts || [];
         if (isNaN(num) || num < 1 || num > hosts.length) {
-            return reply(`❌ Invalid host number. Reply with a number from 1 to ${hosts.length}.`);
+            return reply(`❌ Invalid server number. Reply with a number from 1 to ${hosts.length}.`);
         }
 
         // If there's an active download running, abort it (safety)
@@ -1375,19 +1495,13 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
         // Transition step back to select_resolution so the user can make another choice immediately
         state.step = 'select_resolution';
 
-        await reply(`✅ Host selected: *${chosenHost.text}*\n⏳ Initiating background download/upload pipeline...\n\n_You can reply with another quality/resolution number from the list above at any time to start a new download (which will automatically cancel this one)._`);
+        await reply(`✅ Server selected: *${chosenHost.text}*\n⏳ Initiating background download/upload pipeline...\n\n_You can reply with another quality/resolution number from the list above at any time to start a new download (which will automatically cancel this one)._`);
 
         // Resolve direct link and trigger downloadCommandHandler asynchronously (in the background)
         (async () => {
             try {
                 let finalDirectUrl = chosenHost.href;
-                console.log(`[DanieSearch] Chosen host redirect link: ${finalDirectUrl}`);
-
-                // If the URL points to a redirector/landing page, resolve it first
-                if (finalDirectUrl.includes('fastdl.zip') || finalDirectUrl.includes('vcloud.zip') || finalDirectUrl.includes('hubcloud') || finalDirectUrl.includes('filebee.xyz') || finalDirectUrl.includes('gdflix')) {
-                    finalDirectUrl = await resolveVcloudLink(finalDirectUrl);
-                }
-                console.log(`[DanieSearch] Resolved direct link: ${finalDirectUrl}`);
+                console.log(`[DanieSearch] Chosen server direct link: ${finalDirectUrl}`);
 
                 // Prepare download query format: "Movie_Title = URL"
                 let sanitizedTitle = (state.resolutionHeading || state.title || 'Movie')
@@ -1404,7 +1518,7 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                 } else {
                     console.error('[DanieSearch] Background download failed:', err.message);
                     try {
-                        await reply(`❌ Failed to process download for host *${chosenHost.text}*: ${err.message}`);
+                        await reply(`❌ Failed to process download for server *${chosenHost.text}*: ${err.message}`);
                     } catch (replyErr) {
                         console.error('[DanieSearch] Failed to send error reply (connection likely closed):', replyErr.message);
                     }

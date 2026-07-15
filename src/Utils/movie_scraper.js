@@ -584,6 +584,135 @@ async function extractDirectDownloadLinks(url) {
     }
 }
 
+/**
+ * Scrapes a landing/redirect page (vcloud.zip, gdflix, fastdl, filebee, hubcloud)
+ * and extracts all sub-options (like FSL Server, FSLv2, GDrive, PixelDrain, etc.)
+ */
+async function extractSubOptions(url) {
+    try {
+        console.log('[MovieScraper] Extracting sub-options from:', url);
+
+        // 1. Handle Filebee links directly
+        if (url.includes('filebee.xyz')) {
+            const res = await axios.get(url, { headers: HEADERS, timeout: 15000 });
+            const $ = cheerio.load(res.data);
+            const finalLinks = [];
+            $('a[href*="cdn-cgi/content"], a[href*="filepress"]').each((_, el) => {
+                const href = $(el).attr('href');
+                const text = $(el).text().trim() || 'Filebee Direct Link';
+                if (href) finalLinks.push({ text, href });
+            });
+            if (finalLinks.length > 0) return finalLinks;
+        }
+
+        // 2. Handle Fastdl direct link redirection
+        if (url.includes('fastdl.zip')) {
+            const res = await axios.get(url, { headers: HEADERS, timeout: 15000 });
+            const scriptContent = res.data;
+            const reurlRegex = /reurl\s*=\s*['"]([^'"]+)['"]/i;
+            const match = reurlRegex.exec(scriptContent);
+            if (match && match[1]) {
+                const reurl = match[1];
+                let target = reurl;
+                try {
+                    const parsedUrl = new URL(reurl);
+                    const linkParam = parsedUrl.searchParams.get('link');
+                    if (linkParam) {
+                        target = linkParam;
+                    }
+                } catch (e) {}
+                return [{ text: 'Fastdl Direct Link', href: target }];
+            }
+        }
+
+        // 3. Default: HubCloud / VCloud / GDflix
+        const res = await axios.get(url, { headers: HEADERS, timeout: 15000 });
+        const $ = cheerio.load(res.data);
+
+        const scriptContent = $('script').text() || '';
+        let decodedLink = null;
+
+        const atobRegex = /atob\(\s*atob\(\s*['"]([^'"]+)['"]\s*\)\s*\)/g;
+        let match = atobRegex.exec(scriptContent);
+        if (match && match[1]) {
+            try {
+                const step1 = Buffer.from(match[1], 'base64').toString('utf8');
+                decodedLink = Buffer.from(step1, 'base64').toString('utf8');
+            } catch (e) {
+                console.error('[MovieScraper] Failed decoding double atob:', e.message);
+            }
+        }
+
+        if (!decodedLink) {
+            const varUrlRegex = /var\s+url\s*=\s*['"]([^'"]+)['"]/i;
+            const matchVar = varUrlRegex.exec(scriptContent);
+            if (matchVar && matchVar[1]) {
+                decodedLink = matchVar[1];
+            }
+        }
+
+        if (!decodedLink && url.includes('/video/')) {
+            const videoDl = $('div.vd > center > a').attr('href');
+            if (videoDl) {
+                decodedLink = videoDl;
+            }
+        }
+
+        if (decodedLink) {
+            if (!decodedLink.startsWith('http')) {
+                const parsed = new URL(url);
+                decodedLink = `${parsed.protocol}//${parsed.host}${decodedLink.startsWith('/') ? '' : '/'}${decodedLink}`;
+            }
+
+            console.log('[MovieScraper] Fetching final download landing page to extract options:', decodedLink);
+            const dlRes = await axios.get(decodedLink, { headers: HEADERS, timeout: 15000 });
+            const dl$ = cheerio.load(dlRes.data);
+
+            const finalLinks = [];
+            dl$('h2 a.btn, div.card-body a.btn, a.btn, a[href]').each((_, el) => {
+                let href = dl$(el).attr('href');
+                let text = dl$(el).text().trim().replace(/\s+/g, ' ');
+
+                const lowerText = text.toLowerCase();
+                const lowerHref = href ? href.toLowerCase() : '';
+                if (lowerText.includes('login') || lowerText.includes('admin') || lowerText.includes('idm') || lowerText.includes('ida') || lowerText.includes('telegram') || lowerHref.includes('telegram.me') || lowerHref.includes('t.me')) {
+                    return;
+                }
+
+                if (href && (href.startsWith('http') || href.startsWith('/'))) {
+                    if (!href.startsWith('http')) {
+                        const parsed = new URL(decodedLink);
+                        href = `${parsed.protocol}//${parsed.host}${href.startsWith('/') ? '' : '/'}${href}`;
+                    }
+
+                    if (href.includes('pixeldrain.com/u/')) {
+                        const id = href.split('/u/')[1].split('?')[0];
+                        href = `https://pixeldrain.com/api/file/${id}?download`;
+                    }
+
+                    if (!finalLinks.some(fl => fl.href === href)) {
+                        finalLinks.push({ text: text || 'Download Link', href });
+                    }
+                }
+            });
+
+            if (finalLinks.length > 0) {
+                return finalLinks;
+            }
+        }
+
+        const directBtn = $('a:contains("Download File")').attr('href') || $('a:contains("FSL Server")').attr('href');
+        if (directBtn) {
+            return [{ text: 'Download File', href: directBtn }];
+        }
+
+        return [{ text: 'Default Download Link', href: url }];
+    } catch (err) {
+        console.error('[MovieScraper] extractSubOptions failed:', err.message);
+        return [{ text: 'Original Link', href: url }];
+    }
+}
+
 module.exports = {
     fetchTmdbMetadata,
     fetchTmdbById,
@@ -592,6 +721,7 @@ module.exports = {
     resolveVcloudLink,
     cleanTitle,
     scrapeAllPostLinks,
-    extractDirectDownloadLinks
+    extractDirectDownloadLinks,
+    extractSubOptions
 };
 
