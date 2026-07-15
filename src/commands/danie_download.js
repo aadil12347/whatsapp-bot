@@ -204,6 +204,27 @@ function cleanJid(jid) {
     return `${user}@${server}`;
 }
 
+function isLandingUrl(url) {
+    if (!url) return false;
+    const lower = url.toLowerCase();
+    return lower.includes('vcloud') || 
+           lower.includes('hubcloud') || 
+           lower.includes('gdflix') || 
+           lower.includes('fastdl') || 
+           lower.includes('filebee') || 
+           lower.includes('latent.click');
+}
+
+function getQuotedMessageId(mek) {
+    const msg = mek.message;
+    if (!msg) return null;
+    const contextInfo = msg.extendedTextMessage?.contextInfo || 
+                        msg.imageMessage?.contextInfo || 
+                        msg.videoMessage?.contextInfo || 
+                        msg.documentMessage?.contextInfo;
+    return contextInfo?.stanzaId || null;
+}
+
 const pendingConfig = {};
 const pendingSearch = {};
 const VEGAMOVIES_DOMAIN = 'https://vegamovies.navy';
@@ -246,20 +267,42 @@ function initUpsertListener(conn) {
                 return conn.sendMessage(from, { text: textMsg }, { quoted: mek });
             };
 
-            // ---- Interception of command prefix is removed to prevent duplicate command execution ----
-
-            // ---- Check if it's a plain-number reply for pending config ----
-            if (pendingConfig[cleanSender] && !trimmedText.startsWith(PREFIX)) {
-                console.log(`[DanieWatch] Found pending config for ${cleanSender}. Directing text "${trimmedText}" to handleConfigReply.`);
-                await handleConfigReply(conn, mek, null, senderJid, trimmedText, reply);
+            // ---- Clear pending states and abort active download if a new command starts ----
+            if (trimmedText.startsWith(PREFIX)) {
+                console.log(`[DanieWatch] Command starting with prefix detected: "${trimmedText}". Clearing pending states for ${cleanSender}`);
+                if (pendingSearch[cleanSender] && pendingSearch[cleanSender].activeDownload) {
+                    try {
+                        console.log('[DanieWatch] Aborting active download due to new command execution.');
+                        pendingSearch[cleanSender].activeDownload.controller.abort();
+                        if (pendingSearch[cleanSender].activeDownload.ref && pendingSearch[cleanSender].activeDownload.ref.filePath) {
+                            const fp = pendingSearch[cleanSender].activeDownload.ref.filePath;
+                            if (fs.existsSync(fp)) fs.unlinkSync(fp);
+                        }
+                    } catch (e) {}
+                }
+                delete pendingConfig[cleanSender];
+                delete pendingSearch[cleanSender];
                 return;
             }
 
+            // ---- Check if it's a plain-number reply for pending config ----
+            if (pendingConfig[cleanSender]) {
+                const quotedId = getQuotedMessageId(mek);
+                if (quotedId && quotedId === pendingConfig[cleanSender].messageId) {
+                    console.log(`[DanieWatch] Found pending config for ${cleanSender} with matching quoted ID. Directing to handleConfigReply.`);
+                    await handleConfigReply(conn, mek, null, senderJid, trimmedText, reply);
+                    return;
+                }
+            }
+
             // ---- Check if it's a plain-number reply for pending search/resolution ----
-            if (pendingSearch[cleanSender] && !trimmedText.startsWith(PREFIX)) {
-                console.log(`[DanieWatch] Found pending search for ${cleanSender}. Directing text "${trimmedText}" to handleSearchReply.`);
-                await handleSearchReply(conn, mek, senderJid, trimmedText, reply);
-                return;
+            if (pendingSearch[cleanSender]) {
+                const quotedId = getQuotedMessageId(mek);
+                if (quotedId && quotedId === pendingSearch[cleanSender].messageId) {
+                    console.log(`[DanieWatch] Found pending search for ${cleanSender} with matching quoted ID. Directing to handleSearchReply.`);
+                    await handleSearchReply(conn, mek, senderJid, trimmedText, reply);
+                    return;
+                }
             }
         } catch (err) {
             console.error('[DanieDownload] Error in messages.upsert handler:', err);
@@ -391,7 +434,7 @@ async function handleConfigReply(conn, mek, m, senderJid, text, reply) {
                 // Limit top 15
                 privateChats = privateChats.slice(0, 15);
 
-                pendingConfig[cleanSender] = { step: 'private_chat', chats: privateChats };
+                pendingConfig[cleanSender] = { step: 'private_chat', chats: privateChats, messageId: null };
 
                 let list = '📋 *Select a Private Chat:*\n\n';
                 privateChats.forEach((c, i) => {
@@ -400,7 +443,11 @@ async function handleConfigReply(conn, mek, m, senderJid, text, reply) {
                 });
                 list += `\n_Reply with just the number to choose._`;
 
-                return reply(list);
+                const sent = await reply(list);
+                if (sent && sent.key) {
+                    pendingConfig[cleanSender].messageId = sent.key.id;
+                }
+                return sent;
             } catch (err) {
                 delete pendingConfig[cleanSender];
                 return reply(`❌ Failed to fetch private chats: ${err.message}`);
@@ -421,7 +468,7 @@ async function handleConfigReply(conn, mek, m, senderJid, text, reply) {
                     return reply('❌ No groups found. Make sure the bot is added to at least one group.');
                 }
 
-                pendingConfig[cleanSender] = { step: 'group', groups };
+                pendingConfig[cleanSender] = { step: 'group', groups, messageId: null };
 
                 let list = '📋 *Select a WhatsApp Group:*\n\n';
                 groups.forEach((g, i) => {
@@ -429,7 +476,11 @@ async function handleConfigReply(conn, mek, m, senderJid, text, reply) {
                 });
                 list += `\n_Reply with just the number to choose._`;
 
-                return reply(list);
+                const sent = await reply(list);
+                if (sent && sent.key) {
+                    pendingConfig[cleanSender].messageId = sent.key.id;
+                }
+                return sent;
             } catch (err) {
                 delete pendingConfig[cleanSender];
                 return reply(`❌ Failed to fetch groups: ${err.message}`);
@@ -593,7 +644,7 @@ function parseQueryToItems(q) {
 // =========================================================================
 //  .download — Enhanced: supports multiple files, movie scraping, TMDB info
 // =========================================================================
-async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal = null, activeDownloadRef = null) {
+async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal = null, activeDownloadRef = null, preferredServer = null) {
     console.log("=== DOWNLOAD COMMAND TRIGGERED ===");
     console.log("q:", q);
     try {
@@ -647,11 +698,10 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
             const tempFilePath = path.join(__dirname, 'tmp_' + Date.now() + '_' + tempFilename);
 
             // If the URL points to a redirector/landing page, resolve it first
-            const isLanding = url.includes('vcloud') || url.includes('hubcloud') || url.includes('gdflix') || url.includes('fastdl') || url.includes('filebee');
-            if (isLanding) {
+            if (isLandingUrl(url)) {
                 await reply(`⏳ Resolving redirect link: \`${url}\`...`);
                 try {
-                    const resolved = await resolveVcloudLink(url);
+                    const resolved = await resolveVcloudLink(url, preferredServer);
                     if (resolved && resolved !== url) {
                         url = resolved;
                         console.log('[DanieDownload] Resolved redirect URL:', url);
@@ -714,7 +764,7 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
             if (!ext) ext = 'mp4'; // fallback
 
             // Detect mime type using file magic bytes (read only first 4100 bytes, not the whole file)
-            let mime = response.headers['content-type'] || 'application/octet-stream';
+            let mime = (responseHeaders && responseHeaders['content-type']) || 'application/octet-stream';
             try {
                 const fd = fs.openSync(tempFilePath, 'r');
                 const magicBuffer = Buffer.alloc(4100);
@@ -1129,8 +1179,8 @@ DANIE_COMMANDS['config'] = async (conn, mek, from, senderJid, args, reply) => {
     else if (current.mode === 'private' && current.privateJid) modeLabel = `📥 *Private Chat* → ${current.privateName || current.privateJid}`;
     if (args) return handleConfigReply(conn, mek, null, senderJid, args, reply);
     const cleanSender = cleanJid(senderJid);
-    pendingConfig[cleanSender] = { step: 'mode', groups: [], chats: [] };
-    await reply(
+    pendingConfig[cleanSender] = { step: 'mode', groups: [], chats: [], messageId: null };
+    const sent = await reply(
         `⚙️ *DanieWatch Download Config*\n\n` +
         `Current setting: ${modeLabel}\n\n` +
         `Where should downloaded files be sent?\n\n` +
@@ -1139,6 +1189,9 @@ DANIE_COMMANDS['config'] = async (conn, mek, from, senderJid, args, reply) => {
         `  \`2\` — 📤 WhatsApp Groups\n\n` +
         `_Reply with just the number to select._`
     );
+    if (sent && sent.key) {
+        pendingConfig[cleanSender].messageId = sent.key.id;
+    }
 };
 
 DANIE_COMMANDS['setgroup'] = async (conn, mek, from, senderJid, args, reply) => {
@@ -1151,11 +1204,15 @@ DANIE_COMMANDS['setgroup'] = async (conn, mek, from, senderJid, args, reply) => 
     const cleanSender = cleanJid(senderJid);
     const arg = (args || '').trim().toLowerCase();
     if (!arg || arg === 'list') {
-        pendingConfig[cleanSender] = { step: 'group', groups };
+        pendingConfig[cleanSender] = { step: 'group', groups, messageId: null };
         let list = '📋 *Your Groups:*\n\n';
         groups.forEach((g, i) => { list += `  \`${i + 1}\` — ${g.subject}\n`; });
         list += `\n_Reply with just the number to select._`;
-        return reply(list);
+        const sent = await reply(list);
+        if (sent && sent.key) {
+            pendingConfig[cleanSender].messageId = sent.key.id;
+        }
+        return sent;
     }
     const num = parseInt(arg, 10);
     if (isNaN(num) || num < 1 || num > groups.length) return reply(`❌ Invalid selection. Use a number from 1 to ${groups.length}.`);
@@ -1228,7 +1285,8 @@ async function searchCommandHandler(conn, mek, from, senderJid, q, reply) {
         const cleanSender = cleanJid(senderJid);
         pendingSearch[cleanSender] = {
             step: 'select_movie',
-            results: results
+            results: results,
+            messageId: null
         };
 
         let responseText = `🔍 *Vegamovies Search Results for "${query}":*\n\n`;
@@ -1237,7 +1295,10 @@ async function searchCommandHandler(conn, mek, from, senderJid, q, reply) {
         });
         responseText += `\n_Reply with the number of the movie you want to select._`;
 
-        await reply(responseText);
+        const sent = await reply(responseText);
+        if (sent && sent.key) {
+            pendingSearch[cleanSender].messageId = sent.key.id;
+        }
     } catch(err) {
         console.error('[DanieSearch] Search failed:', err.message);
         reply(`❌ Search failed: ${err.message}`);
@@ -1295,7 +1356,8 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                 title: selectedMovie.title,
                 thumbnail: selectedMovie.thumbnail,
                 links: validLinks,
-                activeDownload: null
+                activeDownload: null,
+                messageId: null
             };
 
             let listText = `🎬 *${selectedMovie.title}*\n\nSelect a resolution to download:\n\n`;
@@ -1306,7 +1368,7 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
             listText += `\n_Reply with the number of the resolution you want._`;
 
             // Try to download and send the movie poster first, then resolutions list
-            let posterSent = false;
+            let posterSent = null;
             const posterUrl = selectedMovie.thumbnail;
             if (posterUrl) {
                 const tempPosterPath = path.join(__dirname, 'tmp_search_poster_' + Date.now() + '.jpg');
@@ -1328,11 +1390,11 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                     });
 
                     if (fs.existsSync(tempPosterPath)) {
-                        await conn.sendMessage(from, {
+                        const sentMsg = await conn.sendMessage(from, {
                             image: { url: tempPosterPath },
                             caption: listText
                         }, { quoted: mek });
-                        posterSent = true;
+                        posterSent = sentMsg;
                         fs.unlinkSync(tempPosterPath);
                     }
                 } catch (err) {
@@ -1344,7 +1406,10 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
             }
 
             if (!posterSent) {
-                await reply(listText);
+                const sent = await reply(listText);
+                pendingSearch[cleanSender].messageId = sent.key.id;
+            } else {
+                pendingSearch[cleanSender].messageId = posterSent.key.id;
             }
         } catch (err) {
             console.error('[DanieSearch] Failed to load movie post details:', err.message);
@@ -1377,7 +1442,7 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
         }
 
         const selectedLink = links[num - 1];
-        await reply(`⏳ Resolving download hosts for:\n*${selectedLink.heading || selectedLink.text}*...\nThis may take up to 30 seconds.`);
+        await reply(`⏳ Resolving download hosts for:\n*${selectedLink.heading || selectedLink.text}*...\nThis may take up to 45 seconds.`);
 
         try {
             console.log(`[DanieSearch] Resolving direct host links for redirect url: ${selectedLink.href}`);
@@ -1387,79 +1452,70 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                 return reply(`❌ No direct download links could be resolved for this resolution.`);
             }
 
-            // Automatically find the primary landing/redirect host
-            let chosenHost = directHosts.find(h => {
-                const lower = h.href.toLowerCase();
-                return lower.includes('vcloud') || lower.includes('hubcloud') || lower.includes('gdflix') || lower.includes('fastdl') || lower.includes('filebee');
+            // Filter landing/redirect hosts
+            const landingHosts = directHosts.filter(h => isLandingUrl(h.href));
+
+            let mergedOptions = [];
+            
+            if (landingHosts.length > 0) {
+                await reply(`⏳ Resolving download servers from multiple landing routes concurrently...`);
+                const subOptsResults = await Promise.all(landingHosts.map(async (host) => {
+                    try {
+                        const subOpts = await extractSubOptions(host.href);
+                        return subOpts.map(opt => ({
+                            parentHost: host.text,
+                            text: opt.text,
+                            href: opt.href
+                        }));
+                    } catch (err) {
+                        console.error(`[DanieSearch] Failed to extract options for host ${host.text}:`, err.message);
+                        return [];
+                    }
+                }));
+                mergedOptions = subOptsResults.flat();
+            }
+
+            // Also include non-landing hosts directly
+            const nonLandingHosts = directHosts.filter(h => !isLandingUrl(h.href));
+            nonLandingHosts.forEach(host => {
+                mergedOptions.push({
+                    parentHost: host.text,
+                    text: 'Direct Link',
+                    href: host.href
+                });
             });
 
-            // Fallback to the first host if none matches the preferred landing hosts
-            if (!chosenHost) {
-                chosenHost = directHosts[0];
+            if (mergedOptions.length === 0) {
+                return reply(`❌ No download links could be resolved for this resolution.`);
             }
 
-            const isLanding = chosenHost.href.includes('vcloud') || chosenHost.href.includes('hubcloud') || chosenHost.href.includes('gdflix') || chosenHost.href.includes('fastdl') || chosenHost.href.includes('filebee');
+            // Update state to wait for sub-option selection
+            state.step = 'select_sub_option';
+            state.resolutionHeading = selectedLink.heading || selectedLink.text;
+            state.directHosts = mergedOptions;
+            state.messageId = null;
 
-            if (isLanding) {
-                await reply(`⏳ Resolving download servers for this resolution...`);
-                const subOptions = await extractSubOptions(chosenHost.href);
-
-                if (subOptions && subOptions.length > 0) {
-                    // Update state to wait for sub-option selection
-                    state.step = 'select_sub_option';
-                    state.resolutionHeading = selectedLink.heading || selectedLink.text;
-                    state.directHosts = subOptions;
-
-                    let serverListText = `🌐 *Select a download server for:* \n_${selectedLink.heading || selectedLink.text}_\n\n`;
-                    subOptions.forEach((host, idx) => {
-                        serverListText += `  \`${idx + 1}\` — ${host.text}\n`;
-                    });
-                    serverListText += `\n_Reply with the server number to start the download/upload process._`;
-
-                    return reply(serverListText);
+            let serverListText = `🌐 *Select a download server for:* \n_${selectedLink.heading || selectedLink.text}_\n\n`;
+            mergedOptions.forEach((host, idx) => {
+                // Rename Fastdl to GDrive Link
+                let serverName = host.text;
+                if (serverName.toLowerCase().includes('fastdl')) {
+                    serverName = 'GDrive Link';
                 }
+                const match = serverName.match(/\[(.*?)\]/);
+                if (match && match[1]) {
+                    serverName = match[1];
+                }
+                
+                let cleanParent = host.parentHost.replace(/⚡\s*/, '').trim();
+                serverListText += `  \`${idx + 1}\` — ${cleanParent} (${serverName})\n`;
+            });
+            serverListText += `\n_Reply to this message with the server number to start download/upload._`;
+
+            const sent = await reply(serverListText);
+            if (sent && sent.key) {
+                state.messageId = sent.key.id;
             }
-
-            // Fallback: if chosenHost is not landing or has no options, download chosenHost directly
-            state.step = 'select_resolution';
-            
-            // Setup abort controller and references
-            const controller = new AbortController();
-            const activeDownloadRef = { filePath: null };
-            state.activeDownload = {
-                controller,
-                ref: activeDownloadRef
-            };
-
-            await reply(`✅ Direct link resolved: *${chosenHost.text}*\n⏳ Initiating background download/upload pipeline...\n\n_You can reply with another quality/resolution number from the list above at any time to start a new download (which will automatically cancel this one)._`);
-
-            (async () => {
-                try {
-                    let finalDirectUrl = chosenHost.href;
-                    // Prepare download query format: "Movie_Title = URL"
-                    let sanitizedTitle = (selectedLink.heading || selectedLink.text || state.title || 'Movie')
-                        .replace(/[:*?"<>|\\/]/g, '') // remove invalid filename chars
-                        .trim();
-                    
-                    const downloadQuery = `${sanitizedTitle} = ${finalDirectUrl}`;
-                    console.log(`[DanieSearch] Handing over background query: "${downloadQuery}"`);
-
-                    await downloadCommandHandler(conn, mek, from, senderJid, downloadQuery, reply, controller.signal, activeDownloadRef);
-                } catch (err) {
-                    if (err.message === 'Aborted') {
-                        console.log('[DanieSearch] Background download successfully aborted.');
-                    } else {
-                        console.error('[DanieSearch] Background download failed:', err.message);
-                        try {
-                            await reply(`❌ Failed to process download: ${err.message}`);
-                        } catch (replyErr) {}
-                    }
-                } finally {
-                    if (state.activeDownload && state.activeDownload.controller === controller) {
-                        state.activeDownload = null;
-                    }
-                }
-            })();
         } catch (err) {
             console.error('[DanieSearch] Failed to resolve hosts:', err.message);
             reply(`❌ Failed to resolve download hosts: ${err.message}`);
@@ -1511,7 +1567,7 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                 const downloadQuery = `${sanitizedTitle} = ${finalDirectUrl}`;
                 console.log(`[DanieSearch] Handing over background query: "${downloadQuery}"`);
 
-                await downloadCommandHandler(conn, mek, from, senderJid, downloadQuery, reply, controller.signal, activeDownloadRef);
+                await downloadCommandHandler(conn, mek, from, senderJid, downloadQuery, reply, controller.signal, activeDownloadRef, chosenHost.text);
             } catch (err) {
                 if (err.message === 'Aborted') {
                     console.log('[DanieSearch] Background download successfully aborted.');

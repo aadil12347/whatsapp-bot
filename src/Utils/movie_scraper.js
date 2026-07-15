@@ -303,9 +303,17 @@ async function resolveLandingLink(url) {
 /**
  * Extract direct download links from V-Cloud / HubCloud / Fastdl / Filebee pages
  */
-async function resolveVcloudLink(url) {
+async function resolveVcloudLink(url, preferredServer = null) {
     try {
         console.log('[MovieScraper] Resolving V-Cloud/HubCloud link:', url);
+
+        // Handle Pixeldrain links directly
+        if (url.includes('pixeldrain') && url.includes('/u/')) {
+            const id = url.split('/u/')[1].split('?')[0];
+            const direct = `https://pixeldrain.com/api/file/${id}?download`;
+            console.log('[MovieScraper] Resolved direct Pixeldrain link:', direct);
+            return direct;
+        }
 
         // 1. Handle Filebee links directly
         if (url.includes('filebee.xyz')) {
@@ -393,11 +401,27 @@ async function resolveVcloudLink(url) {
                 }
             });
 
-            // Prioritize: 1. fsl (non-fslv2), 2. fslv2, 3. gdrive/g-drive, 4. pixeldrain, 5. 10gbps/mega/others
-            let best = finalLinks.find(l => {
-                const txt = l.text.toLowerCase();
-                return (txt.includes('fsl') || txt.includes('fsl server')) && !txt.includes('fslv2');
-            });
+            // Prioritize: 1. preferredServer (if specified), 2. fsl (non-fslv2), 3. fslv2, 4. gdrive, 5. pixeldrain, etc.
+            let best = null;
+            if (preferredServer) {
+                const lowerPref = preferredServer.toLowerCase();
+                let cleanPref = lowerPref;
+                const matchBrackets = lowerPref.match(/\[(.*?)\]/);
+                if (matchBrackets && matchBrackets[1]) {
+                    cleanPref = matchBrackets[1];
+                }
+                best = finalLinks.find(l => {
+                    const txt = l.text.toLowerCase();
+                    return txt.includes(cleanPref) || cleanPref.includes(txt);
+                });
+            }
+
+            if (!best) {
+                best = finalLinks.find(l => {
+                    const txt = l.text.toLowerCase();
+                    return (txt.includes('fsl') || txt.includes('fsl server')) && !txt.includes('fslv2');
+                });
+            }
             if (!best) best = finalLinks.find(l => l.text.toLowerCase().includes('fslv2'));
             if (!best) best = finalLinks.find(l => l.text.toLowerCase().includes('gdrive') || l.text.toLowerCase().includes('drive') || l.text.toLowerCase().includes('g-drive'));
             if (!best) best = finalLinks.find(l => l.text.toLowerCase().includes('pixeldrain') || l.text.toLowerCase().includes('pixelserver'));
@@ -412,7 +436,7 @@ async function resolveVcloudLink(url) {
                     const parsed = new URL(decodedLink);
                     directUrl = `${parsed.protocol}//${parsed.host}${directUrl.startsWith('/') ? '' : '/'}${directUrl}`;
                 }
-                if (directUrl.includes('pixeldrain.com/u/')) {
+                if (directUrl.includes('pixeldrain') && directUrl.includes('/u/')) {
                     const id = directUrl.split('/u/')[1].split('?')[0];
                     directUrl = `https://pixeldrain.com/api/file/${id}?download`;
                 }
@@ -685,7 +709,7 @@ async function extractSubOptions(url) {
                         href = `${parsed.protocol}//${parsed.host}${href.startsWith('/') ? '' : '/'}${href}`;
                     }
 
-                    if (href.includes('pixeldrain.com/u/')) {
+                    if (href.includes('pixeldrain') && href.includes('/u/')) {
                         const id = href.split('/u/')[1].split('?')[0];
                         href = `https://pixeldrain.com/api/file/${id}?download`;
                     }
