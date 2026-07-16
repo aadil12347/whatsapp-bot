@@ -269,6 +269,11 @@ async function downloadFileWithResume(url, tempFilePath, customHeaders = {}, abo
 
             if (!streamError) {
                 console.log(`[DanieDownload] Download completed. Total bytes: ${downloadedBytes}`);
+                // Reject suspiciously small files (likely HTML error pages, not video/audio)
+                if (downloadedBytes < 5000) {
+                    if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+                    throw new Error(`Downloaded file too small (${downloadedBytes} bytes) - likely an error page`);
+                }
                 return response.headers; // success!
             }
         } catch (err) {
@@ -1439,8 +1444,12 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
         ref: activeDownloadRef
     };
 
-    // Transition step back to select_resolution so the user can make another choice immediately
-    state.step = 'select_resolution';
+    // Transition step back so the user can make another choice immediately
+    if (state.episodesList && state.episodesList.length > 0) {
+        state.step = 'select_episode';
+    } else {
+        state.step = 'select_resolution';
+    }
 
     // Start background download pipeline
     (async () => {
@@ -1448,12 +1457,19 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
             const hostsList = Array.isArray(chosenHosts) ? chosenHosts : [chosenHosts];
             let candidates = [];
             
+            // Prefer VCloud hosts (vcloud.zip, hubcloud) over other landing pages (fastdl, filebee)
+            const vcloudHosts = hostsList.filter(h => {
+                const lh = (h.href || '').toLowerCase();
+                return lh.includes('vcloud') || lh.includes('hubcloud');
+            });
+            const hostsToProcess = vcloudHosts.length > 0 ? vcloudHosts : hostsList;
+            
             const candidates10g = [];
             const candidatesFslv2 = [];
             const candidatesFsl = [];
             const candidatesOther = [];
 
-            for (const host of hostsList) {
+            for (const host of hostsToProcess) {
                 if (isLandingUrl(host.href)) {
                     console.log(`[DanieSearch] Resolving sub-options for landing url: ${host.href}`);
                     try {
@@ -1481,13 +1497,18 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
                 }
             }
 
-            // Combine in priority order: 10Gbps -> FSLv2 -> FSL -> Others
-            candidates = [
-                ...candidates10g,
-                ...candidatesFslv2,
-                ...candidatesFsl,
-                ...candidatesOther
-            ];
+            // If VCloud servers exist (FSLv2, FSL, 10Gbps), use ONLY those — skip unreliable hosts
+            const hasVcloudServers = candidatesFslv2.length > 0 || candidatesFsl.length > 0 || candidates10g.length > 0;
+            if (hasVcloudServers) {
+                // Priority: FSLv2 -> FSL -> 10Gbps (last resort, often 404s on cloud IPs)
+                candidates = [
+                    ...candidatesFslv2,
+                    ...candidatesFsl,
+                    ...candidates10g
+                ];
+            } else {
+                candidates = [...candidatesOther];
+            }
             
             // If no specific candidates found, fallback to original hosts themselves
             if (candidates.length === 0) {
@@ -1534,6 +1555,11 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
 
             if (!downloadSuccess) {
                 throw lastError || new Error('All download links failed.');
+            } else {
+                const isTvShow = state.episodesList && state.episodesList.length > 0;
+                if (!isTvShow) {
+                    delete pendingSearch[cleanJid(senderJid)];
+                }
             }
 
         } catch (err) {
@@ -1610,19 +1636,30 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                 return reply(`❌ No valid download links could be parsed from this post.`);
             }
 
+            // Prefer VCloud/NexDrive links when available, always exclude GDirect/TGDrive
+            const vcloudResLinks = validLinks.filter(l => {
+                const lh = l.href.toLowerCase();
+                return lh.includes('nexdrive') || lh.includes('vgmlink') || lh.includes('vcloud') || lh.includes('hubcloud');
+            });
+            const nonBadLinks = (vcloudResLinks.length > 0 ? vcloudResLinks : validLinks).filter(l => {
+                const lh = l.href.toLowerCase();
+                return !lh.includes('gdirect') && !lh.includes('tgdrive') && !lh.includes('telegram');
+            });
+            const displayLinks = nonBadLinks.length > 0 ? nonBadLinks : validLinks;
+
             // Update state
             pendingSearch[cleanSender] = {
                 step: 'select_resolution',
                 title: selectedMovie.title,
                 permalink: selectedMovie.permalink,
                 thumbnail: selectedMovie.thumbnail,
-                links: validLinks,
+                links: displayLinks,
                 activeDownload: null,
                 messageId: null
             };
 
             let listText = `🎬 *${selectedMovie.title}*\n\nSelect a resolution to download:\n\n`;
-            validLinks.forEach((l, i) => {
+            displayLinks.forEach((l, i) => {
                 const cleanText = l.text.replace(/⚡\s*/g, '').trim();
                 const label = l.heading 
                     ? `${l.heading} — *${cleanText}* (${l.resolution})` 
@@ -1726,7 +1763,13 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                 }
             });
 
-            if (episodesMap.size > 0) {
+            // Check if this post or resolution link represents a TV series/show
+            const isTvShow = /season\s*\d+|series|episode/i.test(state.title || '') || 
+                             (state.type === 'tv') || 
+                             /season\s*\d+|series|episode/i.test(selectedLink.heading || '') || 
+                             /season\s*\d+|series|episode/i.test(selectedLink.text || '');
+
+            if (isTvShow && episodesMap.size > 0) {
                 // TV Show episode selection!
                 state.step = 'select_episode';
                 state.resolutionHeading = selectedLink.heading || selectedLink.text;
