@@ -3,7 +3,7 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const fileType = require('file-type');
-const { fetchTmdbMetadata, fetchTmdbById, scrapePostPage, resolveLandingLink, resolveVcloudLink, scrapeAllPostLinks, extractDirectDownloadLinks, extractSubOptions } = require('../Utils/movie_scraper');
+const { fetchTmdbMetadata, fetchTmdbById, scrapePostPage, resolveLandingLink, resolveVcloudLink, resolveFinalUrl, scrapeAllPostLinks, extractDirectDownloadLinks, extractSubOptions } = require('../Utils/movie_scraper');
 
 // Global handlers to prevent background network disconnect errors from crashing the Node process
 process.on('unhandledRejection', (reason, promise) => {
@@ -87,8 +87,8 @@ function generateCustomFileName(state, primaryHost) {
     let cleanTitle = '';
 
     if (isTvShow) {
-        // Keep everything up to and including "Season N" (with optional parentheses)
-        const seasonMatch = postTitle.match(/^(.*?\(?\s*season\s*\d+\s*\)?)/i);
+        // Keep everything up to and including "Season N" or "Season N - M" (with optional parentheses)
+        const seasonMatch = postTitle.match(/^(.*?\(?\s*season\s*\d+(?:\s*[-–]\s*\d+)?\s*\)?)/i);
         if (seasonMatch) {
             cleanTitle = seasonMatch[1].trim();
         } else {
@@ -1477,9 +1477,31 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
             for (const host of hostsToProcess) {
                 if (isLandingUrl(host.href)) {
                     console.log(`[DanieSearch] Resolving sub-options for landing url: ${host.href}`);
-                    try {
-                        const subOpts = await extractSubOptions(host.href);
-                        
+                    
+                    let subOpts = null;
+                    // Try up to 2 attempts for sub-options extraction
+                    for (let attempt = 1; attempt <= 2; attempt++) {
+                        try {
+                            subOpts = await extractSubOptions(host.href);
+                            // Check if we got real server options (not just 'Original Link' fallback)
+                            const hasRealServers = subOpts.some(opt => {
+                                const t = opt.text.toLowerCase();
+                                return t.includes('fsl') || t.includes('10gbps') || t.includes('server');
+                            });
+                            if (hasRealServers || attempt >= 2) break;
+                            // Only got 'Original Link' - retry after delay
+                            console.log(`[DanieSearch] Sub-options attempt ${attempt} returned no servers, retrying in 3s...`);
+                            await new Promise(r => setTimeout(r, 3000));
+                        } catch (subErr) {
+                            console.error(`[DanieSearch] Sub-options attempt ${attempt} failed for ${host.href}:`, subErr.message);
+                            if (attempt < 2) {
+                                console.log(`[DanieSearch] Retrying sub-options in 3s...`);
+                                await new Promise(r => setTimeout(r, 3000));
+                            }
+                        }
+                    }
+                    
+                    if (subOpts && subOpts.length > 0) {
                         const opt10gbps = subOpts.find(opt => opt.text.toLowerCase().includes('10gbps'));
                         const optFslv2 = subOpts.find(opt => opt.text.toLowerCase().includes('fslv2'));
                         const optFsl = subOpts.find(opt => opt.text.toLowerCase().includes('fsl') && !opt.text.toLowerCase().includes('fslv2'));
@@ -1494,8 +1516,6 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
                                 candidatesOther.push({ name: opt.text, href: opt.href });
                             }
                         });
-                    } catch (subErr) {
-                        console.error(`[DanieSearch] Failed to extract sub-options for ${host.href}:`, subErr.message);
                     }
                 } else {
                     candidatesOther.push({ name: host.text || 'Direct Link', href: host.href });
@@ -1541,6 +1561,24 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
 
             for (let i = 0; i < candidates.length; i++) {
                 const cand = candidates[i];
+                
+                // Resolve 10Gbps server links via redirect chain before download
+                if (cand.name.toLowerCase().includes('10gbps') || cand.name.toLowerCase().includes('10 gbps')) {
+                    console.log(`[DanieSearch] Resolving 10Gbps redirect chain for: ${cand.href}`);
+                    try {
+                        let resolved = await resolveFinalUrl(cand.href);
+                        if (resolved && resolved.includes('link=')) {
+                            resolved = decodeURIComponent(resolved.split('link=')[1].split('&')[0]);
+                        }
+                        if (resolved && resolved !== cand.href) {
+                            console.log(`[DanieSearch] 10Gbps resolved to: ${resolved}`);
+                            cand.href = resolved;
+                        }
+                    } catch (e) {
+                        console.error(`[DanieSearch] 10Gbps resolution failed:`, e.message);
+                    }
+                }
+                
                 const downloadQuery = `${sanitizedTitle} = ${cand.href}`;
                 console.log(`[DanieSearch] Fallback Attempt ${i + 1}: Trying ${cand.name}...`);
                 

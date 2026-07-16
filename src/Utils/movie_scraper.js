@@ -11,6 +11,38 @@ const HEADERS = {
 };
 
 /**
+ * Follow redirect chain using HEAD requests (up to 7 hops) to resolve final URL.
+ * Used for 10Gbps server links that go through multiple redirects.
+ * Mirrors the CSX/VegaMovies Extractors.kt resolveFinalUrl approach.
+ */
+async function resolveFinalUrl(startUrl) {
+    let currentUrl = startUrl;
+    const maxRedirects = 7;
+
+    for (let i = 0; i < maxRedirects; i++) {
+        try {
+            const res = await axios.head(currentUrl, {
+                headers: HEADERS,
+                timeout: 5000,
+                maxRedirects: 0,
+                validateStatus: (status) => status >= 200 && status < 400
+            });
+            const location = res.headers['location'];
+            if (!location) break;
+            currentUrl = location;
+        } catch (err) {
+            // If we get a redirect in the error response, follow it
+            if (err.response && err.response.headers && err.response.headers['location']) {
+                currentUrl = err.response.headers['location'];
+            } else {
+                break;
+            }
+        }
+    }
+    return currentUrl;
+}
+
+/**
  * Clean up title by removing tags and year
  */
 function cleanTitle(title) {
@@ -432,14 +464,56 @@ async function resolveVcloudLink(url, preferredServer = null) {
 
             if (best) {
                 let directUrl = best.href;
+                const bestText = best.text.toLowerCase();
                 if (!directUrl.startsWith('http')) {
                     const parsed = new URL(decodedLink);
                     directUrl = `${parsed.protocol}//${parsed.host}${directUrl.startsWith('/') ? '' : '/'}${directUrl}`;
                 }
-                if (directUrl.includes('pixeldrain') && directUrl.includes('/u/')) {
+
+                // Server-specific resolution (from CSX/VegaMovies reference)
+                if (bestText.includes('10gbps') || bestText.includes('10 gbps')) {
+                    // 10Gbps: Follow redirect chain, extract link= parameter
+                    console.log('[MovieScraper] Resolving 10Gbps server via redirect chain:', directUrl);
+                    try {
+                        let redirectUrl = await resolveFinalUrl(directUrl);
+                        if (redirectUrl && redirectUrl.includes('link=')) {
+                            redirectUrl = redirectUrl.split('link=')[1];
+                            if (redirectUrl.includes('&')) redirectUrl = redirectUrl.split('&')[0];
+                            redirectUrl = decodeURIComponent(redirectUrl);
+                        }
+                        directUrl = redirectUrl || directUrl;
+                    } catch (e) {
+                        console.error('[MovieScraper] 10Gbps redirect resolution failed:', e.message);
+                    }
+                } else if (bestText.includes('buzzserver')) {
+                    // BuzzServer: GET {link}/download with referer, extract hx-redirect header
+                    console.log('[MovieScraper] Resolving BuzzServer link:', directUrl);
+                    try {
+                        const buzzRes = await axios.get(`${directUrl}/download`, {
+                            headers: { ...HEADERS, 'Referer': directUrl },
+                            maxRedirects: 0,
+                            timeout: 15000,
+                            validateStatus: (status) => status >= 200 && status < 400
+                        });
+                        const hxRedirect = buzzRes.headers['hx-redirect'];
+                        if (hxRedirect) {
+                            const buzzBase = new URL(directUrl);
+                            directUrl = hxRedirect.startsWith('http') ? hxRedirect : `${buzzBase.protocol}//${buzzBase.host}${hxRedirect}`;
+                        }
+                    } catch (e) {
+                        if (e.response && e.response.headers && e.response.headers['hx-redirect']) {
+                            const hxRedirect = e.response.headers['hx-redirect'];
+                            const buzzBase = new URL(directUrl);
+                            directUrl = hxRedirect.startsWith('http') ? hxRedirect : `${buzzBase.protocol}//${buzzBase.host}${hxRedirect}`;
+                        } else {
+                            console.error('[MovieScraper] BuzzServer resolution failed:', e.message);
+                        }
+                    }
+                } else if (directUrl.includes('pixeldrain') && directUrl.includes('/u/')) {
                     const id = directUrl.split('/u/')[1].split('?')[0];
                     directUrl = `https://pixeldrain.com/api/file/${id}?download`;
                 }
+
                 console.log('[MovieScraper] Resolved final direct URL:', directUrl);
                 return directUrl;
             }
@@ -712,7 +786,7 @@ async function extractSubOptions(url) {
 
         // 1. Handle Filebee links directly
         if (url.includes('filebee.xyz')) {
-            const res = await axios.get(url, { headers: HEADERS, timeout: 15000 });
+            const res = await axios.get(url, { headers: HEADERS, timeout: 30000 });
             const $ = cheerio.load(res.data);
             const finalLinks = [];
             $('a[href*="cdn-cgi/content"], a[href*="filepress"]').each((_, el) => {
@@ -725,7 +799,7 @@ async function extractSubOptions(url) {
 
         // 2. Handle Fastdl direct link redirection
         if (url.includes('fastdl.zip')) {
-            const res = await axios.get(url, { headers: HEADERS, timeout: 15000 });
+            const res = await axios.get(url, { headers: HEADERS, timeout: 30000 });
             const scriptContent = res.data;
             const reurlRegex = /reurl\s*=\s*['"]([^'"]+)['"]/i;
             const match = reurlRegex.exec(scriptContent);
@@ -744,7 +818,7 @@ async function extractSubOptions(url) {
         }
 
         // 3. Default: HubCloud / VCloud / GDflix
-        const res = await axios.get(url, { headers: HEADERS, timeout: 15000 });
+        const res = await axios.get(url, { headers: HEADERS, timeout: 30000 });
         const $ = cheerio.load(res.data);
 
         const scriptContent = $('script').text() || '';
@@ -783,7 +857,7 @@ async function extractSubOptions(url) {
             }
 
             console.log('[MovieScraper] Fetching final download landing page to extract options:', decodedLink);
-            const dlRes = await axios.get(decodedLink, { headers: HEADERS, timeout: 15000 });
+            const dlRes = await axios.get(decodedLink, { headers: HEADERS, timeout: 30000 });
             const dl$ = cheerio.load(dlRes.data);
 
             const finalLinks = [];
@@ -837,6 +911,7 @@ module.exports = {
     scrapePostPage,
     resolveLandingLink,
     resolveVcloudLink,
+    resolveFinalUrl,
     cleanTitle,
     scrapeAllPostLinks,
     extractDirectDownloadLinks,
