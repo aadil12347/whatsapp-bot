@@ -1636,16 +1636,29 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                 return reply(`❌ No valid download links could be parsed from this post.`);
             }
 
-            // Prefer VCloud/NexDrive links when available, always exclude GDirect/TGDrive
-            const vcloudResLinks = validLinks.filter(l => {
-                const lh = l.href.toLowerCase();
-                return lh.includes('nexdrive') || lh.includes('vgmlink') || lh.includes('vcloud') || lh.includes('hubcloud');
+            // If any link explicitly says "V-Cloud" in its text, keep ONLY V-Cloud links
+            const hasVcloudText = validLinks.some(l => {
+                const lt = l.text.toLowerCase();
+                return lt.includes('v-cloud') || lt.includes('vcloud');
             });
-            const nonBadLinks = (vcloudResLinks.length > 0 ? vcloudResLinks : validLinks).filter(l => {
-                const lh = l.href.toLowerCase();
-                return !lh.includes('gdirect') && !lh.includes('tgdrive') && !lh.includes('telegram');
-            });
-            const displayLinks = nonBadLinks.length > 0 ? nonBadLinks : validLinks;
+
+            let displayLinks;
+            if (hasVcloudText) {
+                // V-Cloud links exist — keep ONLY those, drop G-Direct/TGDrive/etc
+                displayLinks = validLinks.filter(l => {
+                    const lt = l.text.toLowerCase();
+                    return lt.includes('v-cloud') || lt.includes('vcloud');
+                });
+            } else {
+                // No V-Cloud text labels — exclude known bad ones but keep the rest
+                displayLinks = validLinks.filter(l => {
+                    const lt = l.text.toLowerCase();
+                    return !lt.includes('g-direct') && !lt.includes('gdirect') && 
+                           !lt.includes('tgdrive') && !lt.includes('telegram');
+                });
+            }
+            // Fall back to all valid links if filtering removed everything
+            if (displayLinks.length === 0) displayLinks = validLinks;
 
             // Update state
             pendingSearch[cleanSender] = {
