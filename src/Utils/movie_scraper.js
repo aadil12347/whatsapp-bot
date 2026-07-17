@@ -973,7 +973,168 @@ async function extractSubOptions(url) {
 }
 
 /**
- * Search HDHub4u via Typesense API with robust retries, query variants, and full headers
+ * ============================================================
+ * HDHub4u Sitemap-based Fallback Search
+ * ============================================================
+ * The Typesense API at search.pingora.fyi gets 403 from cloud/datacenter IPs
+ * (GitHub Codespaces, Azure, etc.). This fallback fetches all post URLs from
+ * the HDHub4u XML sitemaps and searches against them locally.
+ * The sitemap is cached in memory and refreshed every 6 hours.
+ */
+
+// In-memory sitemap cache
+let _sitemapCache = { urls: [], lastFetched: 0 };
+const SITEMAP_CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hours in ms
+let _sitemapFetchPromise = null; // prevent concurrent fetches
+
+/**
+ * Fetch all post URLs from HDHub4u sitemaps (14 sitemap files, ~13k+ URLs).
+ * Uses in-memory cache with 6-hour TTL.
+ */
+async function getHdhub4uSitemapUrls() {
+    const now = Date.now();
+    if (_sitemapCache.urls.length > 0 && (now - _sitemapCache.lastFetched) < SITEMAP_CACHE_TTL) {
+        return _sitemapCache.urls;
+    }
+
+    // Prevent concurrent fetches (multiple searches happening at once)
+    if (_sitemapFetchPromise) {
+        return _sitemapFetchPromise;
+    }
+
+    _sitemapFetchPromise = (async () => {
+        try {
+            console.log('[DanieSearch] Fetching HDHub4u sitemaps for fallback search index...');
+            const allUrls = [];
+
+            // First fetch the sitemap index to discover all post-sitemap files
+            let sitemapFiles = [];
+            try {
+                const indexRes = await axios.get('https://new3.hdhub4u.cl/sitemap.xml', {
+                    headers: HEADERS,
+                    timeout: 15000
+                });
+                const $ = cheerio.load(indexRes.data, { xmlMode: true });
+                $('sitemap loc').each((_, el) => {
+                    const loc = $(el).text();
+                    if (loc.includes('post-sitemap')) {
+                        sitemapFiles.push(loc);
+                    }
+                });
+            } catch (e) {
+                console.warn('[DanieSearch] Sitemap index fetch failed, using known pattern:', e.message);
+            }
+
+            // Fallback: if index fetch failed, use known pattern (post-sitemap through post-sitemap14)
+            if (sitemapFiles.length === 0) {
+                for (let i = 1; i <= 14; i++) {
+                    const suffix = i === 1 ? '' : String(i);
+                    sitemapFiles.push(`https://new3.hdhub4u.cl/post-sitemap${suffix}.xml`);
+                }
+            }
+
+            // Fetch all sitemap files concurrently (batch of 4 at a time for speed)
+            const batchSize = 4;
+            for (let i = 0; i < sitemapFiles.length; i += batchSize) {
+                const batch = sitemapFiles.slice(i, i + batchSize);
+                const results = await Promise.allSettled(
+                    batch.map(url =>
+                        axios.get(url, { headers: HEADERS, timeout: 15000 })
+                            .then(res => {
+                                const $ = cheerio.load(res.data, { xmlMode: true });
+                                const urls = [];
+                                $('url loc').each((_, el) => urls.push($(el).text()));
+                                return urls;
+                            })
+                    )
+                );
+                for (const result of results) {
+                    if (result.status === 'fulfilled') {
+                        allUrls.push(...result.value);
+                    }
+                }
+            }
+
+            console.log(`[DanieSearch] Sitemap index loaded: ${allUrls.length} URLs from ${sitemapFiles.length} sitemaps`);
+            _sitemapCache = { urls: allUrls, lastFetched: Date.now() };
+            return allUrls;
+        } catch (err) {
+            console.error('[DanieSearch] Sitemap fetch failed:', err.message);
+            return _sitemapCache.urls; // Return stale cache if available
+        } finally {
+            _sitemapFetchPromise = null;
+        }
+    })();
+
+    return _sitemapFetchPromise;
+}
+
+/**
+ * Search HDHub4u posts using the cached sitemap URLs.
+ * Performs fuzzy matching on URL slugs.
+ */
+async function searchHdhub4uViaSitemap(query) {
+    const urls = await getHdhub4uSitemapUrls();
+    if (urls.length === 0) return [];
+
+    const lq = query.toLowerCase().replace(/[^a-z0-9\s]/g, '');
+    const words = lq.split(/\s+/).filter(w => w.length > 1);
+    if (words.length === 0) return [];
+
+    const scored = [];
+    for (const url of urls) {
+        // Extract slug from URL
+        const slug = url.replace(/\/$/, '').split('/').pop() || '';
+        const cleanSlug = slug.replace(/-/g, ' ').toLowerCase();
+
+        let score = 0;
+        let matchedWords = 0;
+
+        for (const word of words) {
+            if (cleanSlug.includes(word)) {
+                score += word.length;
+                matchedWords++;
+            }
+        }
+
+        // Skip if the primary keyword (first word) doesn't match
+        if (!cleanSlug.includes(words[0])) continue;
+        if (matchedWords === 0) continue;
+
+        // Bonus for matching ALL query words
+        if (matchedWords === words.length) score += 20;
+        // Bonus for matching most words
+        if (matchedWords >= words.length * 0.75) score += 10;
+
+        // Build a readable title from slug
+        const title = slug
+            .replace(/-/g, ' ')
+            .replace(/\b\w/g, c => c.toUpperCase())
+            .replace(/^\s+|\s+$/g, '');
+
+        scored.push({
+            title,
+            permalink: url,
+            thumbnail: null,
+            score,
+            matchedWords
+        });
+    }
+
+    // Sort by score descending, then shorter URLs first (more specific)
+    scored.sort((a, b) => b.score - a.score || a.permalink.length - b.permalink.length);
+
+    // Return top 15 results
+    return scored.slice(0, 15).map(({ title, permalink, thumbnail }) => ({
+        title,
+        permalink,
+        thumbnail
+    }));
+}
+
+/**
+ * Search HDHub4u via Typesense API with robust retries, query variants, and full headers.
+ * Falls back to sitemap-based search if Typesense API fails (e.g., 403 from cloud IPs).
  */
 async function searchHdhub4u(query) {
     if (!query || !query.trim()) return [];
@@ -1002,8 +1163,10 @@ async function searchHdhub4u(query) {
         'Sec-Fetch-Site': 'cross-site'
     };
 
+    // === PRIMARY: Try Typesense API ===
+    let typesenseFailed = false;
     for (const q of queriesToTry) {
-        console.log(`[MovieScraper] Trying HDHub4u search query: "${q}"...`);
+        console.log(`[DanieSearch] Trying HDHub4u Typesense search: "${q}"...`);
         const apiUrl = new URL('https://search.pingora.fyi/collections/post/documents/search');
         apiUrl.searchParams.append('q', q);
         apiUrl.searchParams.append('query_by', 'post_title,category,stars,director,imdb_id');
@@ -1015,7 +1178,7 @@ async function searchHdhub4u(query) {
         apiUrl.searchParams.append('page', 1);
         apiUrl.searchParams.append('analytics_tag', today);
 
-        for (let attempt = 1; attempt <= 3; attempt++) {
+        for (let attempt = 1; attempt <= 2; attempt++) {
             try {
                 const res = await axios.get(apiUrl.toString(), {
                     headers,
@@ -1024,7 +1187,7 @@ async function searchHdhub4u(query) {
                 });
 
                 if (res.data && res.data.hits && res.data.hits.length > 0) {
-                    console.log(`[MovieScraper] Search succeeded on attempt ${attempt} for "${q}" (${res.data.hits.length} hits)`);
+                    console.log(`[DanieSearch] Typesense search succeeded for "${q}" (${res.data.hits.length} hits)`);
                     return res.data.hits.map(h => ({
                         title: h.document.post_title.replace(/&amp;/g, '&'),
                         permalink: h.document.permalink.startsWith('http') ? h.document.permalink : `https://new3.hdhub4u.cl${h.document.permalink.startsWith('/') ? '' : '/'}${h.document.permalink}`,
@@ -1032,10 +1195,28 @@ async function searchHdhub4u(query) {
                     }));
                 }
             } catch (err) {
-                console.error(`[MovieScraper] Search attempt ${attempt} failed for "${q}":`, err.message);
-                if (attempt < 3) await new Promise(r => setTimeout(r, 1000));
+                const status = err.response ? err.response.status : 'N/A';
+                console.error(`[DanieSearch] Typesense attempt ${attempt} failed for "${q}": ${err.message} (status=${status})`);
+                if (status === 403 || status === 503) {
+                    typesenseFailed = true;
+                    break; // Don't retry on 403/503, go straight to fallback
+                }
+                if (attempt < 2) await new Promise(r => setTimeout(r, 500));
             }
         }
+        if (typesenseFailed) break; // Skip other query variants, go to fallback
+    }
+
+    // === FALLBACK: Search via sitemap ===
+    console.log(`[DanieSearch] Typesense API unavailable, falling back to sitemap search for "${cleanQuery}"...`);
+    try {
+        const sitemapResults = await searchHdhub4uViaSitemap(cleanQuery);
+        if (sitemapResults.length > 0) {
+            console.log(`[DanieSearch] Sitemap fallback found ${sitemapResults.length} results for "${cleanQuery}"`);
+            return sitemapResults;
+        }
+    } catch (err) {
+        console.error('[DanieSearch] Sitemap fallback failed:', err.message);
     }
 
     return [];
@@ -1052,7 +1233,7 @@ module.exports = {
     scrapeAllPostLinks,
     extractDirectDownloadLinks,
     extractSubOptions,
-    searchHdhub4u
+    searchHdhub4u,
+    searchHdhub4uViaSitemap,
+    getHdhub4uSitemapUrls
 };
-
-
