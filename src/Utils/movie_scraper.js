@@ -1,7 +1,22 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
+const https = require('https');
 
 const TMDB_API_KEY = process.env.TMDB_API_KEY || 'fc6d85b3839330e3458701b975195487';
+
+const browserHttpsAgent = new https.Agent({
+    ciphers: [
+        'TLS_AES_128_GCM_SHA256',
+        'TLS_AES_256_GCM_SHA384',
+        'TLS_CHACHA20_POLY1305_SHA256',
+        'ECDHE-ECDSA-AES128-GCM-SHA256',
+        'ECDHE-RSA-AES128-GCM-SHA256',
+        'ECDHE-ECDSA-AES256-GCM-SHA384',
+        'ECDHE-RSA-AES256-GCM-SHA384'
+    ].join(':'),
+    honorCipherOrder: true,
+    minVersion: 'TLSv1.2'
+});
 
 // Common User-Agent to bypass simple blocks
 const HEADERS = {
@@ -594,19 +609,18 @@ async function scrapeAllPostLinks(url) {
             let precedingHeading = '';
             let curr = $(el).closest('p, div, h4, h3, h2');
             let count = 0;
-            while (curr.length && count < 5) {
+            while (curr.length && count < 5 && !precedingHeading) {
                 let sib = curr.prev();
                 while (sib.length) {
                     const text = sib.text().trim();
                     if (text && (text.includes('720p') || text.includes('1080p') || text.includes('480p') || text.includes('2160p') || text.includes('4K') || /^h[1-6]$/i.test(sib[0].name))) {
                         if (!text.toLowerCase().includes('how to download')) {
-                            precedingHeading += ' ' + text;
-                            if (text.includes('720p') || text.includes('1080p') || text.includes('480p') || text.includes('2160p')) break;
+                            precedingHeading = text.substring(0, 100);
+                            break;
                         }
                     }
                     sib = sib.prev();
                 }
-                if (precedingHeading.includes('720p') || precedingHeading.includes('1080p') || precedingHeading.includes('480p') || precedingHeading.includes('2160p')) break;
                 curr = curr.parent();
                 count++;
             }
@@ -1008,6 +1022,7 @@ async function searchHdhub4u(query) {
             try {
                 const res = await axios.get(apiUrl.toString(), {
                     headers,
+                    httpsAgent: browserHttpsAgent,
                     timeout: 8000
                 });
 
