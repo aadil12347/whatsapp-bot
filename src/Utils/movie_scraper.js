@@ -640,67 +640,84 @@ function findEpisodeText($, el, pageTitle) {
         }
     }
 
-    // Find raw episode text
-    let episodeNum = null;
-    const selfText = ($(el).text().trim() + ' ' + $(el).parent().text().trim()).toLowerCase();
-    const selfMatch = selfText.match(/episode[s]?[:]?\s*(\d+)/i);
-    if (selfMatch) {
-        episodeNum = parseInt(selfMatch[1], 10);
+    // --- Helper: try to parse an episode range or single number from text ---
+    // Matches patterns like: "Episodes: 12 + 15", "Episode: 1 + 07", "Episodes 8 - 11"
+    const rangeRegex = /episode[s]?\s*[:\s]\s*(\d+)\s*[\+\-–—]\s*(\d+)/i;
+    // Matches single: "Episode: 12", "Episode 5"
+    const singleRegex = /episode[s]?\s*[:\s]\s*(\d+)/i;
+
+    function parseEpisodeFromText(text) {
+        if (!text) return null;
+        const rangeMatch = text.match(rangeRegex);
+        if (rangeMatch) {
+            const startEp = parseInt(rangeMatch[1], 10);
+            const endEp = parseInt(rangeMatch[2], 10);
+            const startStr = `E${String(startEp).padStart(2, '0')}`;
+            const endStr = `E${String(endEp).padStart(2, '0')}`;
+            return { type: 'range', label: seasonPrefix ? `${seasonPrefix}${startStr}-${endStr}` : `Episode ${startEp}-${endEp}` };
+        }
+        const singleMatch = text.match(singleRegex);
+        if (singleMatch) {
+            const epNum = parseInt(singleMatch[1], 10);
+            const epStr = `E${String(epNum).padStart(2, '0')}`;
+            return { type: 'single', label: seasonPrefix ? `${seasonPrefix}${epStr}` : `Episode ${epNum}` };
+        }
+        return null;
     }
 
-    if (episodeNum === null) {
-        const row = $(el).closest('tr');
-        if (row.length) {
-            const firstTd = row.find('td').first().text().trim();
-            const firstTdMatch = firstTd.match(/episode[s]?[:]?\s*(\d+)/i);
-            if (firstTdMatch) {
-                episodeNum = parseInt(firstTdMatch[1], 10);
-            } else if (/^\d+$/.test(firstTd)) {
-                episodeNum = parseInt(firstTd, 10);
-            }
+    // 1. Check the element's own text and parent text
+    const selfText = ($(el).text().trim() + ' ' + $(el).parent().text().trim());
+    const selfResult = parseEpisodeFromText(selfText);
+    if (selfResult) return selfResult.label;
+
+    // 2. Check table row context
+    const row = $(el).closest('tr');
+    if (row.length) {
+        const firstTd = row.find('td').first().text().trim();
+        const rowResult = parseEpisodeFromText(firstTd);
+        if (rowResult) return rowResult.label;
+        // Fallback: bare number in table cell
+        if (/^\d+$/.test(firstTd)) {
+            const epNum = parseInt(firstTd, 10);
+            const epStr = `E${String(epNum).padStart(2, '0')}`;
+            return seasonPrefix ? `${seasonPrefix}${epStr}` : `Episode ${epNum}`;
         }
     }
 
-    if (episodeNum === null) {
-        let curr = $(el).closest('p, div, td, tr, li');
-        let found = false;
-        let episodeText = '';
-        while (curr.length && !found) {
-            let sib = curr.prev();
-            while (sib.length) {
-                const name = sib[0].name.toLowerCase();
-                const sibText = sib.text().trim();
-                if (/^h[1-6]$/.test(name) || (name === 'p' && sibText.toLowerCase().includes('episode'))) {
-                    if (sibText) {
-                        episodeText = sibText;
-                        found = true;
-                        break;
-                    }
+    // 3. Walk preceding siblings to find episode heading
+    let curr = $(el).closest('p, div, td, tr, li');
+    let found = false;
+    let episodeText = '';
+    while (curr.length && !found) {
+        let sib = curr.prev();
+        while (sib.length) {
+            const name = sib[0].name.toLowerCase();
+            const sibText = sib.text().trim();
+            if (/^h[1-6]$/.test(name) || (name === 'p' && sibText.toLowerCase().includes('episode'))) {
+                if (sibText) {
+                    episodeText = sibText;
+                    found = true;
+                    break;
                 }
-                sib = sib.prev();
             }
-            curr = curr.parent();
+            sib = sib.prev();
         }
-
-        if (episodeText) {
-            const matchEp = episodeText.match(/episode[s]?[:]?\s*(\d+)/i);
-            if (matchEp) {
-                episodeNum = parseInt(matchEp[1], 10);
-            } else {
-                const cleanText = episodeText.replace(/^[-:\s]+|[-:\s]+$/g, '').trim();
-                const matchNum = cleanText.match(/\b(\d+)\b/);
-                if (matchNum) {
-                    episodeNum = parseInt(matchNum[1], 10);
-                } else {
-                    return seasonPrefix ? `${seasonPrefix} - ${cleanText}` : cleanText;
-                }
-            }
-        }
+        curr = curr.parent();
     }
 
-    if (episodeNum !== null) {
-        const epStr = `E${String(episodeNum).padStart(2, '0')}`;
-        return seasonPrefix ? `${seasonPrefix}${epStr}` : `Episode ${episodeNum}`;
+    if (episodeText) {
+        const headingResult = parseEpisodeFromText(episodeText);
+        if (headingResult) return headingResult.label;
+
+        // Fallback: clean non-standard text
+        const cleanText = episodeText.replace(/^[-:\s]+|[-:\s]+$/g, '').trim();
+        const matchNum = cleanText.match(/\b(\d+)\b/);
+        if (matchNum) {
+            const epNum = parseInt(matchNum[1], 10);
+            const epStr = `E${String(epNum).padStart(2, '0')}`;
+            return seasonPrefix ? `${seasonPrefix}${epStr}` : `Episode ${epNum}`;
+        }
+        return seasonPrefix ? `${seasonPrefix} - ${cleanText}` : cleanText;
     }
 
     return seasonPrefix ? `${seasonPrefix}` : '';
