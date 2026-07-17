@@ -557,10 +557,12 @@ async function scrapeAllPostLinks(url) {
                 return;
             }
 
-            // Exclude internal domain links (related posts) unless they point to a download landing page
+            // Exclude internal domain links / related posts unless they point to a download landing page
             try {
                 const parsedUrl = new URL(url);
-                if (href.includes(parsedUrl.hostname) && !lowerHref.includes('/download') && !lowerHref.includes('nexdrive') && !lowerHref.includes('fastdl')) {
+                const isInternalPost = href.includes(parsedUrl.hostname) || href.startsWith('/download-') || href.startsWith('/movies-') || href.startsWith('/anime-');
+                const isLandingUrl = lowerHref.includes('/download/') || lowerHref.includes('nexdrive') || lowerHref.includes('fastdl') || lowerHref.includes('vgmlink') || lowerHref.includes('gdflix') || lowerHref.includes('hubcloud') || lowerHref.includes('vcloud') || lowerHref.includes('hubdrive') || lowerHref.includes('filebee') || lowerHref.includes('katdrive') || lowerHref.includes('kmhd');
+                if (isInternalPost && !isLandingUrl) {
                     return;
                 }
             } catch (e) {}
@@ -573,9 +575,17 @@ async function scrapeAllPostLinks(url) {
                                  linkText.toLowerCase().includes('v-cloud') || 
                                  linkText.toLowerCase().includes('g-direct') ||
                                  linkText.toLowerCase().includes('drive') ||
-                                 linkText.toLowerCase().includes('instant');
+                                 linkText.toLowerCase().includes('instant') ||
+                                 linkText.toLowerCase().includes('episode');
 
             if (!hasButton && !hasDwdKeyword) {
+                return;
+            }
+
+            // Filter out Pack/Zip links for TV Series per user requirement
+            // Check linkText and lowerHref ONLY (do NOT check combinedContext to avoid sibling link false positives)
+            const isPack = /\bpack\b|\bbatch\b|\bzip\b|\ball\s+episodes\b/i.test(linkText) || /\bpack\b|\bzip\b|\bbatch\b/i.test(lowerHref);
+            if (isSeries && isPack) {
                 return;
             }
 
@@ -602,12 +612,6 @@ async function scrapeAllPostLinks(url) {
             }
 
             const combinedText = `${linkText} ${parentText} ${precedingHeading}`.toLowerCase();
-
-            // Filter out Pack/Zip links for TV Series per user requirement
-            const isPack = /\bpack\b|\bzip\b|\ball\s+episodes\b/i.test(combinedText) || /\bpack\b|\bzip\b/i.test(lowerHref);
-            if (isSeries && isPack) {
-                return;
-            }
 
             // Determine episode number from parent or link text
             let episode = null;
