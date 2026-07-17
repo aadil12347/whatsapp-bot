@@ -1054,5 +1054,33 @@
         "cmd": ".ping"
       }
     ]
+  },
+  {
+    "3EB0E86FB5F3F752BB6196": [
+      {
+        "cmdId": "1",
+        "cmd": ".menu"
+      },
+      {
+        "cmdId": "2",
+        "cmd": ".ping"
+      }
+    ]
+  },
+  {
+    "3EB0FD156087EC7BD62334": [
+      {
+        "cmdId": "1",
+        "cmd": ".fbhd https://video-iad3-1.xx.fbcdn.net/o1/v/t2/f2/m412/AQNOO0qFav6XwuQN9XhB7nQSNarRxLL2bkCEwSWtdfOqov01WwH1YI2iEprqNOu6GVq3w_TtaYuYTmGQy6R8UtW57QHx1uTgG7WBokQEog.mp4?_nc_cat=110&_nc_sid=8bf8fe&_nc_ht=video-iad3-1.xx.fbcdn.net&_nc_ohc=ccm1iTg-jNoQ7kNvwFM-vS0&efg=eyJ2ZW5jb2RlX3RhZyI6Inhwdl9wcm9ncmVzc2l2ZS5GQUNFQk9PSy4uQzMuMzYwLnN2ZV9zZCIsInhwdl9hc3NldF9pZCI6MTEwNjI0Mjc4MjMwMTc5MiwiYXNzZXRfYWdlX2RheXMiOjAsInZpX3VzZWNhc2VfaWQiOjEwMTIyLCJkdXJhdGlvbl9zIjo2LCJ1cmxnZW5fc291cmNlIjoid3d3In0%3D&ccb=17-1&_nc_gid=-UXZmRcXF69RFEQet85ieg&_nc_ss=70289&_nc_zt=28&oh=00_AQCO8IgZXSXcC1kpleJaKTG8AFl3zJTj8uaOVoz8Hm81Sg&oe=6A6039FC&bitrate=137745&tag=sve_sd"
+      },
+      {
+        "cmdId": "2",
+        "cmd": ".fbhd https://video-iad6-1.xx.fbcdn.net/o1/v/t2/f2/m366/AQMPrqaZ4QHjNyJpB6ERW8uyY09Ynkev486tzjyZ68XO5AX-3z3AV-pjdq_VeV7DT3ML68izREXPj8E8efD4CSGw-FG7swCiMl34RjJ2M8RD2A.mp4?_nc_cat=102&_nc_sid=5e9851&_nc_ht=video-iad6-1.xx.fbcdn.net&_nc_ohc=NQwAOXc13RUQ7kNvwFV7bdZ&efg=eyJ2ZW5jb2RlX3RhZyI6Inhwdl9wcm9ncmVzc2l2ZS5GQUNFQk9PSy4uQzMuNzIwLmRhc2hfaDI2NC1iYXNpYy1nZW4yXzcyMHAiLCJ4cHZfYXNzZXRfaWQiOjExMDYyNDI3ODIzMDE3OTIsImFzc2V0X2FnZV9kYXlzIjowLCJ2aV91c2VjYXNlX2lkIjoxMDEyMiwiZHVyYXRpb25fcyI6NiwidXJsZ2VuX3NvdXJjZSI6Ind3dyJ9&ccb=17-1&vs=8129c2510c59ad3d&_nc_vs=HBksFQIYRWZiX2VwaGVtZXJhbC9FQTQyRkM5MTlBQzZBN0QzMDU2NzI2MzQwRUMwMkQ4Ql9tdF8xX3ZpZGVvX2Rhc2hpbml0Lm1wNBUAAsgBEgAVAhhAZmJfcGVybWFuZW50LzIwNDJFRjlBRTQ2NUE4NUZBQjA2MUY2Q0MwMTlFREE1X2F1ZGlvX2Rhc2hpbml0Lm1wNBUCAsgBEgAoABgAGwKIB3VzZV9vaWwBMRJwcm9ncmVzc2l2ZV9yZWNpcGUBMRUAACbAuZiB54f3AxUCKAJDMywXQBhmZmZmZmYYGWRhc2hfaDI2NC1iYXNpYy1nZW4yXzcyMHARAHUCZZSeAQA&_nc_gid=-UXZmRcXF69RFEQet85ieg&_nc_ss=70289&_nc_zt=28&oh=00_AQCbC0pMUeN_MNG-dHIbvXaj_KSB5CMt0Wj_3ZnXBS63YA&oe=6A601206&bitrate=242739&tag=dash_h264-basic-gen2_720p"
+      },
+      {
+        "cmdId": "3",
+        "cmd": ".ta https://video-iad3-1.xx.fbcdn.net/o1/v/t2/f2/m412/AQNOO0qFav6XwuQN9XhB7nQSNarRxLL2bkCEwSWtdfOqov01WwH1YI2iEprqNOu6GVq3w_TtaYuYTmGQy6R8UtW57QHx1uTgG7WBokQEog.mp4?_nc_cat=110&_nc_sid=8bf8fe&_nc_ht=video-iad3-1.xx.fbcdn.net&_nc_ohc=ccm1iTg-jNoQ7kNvwFM-vS0&efg=eyJ2ZW5jb2RlX3RhZyI6Inhwdl9wcm9ncmVzc2l2ZS5GQUNFQk9PSy4uQzMuMzYwLnN2ZV9zZCIsInhwdl9hc3NldF9pZCI6MTEwNjI0Mjc4MjMwMTc5MiwiYXNzZXRfYWdlX2RheXMiOjAsInZpX3VzZWNhc2VfaWQiOjEwMTIyLCJkdXJhdGlvbl9zIjo2LCJ1cmxnZW5fc291cmNlIjoid3d3In0%3D&ccb=17-1&_nc_gid=-UXZmRcXF69RFEQet85ieg&_nc_ss=70289&_nc_zt=28&oh=00_AQCO8IgZXSXcC1kpleJaKTG8AFl3zJTj8uaOVoz8Hm81Sg&oe=6A6039FC&bitrate=137745&tag=sve_sd"
+      }
+    ]
   }
 ]
