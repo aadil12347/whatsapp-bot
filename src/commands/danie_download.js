@@ -305,11 +305,11 @@ async function downloadFileWithResume(url, tempFilePath, customHeaders = {}, abo
 //  All DanieWatch commands are handled here via raw messages.upsert.
 // =========================================================================
 function cleanJid(jid) {
-    if (!jid) return '';
+    if (!jid || typeof jid !== 'string') return '';
     const parts = jid.split('@');
     const user = parts[0].split(':')[0];
     let server = parts[1] || 's.whatsapp.net';
-    if (server === 'c.us' || server === 's.whatsapp.net') {
+    if (server === 'c.us' || server === 's.whatsapp.net' || server === 'lid') {
         server = 's.whatsapp.net';
     }
     return `${user}@${server}`;
@@ -395,23 +395,31 @@ function saveActiveChat(jid, name, notify) {
     }
 }
 
+function removeActiveChat(jid) {
+    if (!jid) return;
+    const clean = cleanJid(typeof jid === 'string' ? jid : jid?.id);
+    if (!clean) return;
+
+    const chatsMap = loadActiveChats();
+    if (chatsMap[clean]) {
+        delete chatsMap[clean];
+        try {
+            const dir = path.dirname(ACTIVE_CHATS_PATH);
+            if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+            fs.writeFileSync(ACTIVE_CHATS_PATH, JSON.stringify(chatsMap, null, 2), 'utf-8');
+        } catch (e) {}
+    }
+}
+
 function getAllPrivateChats(conn, cleanSender) {
     const rawChats = [];
 
-    // 1. From saved active_chats.json (captured from live WhatsApp events)
+    // 1. From saved active_chats.json (captured from live active WhatsApp chat events)
     const saved = loadActiveChats();
     Object.values(saved).forEach(c => rawChats.push(c));
 
     if (conn) {
-        // 2. From conn.contacts
-        if (conn.contacts) {
-            try {
-                const connContacts = conn.contacts instanceof Map ? Array.from(conn.contacts.values()) : Object.values(conn.contacts);
-                connContacts.forEach(c => rawChats.push(c));
-            } catch (e) {}
-        }
-
-        // 3. From conn.chats
+        // 2. From conn.chats (active chat threads only)
         if (conn.chats) {
             try {
                 const connChats = conn.chats instanceof Map ? Array.from(conn.chats.values()) : Object.values(conn.chats);
@@ -419,37 +427,31 @@ function getAllPrivateChats(conn, cleanSender) {
             } catch (e) {}
         }
 
-        // 4. From conn.store
-        if (conn.store) {
-            if (conn.store.contacts) {
-                try {
-                    const storeContacts = typeof conn.store.contacts.all === 'function'
-                        ? conn.store.contacts.all()
-                        : (conn.store.contacts instanceof Map ? Array.from(conn.store.contacts.values()) : Object.values(conn.store.contacts));
-                    storeContacts.forEach(c => rawChats.push(c));
-                } catch (e) {}
-            }
-            if (conn.store.chats) {
-                try {
-                    const storeChats = typeof conn.store.chats.all === 'function'
-                        ? conn.store.chats.all()
-                        : (conn.store.chats instanceof Map ? Array.from(conn.store.chats.values()) : Object.values(conn.store.chats));
-                    storeChats.forEach(c => rawChats.push(c));
-                } catch (e) {}
-            }
+        // 3. From conn.store.chats (active chat threads only)
+        if (conn.store && conn.store.chats) {
+            try {
+                const storeChats = typeof conn.store.chats.all === 'function'
+                    ? conn.store.chats.all()
+                    : (conn.store.chats instanceof Map ? Array.from(conn.store.chats.values()) : Object.values(conn.store.chats));
+                storeChats.forEach(c => rawChats.push(c));
+            } catch (e) {}
         }
     }
 
-    // Deduplicate and filter out groups / broadcasts
+    // Deduplicate and filter out groups / broadcasts / LIDs
     const seen = new Set();
     let result = [];
 
     for (const c of rawChats) {
         if (!c || !c.id) continue;
+        if (typeof c.id === 'string' && (c.id.includes('@lid') || c.id.endsWith('@g.us') || c.id.includes('broadcast'))) continue;
         const clean = cleanJid(c.id);
-        if (!clean || clean.endsWith('@g.us') || clean.includes('broadcast')) continue;
+        if (!clean || clean.includes('@lid') || clean.endsWith('@g.us') || clean.includes('broadcast')) continue;
 
         const phone = clean.split('@')[0];
+        // Must be a valid phone number (digits only, length 7 to 15)
+        if (!/^\d{7,15}$/.test(phone)) continue;
+
         const contactName = c.name || c.verifiedName;
         const notifyName = c.notify || c.pushName;
 
@@ -470,9 +472,8 @@ function getAllPrivateChats(conn, cleanSender) {
         });
     }
 
-    // Always include oneself first
-    const selfChat = { id: cleanSender, name: 'You (Private Chat)' };
-    const otherChats = result.filter(c => c.id !== cleanSender);
+    const selfChat = { id: cleanJid(cleanSender), name: 'You (Private Chat)' };
+    const otherChats = result.filter(c => c.id !== selfChat.id);
 
     return [selfChat, ...otherChats];
 }
@@ -481,27 +482,24 @@ function initUpsertListener(conn) {
     if (conn.danieDownloadUpsertRegistered) return;
     conn.danieDownloadUpsertRegistered = true;
 
-    // Listen to WhatsApp sync events to capture active chats & contacts
+    // Listen to WhatsApp sync events to capture active chat threads
     try {
         if (conn.ev) {
-            conn.ev.on('contacts.upsert', (contacts) => {
-                const arr = Array.isArray(contacts) ? contacts : [contacts];
-                for (const c of arr) if (c && c.id) saveActiveChat(c.id, c.name || c.verifiedName, c.notify);
-            });
-            conn.ev.on('contacts.update', (updates) => {
-                const arr = Array.isArray(updates) ? updates : [updates];
-                for (const c of arr) if (c && c.id) saveActiveChat(c.id, c.name || c.verifiedName, c.notify);
+            conn.ev.on('chats.delete', (deletedJids) => {
+                const arr = Array.isArray(deletedJids) ? deletedJids : [deletedJids];
+                for (const j of arr) removeActiveChat(j);
             });
             conn.ev.on('chats.upsert', (chats) => {
                 const arr = Array.isArray(chats) ? chats : [chats];
-                for (const c of arr) if (c && c.id) saveActiveChat(c.id, c.name || c.subject, c.notify);
+                for (const c of arr) if (c && c.id && !c.read_only) saveActiveChat(c.id, c.name || c.subject, c.notify);
+            });
+            conn.ev.on('chats.update', (chats) => {
+                const arr = Array.isArray(chats) ? chats : [chats];
+                for (const c of arr) if (c && c.id && !c.read_only) saveActiveChat(c.id, c.name || c.subject, c.notify);
             });
             conn.ev.on('messaging-history.set', (history) => {
-                if (history && history.contacts && Array.isArray(history.contacts)) {
-                    for (const c of history.contacts) if (c && c.id) saveActiveChat(c.id, c.name || c.verifiedName, c.notify);
-                }
                 if (history && history.chats && Array.isArray(history.chats)) {
-                    for (const c of history.chats) if (c && c.id) saveActiveChat(c.id, c.name || c.subject, c.notify);
+                    for (const c of history.chats) if (c && c.id && !c.read_only) saveActiveChat(c.id, c.name || c.subject, c.notify);
                 }
                 if (history && history.messages && Array.isArray(history.messages)) {
                     for (const m of history.messages) if (m && m.key && m.key.remoteJid) saveActiveChat(m.key.remoteJid, null, m.pushName);
@@ -721,7 +719,7 @@ async function handleConfigReply(conn, mek, m, senderJid, text, reply) {
                 let list = '📋 *Select a Private Chat:*\n\n';
                 privateChats.forEach((c, i) => {
                     const phone = c.id.split('@')[0];
-                    if (c.id === cleanSender) {
+                    if (c.id === cleanJid(cleanSender)) {
                         list += `  \`${i + 1}\` — 👤 You (Private Chat)\n`;
                     } else if (c.name && c.name !== phone) {
                         list += `  \`${i + 1}\` — 👤 ${c.name} (+${phone})\n`;
@@ -729,7 +727,7 @@ async function handleConfigReply(conn, mek, m, senderJid, text, reply) {
                         list += `  \`${i + 1}\` — 👤 +${phone}\n`;
                     }
                 });
-                list += `\n_Reply with just the number to choose._`;
+                list += `\n_Reply with a number from the list, OR type a phone number directly (e.g. 923001234567)._`;
 
                 const sent = await reply(list);
                 if (sent && sent.key) {
@@ -778,19 +776,37 @@ async function handleConfigReply(conn, mek, m, senderJid, text, reply) {
     }
 
     if (step === 'private_chat') {
-        const num = parseInt(text, 10);
         const chats = state.chats || [];
+        const rawInput = text.trim();
+        const cleanInput = rawInput.replace(/[\s\-\+\(\)]/g, '');
 
-        if (isNaN(num) || num < 1 || num > chats.length) {
-            return reply(`❌ Invalid selection. Reply with a number from 1 to ${chats.length}.`);
+        let chosenId = null;
+        let chosenName = null;
+
+        if (/^\d+$/.test(rawInput)) {
+            const num = parseInt(rawInput, 10);
+            if (num >= 1 && num <= chats.length) {
+                const chosen = chats[num - 1];
+                chosenId = chosen.id;
+                chosenName = chosen.name;
+            } else if (cleanInput.length >= 7) {
+                chosenId = `${cleanInput}@s.whatsapp.net`;
+                chosenName = `+${cleanInput}`;
+            }
+        } else if (cleanInput.length >= 7 && /^\d+$/.test(cleanInput)) {
+            chosenId = `${cleanInput}@s.whatsapp.net`;
+            chosenName = `+${cleanInput}`;
         }
 
-        const chosen = chats[num - 1];
-        const chosenName = chosen.name || chosen.id.split('@')[0];
-        const settings = { mode: 'private', privateJid: chosen.id, privateName: chosenName, groupJid: '', groupName: '' };
+        if (!chosenId) {
+            return reply(`❌ Invalid selection. Reply with a number from 1 to ${chats.length}, or type a valid phone number (e.g. 923001234567).`);
+        }
+
+        chosenId = cleanJid(chosenId);
+        const settings = { mode: 'private', privateJid: chosenId, privateName: chosenName || chosenId.split('@')[0], groupJid: '', groupName: '' };
         saveSettings(settings);
         delete pendingConfig[cleanSender];
-        return reply(`✅ Download destination set to Private Chat:\n👤 Name: *${chosenName}*\n🆔 \`${chosen.id}\``);
+        return reply(`✅ Download destination set to Private Chat:\n👤 Name: *${chosenName}*\n🆔 \`${chosenId}\``);
     }
 
     if (step === 'group') {
@@ -951,7 +967,8 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
 
         const settings = loadSettings();
         const isGroupMode = settings.mode === 'group' && settings.groupJid;
-        const destJid = isGroupMode ? settings.groupJid : (settings.privateJid || senderJid);
+        const rawDest = isGroupMode ? settings.groupJid : (settings.privateJid || senderJid);
+        const destJid = cleanJid(rawDest);
         const destLabel = isGroupMode ? `📤 Group: *${settings.groupName}*` : `📥 Private Chat: *${settings.privateName || 'You'}*`;
 
         for (let i = 0; i < items.length; i++) {
@@ -1256,7 +1273,8 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply) {
 
         const settings = loadSettings();
         const isGroupMode = settings.mode === 'group' && settings.groupJid;
-        const destJid = isGroupMode ? settings.groupJid : (settings.privateJid || senderJid);
+        const rawDest = isGroupMode ? settings.groupJid : (settings.privateJid || senderJid);
+        const destJid = cleanJid(rawDest);
         const destLabel = isGroupMode ? `📤 Group: *${settings.groupName}*` : `📥 Private Chat: *${settings.privateName || 'You'}*`;
 
         // 1. Format details message (remove top/bottom branding, append daniewatch)
@@ -1504,6 +1522,12 @@ DANIE_COMMANDS['setgroup'] = async (conn, mek, from, senderJid, args, reply) => 
 
 DANIE_COMMANDS['groupid'] = async (conn, mek, from, senderJid, args, reply) => {
     await reply(`*Current Chat ID:* \`${from}\``);
+};
+
+DANIE_COMMANDS['jid'] = async (conn, mek, from, senderJid, args, reply) => {
+    const targetJid = cleanJid(from);
+    const sender = cleanJid(senderJid || from);
+    await reply(`📌 *Current Chat JID:* \`${targetJid}\`\n👤 *Your JID:* \`${sender}\``);
 };
 
 DANIE_COMMANDS['dlstatus'] = async (conn, mek, from, senderJid, args, reply) => {
