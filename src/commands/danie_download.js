@@ -339,6 +339,7 @@ function getQuotedMessageId(mek) {
 const pendingConfig = {};
 const pendingSearch = {};
 const VEGAMOVIES_DOMAIN = 'https://vegamovies.navy';
+const ROGMOVIES_DOMAIN = 'https://rogmovies.rest';
 
 // Our command prefix
 const PREFIX = '.';
@@ -795,10 +796,10 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
             return reply(
                 '❌ Please provide a download link!\n\n' +
                 '*Usage:*\n' +
-                '`.download https://example.com/file.zip`\n' +
-                '`.download myname.zip = https://example.com/file.zip`\n' +
-                '`.download file1 = link1, file2 link2`\n' +
-                '`.download https://vegamovies.dad/some-movie/`'
+                '`.d https://example.com/file.zip`\n' +
+                '`.d myname.zip = https://example.com/file.zip`\n' +
+                '`.d file1 = link1, file2 link2`\n' +
+                '`.d https://vegamovies.dad/some-movie/`'
             );
         }
 
@@ -1219,11 +1220,11 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply) {
 }
 
 cmd({
-    pattern: 'download',
+    pattern: 'd',
     react: '📥',
     desc: 'Downloads files. Supports multiple files separated by commas, Vegamovies/Rogmovies/HDHub4u auto-scraping, and TMDB integration.',
     category: 'download',
-    use: '.download <link>  OR  .download name = <link>  OR  .download name1 = link1, name2 link2',
+    use: '.d <link>  OR  .d name = <link>  OR  .d name1 = link1, name2 link2',
     filename: __filename
 }, async (conn, mek, m, { from, quoted, q }) => {
     const reply = async (textMsg) => {
@@ -1372,7 +1373,7 @@ DANIE_COMMANDS['dlstatus'] = async (conn, mek, from, senderJid, args, reply) => 
 DANIE_COMMANDS['dlconfig'] = DANIE_COMMANDS['dlstatus'];
 DANIE_COMMANDS['downloadstatus'] = DANIE_COMMANDS['dlstatus'];
 
-DANIE_COMMANDS['download'] = async (conn, mek, from, senderJid, args, reply) => {
+DANIE_COMMANDS['d'] = async (conn, mek, from, senderJid, args, reply) => {
     await downloadCommandHandler(conn, mek, from, senderJid, args, reply);
 };
 
@@ -1380,35 +1381,44 @@ DANIE_COMMANDS['p'] = async (conn, mek, from, senderJid, args, reply) => {
     await pCommandHandler(conn, mek, from, senderJid, args, reply);
 };
 
-DANIE_COMMANDS['search'] = async (conn, mek, from, senderJid, args, reply) => {
-    await searchCommandHandler(conn, mek, from, senderJid, args, reply);
+DANIE_COMMANDS['sv'] = async (conn, mek, from, senderJid, args, reply) => {
+    await searchCommandHandler(conn, mek, from, senderJid, args, reply, 'vegamovies');
 };
 
-async function searchCommandHandler(conn, mek, from, senderJid, q, reply) {
+DANIE_COMMANDS['sr'] = async (conn, mek, from, senderJid, args, reply) => {
+    await searchCommandHandler(conn, mek, from, senderJid, args, reply, 'rogmovies');
+};
+
+async function searchCommandHandler(conn, mek, from, senderJid, q, reply, source = 'vegamovies') {
     try {
+        const isRog = source === 'rogmovies';
+        const siteName = isRog ? 'Rogmovies' : 'Vegamovies';
+        const siteDomain = isRog ? ROGMOVIES_DOMAIN : VEGAMOVIES_DOMAIN;
+        const cmdHint = isRog ? '.sr' : '.sv';
+
         if (!q || !q.trim()) {
-            return reply('❌ Please provide a search keyword!\n\n*Usage:*\n`.search Deadpool`');
+            return reply(`❌ Please provide a search keyword!\n\n*Usage:*\n\`${cmdHint} Deadpool\``);
         }
 
         const query = q.trim();
-        await reply(`🔍 Searching Vegamovies for *"${query}"*...`);
+        await reply(`🔍 Searching ${siteName} for *"${query}"*...`);
 
         initUpsertListener(conn);
 
-        const url = `${VEGAMOVIES_DOMAIN}/search.php?q=${encodeURIComponent(query)}&page=1`;
-        console.log(`[DanieSearch] Fetching Vegamovies search API: ${url}`);
+        const url = `${siteDomain}/search.php?q=${encodeURIComponent(query)}&page=1`;
+        console.log(`[DanieSearch] Fetching ${siteName} search API: ${url}`);
         
         const res = await axios.get(url, {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Accept': 'application/json, text/plain, */*',
-                'Referer': VEGAMOVIES_DOMAIN + '/'
+                'Referer': siteDomain + '/'
             },
             timeout: 15000
         });
 
         if (!res.data || res.data.found === 0 || !res.data.hits || res.data.hits.length === 0) {
-            return reply(`❌ No search results found for *"${query}"* on Vegamovies.`);
+            return reply(`❌ No search results found for *"${query}"* on ${siteName}.`);
         }
 
         const hits = res.data.hits;
@@ -1422,10 +1432,11 @@ async function searchCommandHandler(conn, mek, from, senderJid, q, reply) {
         pendingSearch[cleanSender] = {
             step: 'select_movie',
             results: results,
+            sourceDomain: siteDomain,
             messageId: null
         };
 
-        let responseText = `🔍 *Vegamovies Search Results for "${query}":*\n\n`;
+        let responseText = `🔍 *${siteName} Search Results for "${query}":*\n\n`;
         results.forEach((r, idx) => {
             responseText += `  \`${idx + 1}\` — ${r.title}\n\n`;
         });
@@ -1641,9 +1652,10 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
         const selectedMovie = movies[num - 1];
 
         try {
+            const sourceDomain = state.sourceDomain || VEGAMOVIES_DOMAIN;
             const postUrl = selectedMovie.permalink.startsWith('http') 
                 ? selectedMovie.permalink 
-                : `${VEGAMOVIES_DOMAIN}${selectedMovie.permalink}`;
+                : `${sourceDomain}${selectedMovie.permalink}`;
 
             console.log(`[DanieSearch] Scraping post page: ${postUrl}`);
             const allLinks = await scrapeAllPostLinks(postUrl);
@@ -1709,6 +1721,7 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                 title: selectedMovie.title,
                 permalink: selectedMovie.permalink,
                 thumbnail: selectedMovie.thumbnail,
+                sourceDomain: state.sourceDomain,
                 links: displayLinks,
                 activeDownload: null,
                 messageId: null
@@ -1874,18 +1887,33 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
 }
 
 cmd({
-    pattern: 'search',
+    pattern: 'sv',
     react: '🔍',
     desc: 'Searches for movies/series on Vegamovies and allows interactive resolution selection and download.',
     category: 'download',
-    use: '.search <keyword>',
+    use: '.sv <keyword>',
     filename: __filename
 }, async (conn, mek, m, { from, quoted, q }) => {
     const reply = async (textMsg) => {
         return conn.sendMessage(from, { text: textMsg }, { quoted: mek });
     };
     const senderJid = m.sender || mek.sender || from;
-    await searchCommandHandler(conn, mek, from, senderJid, q, reply);
+    await searchCommandHandler(conn, mek, from, senderJid, q, reply, 'vegamovies');
+});
+
+cmd({
+    pattern: 'sr',
+    react: '🔍',
+    desc: 'Searches for movies/series on Rogmovies and allows interactive resolution selection and download.',
+    category: 'download',
+    use: '.sr <keyword>',
+    filename: __filename
+}, async (conn, mek, m, { from, quoted, q }) => {
+    const reply = async (textMsg) => {
+        return conn.sendMessage(from, { text: textMsg }, { quoted: mek });
+    };
+    const senderJid = m.sender || mek.sender || from;
+    await searchCommandHandler(conn, mek, from, senderJid, q, reply, 'rogmovies');
 });
 
 // Export initUpsertListener so command.js can auto-initialize it
