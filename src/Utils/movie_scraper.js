@@ -955,13 +955,42 @@ async function extractSubOptions(url) {
 }
 
 /**
- * Search HDHub4u via Typesense API
+ * Search HDHub4u via Typesense API with robust retries, query variants, and full headers
  */
 async function searchHdhub4u(query) {
-    try {
-        const today = new Date().toISOString().split('T')[0];
+    if (!query || !query.trim()) return [];
+    const today = new Date().toISOString().split('T')[0];
+
+    const cleanQuery = query.trim();
+    const queriesToTry = [cleanQuery];
+
+    // If query has spaces (e.g. "dare devil born"), also try joining/cleaning words as fallback
+    const words = cleanQuery.split(/\s+/);
+    if (words.length > 1) {
+        const joined = words.join('');
+        if (!queriesToTry.includes(joined)) queriesToTry.push(joined);
+        const firstTwo = words.slice(0, 2).join(' ');
+        if (!queriesToTry.includes(firstTwo)) queriesToTry.push(firstTwo);
+    }
+
+    const headers = {
+        'accept': '*/*',
+        'accept-language': 'en-US,en;q=0.9',
+        'origin': 'https://new3.hdhub4u.cl',
+        'referer': 'https://new3.hdhub4u.cl/',
+        'sec-ch-ua': '"Not(A:Brand";v="99", "Google Chrome";v="133", "Chromium";v="133"',
+        'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-platform': '"Windows"',
+        'sec-fetch-dest': 'empty',
+        'sec-fetch-mode': 'cors',
+        'sec-fetch-site': 'cross-site',
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36'
+    };
+
+    for (const q of queriesToTry) {
+        console.log(`[MovieScraper] Trying HDHub4u search query: "${q}"...`);
         const apiUrl = new URL('https://search.pingora.fyi/collections/post/documents/search');
-        apiUrl.searchParams.append('q', query);
+        apiUrl.searchParams.append('q', q);
         apiUrl.searchParams.append('query_by', 'post_title,category,stars,director,imdb_id');
         apiUrl.searchParams.append('query_by_weights', '4,2,2,2,4');
         apiUrl.searchParams.append('sort_by', 'sort_by_date:desc');
@@ -971,31 +1000,29 @@ async function searchHdhub4u(query) {
         apiUrl.searchParams.append('page', 1);
         apiUrl.searchParams.append('analytics_tag', today);
 
-        const res = await axios.get(apiUrl.toString(), {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-                'Accept': '*/*',
-                'Origin': 'https://new3.hdhub4u.cl',
-                'Referer': 'https://new3.hdhub4u.cl/',
-                'Sec-Fetch-Dest': 'empty',
-                'Sec-Fetch-Mode': 'cors',
-                'Sec-Fetch-Site': 'cross-site'
-            },
-            timeout: 10000
-        });
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+                const res = await axios.get(apiUrl.toString(), {
+                    headers,
+                    timeout: 8000
+                });
 
-        if (res.data && res.data.hits && res.data.hits.length > 0) {
-            return res.data.hits.map(h => ({
-                title: h.document.post_title.replace(/&amp;/g, '&'),
-                permalink: h.document.permalink.startsWith('http') ? h.document.permalink : `https://new3.hdhub4u.cl${h.document.permalink.startsWith('/') ? '' : '/'}${h.document.permalink}`,
-                thumbnail: h.document.post_thumbnail
-            }));
+                if (res.data && res.data.hits && res.data.hits.length > 0) {
+                    console.log(`[MovieScraper] Search succeeded on attempt ${attempt} for "${q}" (${res.data.hits.length} hits)`);
+                    return res.data.hits.map(h => ({
+                        title: h.document.post_title.replace(/&amp;/g, '&'),
+                        permalink: h.document.permalink.startsWith('http') ? h.document.permalink : `https://new3.hdhub4u.cl${h.document.permalink.startsWith('/') ? '' : '/'}${h.document.permalink}`,
+                        thumbnail: h.document.post_thumbnail
+                    }));
+                }
+            } catch (err) {
+                console.error(`[MovieScraper] Search attempt ${attempt} failed for "${q}":`, err.message);
+                if (attempt < 3) await new Promise(r => setTimeout(r, 1000));
+            }
         }
-        return [];
-    } catch (err) {
-        console.error('[MovieScraper] Typesense searchHdhub4u failed:', err.message);
-        return [];
     }
+
+    return [];
 }
 
 module.exports = {
