@@ -347,6 +347,154 @@ const VEGAMOVIES_DOMAIN = 'https://vegamovies.navy';
 const ROGMOVIES_DOMAIN = 'https://rogmovies.rest';
 const HDHUB4U_DOMAIN = process.env.HDHUB4U_DOMAIN || 'https://new3.hdhub4u.cl';
 
+// =========================================================================
+//  TASK QUEUE MANAGER — Sequential FIFO execution for .p, .d, and searches
+// =========================================================================
+class TaskQueueManager {
+    constructor() {
+        this.queue = [];
+        this.activeTask = null;
+        this.isProcessing = false;
+    }
+
+    add(task) {
+        task.id = Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+        task.addedAt = Date.now();
+        this.queue.push(task);
+        console.log(`[QueueManager] Added task "${task.description}" (ID: ${task.id}). Pending count: ${this.queue.length}`);
+        
+        this.processNext();
+        return task;
+    }
+
+    async processNext() {
+        if (this.isProcessing || this.queue.length === 0) return;
+
+        this.isProcessing = true;
+        const task = this.queue.shift();
+        
+        const controller = new AbortController();
+        const ref = { filePath: null };
+        this.activeTask = {
+            ...task,
+            controller,
+            ref,
+            startedAt: Date.now()
+        };
+
+        console.log(`[QueueManager] Processing task: "${task.description}" (ID: ${task.id})`);
+
+        try {
+            await task.executeFn(controller.signal, ref);
+            console.log(`[QueueManager] Task completed successfully: "${task.description}"`);
+        } catch (err) {
+            if (err.message === 'Aborted') {
+                console.log(`[QueueManager] Task aborted by user: "${task.description}"`);
+            } else {
+                console.error(`[QueueManager] Task failed with error: "${task.description}" -> ${err.message}`);
+            }
+        } finally {
+            this.activeTask = null;
+            this.isProcessing = false;
+            setImmediate(() => this.processNext());
+        }
+    }
+
+    cancelAll(senderJid) {
+        const count = this.queue.length;
+        this.queue = [];
+
+        let activeAborted = false;
+        if (this.activeTask) {
+            try {
+                this.activeTask.controller.abort();
+                if (this.activeTask.ref && this.activeTask.ref.filePath) {
+                    const fp = this.activeTask.ref.filePath;
+                    if (fs.existsSync(fp)) {
+                        try { fs.unlinkSync(fp); } catch (_) {}
+                    }
+                }
+                activeAborted = true;
+            } catch (e) {}
+            this.activeTask = null;
+        }
+        return { count, activeAborted };
+    }
+
+    remove(index) {
+        const num = parseInt(index, 10);
+        if (isNaN(num) || num < 1 || num > this.queue.length) {
+            return null;
+        }
+        const removed = this.queue.splice(num - 1, 1)[0];
+        return removed;
+    }
+
+    updateCommand(index, newCommandText, conn, mek, from, senderJid, reply) {
+        const num = parseInt(index, 10);
+        if (isNaN(num) || num < 1 || num > this.queue.length) {
+            return { error: `Invalid queue position ${index}. Total pending items in queue: ${this.queue.length}` };
+        }
+
+        const trimmed = (newCommandText || '').trim();
+        let cmdPart = trimmed;
+        if (cmdPart.startsWith(PREFIX)) {
+            cmdPart = cmdPart.slice(PREFIX.length).trim();
+        }
+
+        const spaceIdx = cmdPart.indexOf(' ');
+        const cmdName = spaceIdx !== -1 ? cmdPart.substring(0, spaceIdx).trim().toLowerCase() : cmdPart.toLowerCase();
+        const cmdArgs = spaceIdx !== -1 ? cmdPart.substring(spaceIdx + 1).trim() : '';
+
+        if (cmdName === 'p') {
+            const executeFn = async (signal, ref) => {
+                await pCommandHandler(conn, mek, from, senderJid, cmdArgs, reply, signal, ref);
+            };
+            const oldTask = this.queue[num - 1];
+            this.queue[num - 1] = {
+                ...oldTask,
+                description: `🎬 TMDB Task: .p ${cmdArgs.substring(0, 40)}...`,
+                commandText: trimmed,
+                executeFn
+            };
+            return { success: true, item: this.queue[num - 1] };
+        } else if (cmdName === 'd') {
+            const executeFn = async (signal, ref) => {
+                await downloadCommandHandler(conn, mek, from, senderJid, cmdArgs, reply, signal, ref);
+            };
+            const oldTask = this.queue[num - 1];
+            this.queue[num - 1] = {
+                ...oldTask,
+                description: `📥 Download Task: .d ${cmdArgs.substring(0, 40)}...`,
+                commandText: trimmed,
+                executeFn
+            };
+            return { success: true, item: this.queue[num - 1] };
+        } else {
+            return { error: `Currently, only .p or .d commands can be updated in queue.` };
+        }
+    }
+
+    getStatus() {
+        let activeStr = 'None';
+        if (this.activeTask) {
+            activeStr = `🔄 *[PROCESSING]* ${this.activeTask.description}`;
+        }
+
+        let pendingStr = 'No pending items in queue.';
+        if (this.queue.length > 0) {
+            pendingStr = this.queue.map((t, idx) => `  \`${idx + 1}\` — ${t.description}`).join('\n');
+        }
+
+        return `📋 *Task Queue Status*\n\n` +
+               `*Currently Processing:*\n${activeStr}\n\n` +
+               `*Pending in Queue (${this.queue.length}):*\n${pendingStr}\n\n` +
+               `_Use \`.c\` to cancel all, \`.qdel <num>\` to remove an item, or \`.qedit <num> <new_cmd>\` to update._`;
+    }
+}
+
+const globalTaskQueue = new TaskQueueManager();
+
 // Our command prefix
 const PREFIX = '.';
 
@@ -546,39 +694,33 @@ function initUpsertListener(conn) {
                 return conn.sendMessage(from, { text: textMsg }, { quoted: mek });
             };
 
-            // ---- Clear pending states and abort active download if a new command starts ----
+            // ---- Handle commands starting with PREFIX ----
             if (trimmedText.startsWith(PREFIX)) {
-                console.log(`[DanieWatch] Command starting with prefix detected: "${trimmedText}". Clearing pending states for ${cleanSender}`);
-                if (pendingSearch[cleanSender] && pendingSearch[cleanSender].activeDownload) {
-                    try {
-                        console.log('[DanieWatch] Aborting active download due to new command execution.');
-                        pendingSearch[cleanSender].activeDownload.controller.abort();
-                        if (pendingSearch[cleanSender].activeDownload.ref && pendingSearch[cleanSender].activeDownload.ref.filePath) {
-                            const fp = pendingSearch[cleanSender].activeDownload.ref.filePath;
-                            if (fs.existsSync(fp)) fs.unlinkSync(fp);
-                        }
-                    } catch (e) {}
-                }
-                delete pendingConfig[cleanSender];
-                delete pendingSearch[cleanSender];
-
                 // Parse custom command and arguments
                 const cmdPart = trimmedText.slice(PREFIX.length).trim();
                 const spaceIdx = cmdPart.indexOf(' ');
                 const cmdName = spaceIdx !== -1 ? cmdPart.substring(0, spaceIdx).trim().toLowerCase() : cmdPart.toLowerCase();
                 const cmdArgs = spaceIdx !== -1 ? cmdPart.substring(spaceIdx + 1).trim() : '';
 
+                console.log(`[DanieWatch] Command detected: "${cmdName}" args: "${cmdArgs}" from ${cleanSender}`);
+
+                // If starting a new search command (.sv, .sr, .sh), reset uncompleted search state for user
+                if (['sv', 'sr', 'sh'].includes(cmdName)) {
+                    delete pendingSearch[cleanSender];
+                }
+                delete pendingConfig[cleanSender];
+
                 if (DANIE_COMMANDS[cmdName]) {
-                    console.log(`[DanieWatch] Executing custom command from upsert listener: "${cmdName}" with args: "${cmdArgs}"`);
+                    console.log(`[DanieWatch] Executing command: "${cmdName}"`);
                     
-                    // Clear the message text to prevent the main bot framework from executing it again
+                    // Clear message text to prevent obfuscated framework double-execution
                     if (mek.message.conversation) mek.message.conversation = '';
                     if (mek.message.extendedTextMessage?.text) mek.message.extendedTextMessage.text = '';
 
                     try {
                         await DANIE_COMMANDS[cmdName](conn, mek, from, senderJid, cmdArgs, reply);
                     } catch (cmdErr) {
-                        console.error(`[DanieWatch] Error executing custom command "${cmdName}":`, cmdErr);
+                        console.error(`[DanieWatch] Error executing command "${cmdName}":`, cmdErr);
                         try {
                             await reply(`❌ Command execution failed: ${cmdErr.message}`);
                         } catch (_) {}
@@ -1238,7 +1380,7 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
     }
 }
 
-async function pCommandHandler(conn, mek, from, senderJid, q, reply) {
+async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal = null, activeDownloadRef = null) {
     console.log("=== P COMMAND TRIGGERED ===");
     console.log("q:", q);
     try {
@@ -1380,6 +1522,21 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply) {
         }
 
         await reply(`✅ TMDB details and poster successfully fetched and sent to: *${destLabel}*`);
+
+        // Check if there are media download links provided in .p command
+        const downloadItems = [];
+        if (firstCustomName && /themoviedb\.org/i.test(firstCustomName) && firstUrl && !/themoviedb\.org/i.test(firstUrl)) {
+            downloadItems.push(`${tmdb.title} = ${firstUrl}`);
+        }
+        for (let i = 1; i < items.length; i++) {
+            downloadItems.push(items[i]);
+        }
+
+        if (downloadItems.length > 0) {
+            const downloadQuery = downloadItems.join(', ');
+            console.log(`[DanieWatch] Executing media downloads for .p command: ${downloadQuery}`);
+            await downloadCommandHandler(conn, mek, from, senderJid, downloadQuery, reply, abortSignal, activeDownloadRef, null, true);
+        }
 
     } catch (error) {
         console.error('P command error:', error);
@@ -1548,12 +1705,102 @@ DANIE_COMMANDS['dlconfig'] = DANIE_COMMANDS['dlstatus'];
 DANIE_COMMANDS['downloadstatus'] = DANIE_COMMANDS['dlstatus'];
 
 DANIE_COMMANDS['d'] = async (conn, mek, from, senderJid, args, reply) => {
-    await downloadCommandHandler(conn, mek, from, senderJid, args, reply);
+    if (!args || !args.trim()) {
+        return reply('❌ Please provide a download link!');
+    }
+    const label = args.length > 50 ? args.substring(0, 47) + '...' : args;
+    const task = {
+        type: 'd_command',
+        description: `📥 Download Task: .d ${label}`,
+        commandText: `.d ${args}`,
+        senderJid,
+        from,
+        executeFn: async (signal, ref) => {
+            await downloadCommandHandler(conn, mek, from, senderJid, args, reply, signal, ref);
+        }
+    };
+    const queuedTask = globalTaskQueue.add(task);
+    if (globalTaskQueue.activeTask && globalTaskQueue.activeTask.id !== queuedTask.id) {
+        await reply(`📥 *Added to Queue* (Position #${globalTaskQueue.queue.length}):\n📥 Download Task: \`.d ${label}\``);
+    }
 };
 
 DANIE_COMMANDS['p'] = async (conn, mek, from, senderJid, args, reply) => {
-    await pCommandHandler(conn, mek, from, senderJid, args, reply);
+    if (!args || !args.trim()) {
+        return reply('❌ Please provide a TMDB link and download url(s)!');
+    }
+    const label = args.length > 50 ? args.substring(0, 47) + '...' : args;
+    const task = {
+        type: 'p_command',
+        description: `🎬 TMDB Task: .p ${label}`,
+        commandText: `.p ${args}`,
+        senderJid,
+        from,
+        executeFn: async (signal, ref) => {
+            await pCommandHandler(conn, mek, from, senderJid, args, reply, signal, ref);
+        }
+    };
+    const queuedTask = globalTaskQueue.add(task);
+    if (globalTaskQueue.activeTask && globalTaskQueue.activeTask.id !== queuedTask.id) {
+        await reply(`📥 *Added to Queue* (Position #${globalTaskQueue.queue.length}):\n🎬 TMDB Task: \`.p ${label}\``);
+    }
 };
+
+// Queue Control Commands
+DANIE_COMMANDS['c'] = async (conn, mek, from, senderJid, args, reply) => {
+    const cleanSender = cleanJid(senderJid);
+    delete pendingSearch[cleanSender];
+    delete pendingConfig[cleanSender];
+    const { count, activeAborted } = globalTaskQueue.cancelAll(senderJid);
+    let msg = `🛑 *Queue Cancelled!*`;
+    if (activeAborted) msg += `\n- Aborted currently active download task.`;
+    if (count > 0) msg += `\n- Cleared *${count}* pending queued task(s).`;
+    if (!activeAborted && count === 0) msg += `\n_Queue was already empty._`;
+    await reply(msg);
+};
+DANIE_COMMANDS['cancel'] = DANIE_COMMANDS['c'];
+DANIE_COMMANDS['clearqueue'] = DANIE_COMMANDS['c'];
+DANIE_COMMANDS['cancelall'] = DANIE_COMMANDS['c'];
+
+DANIE_COMMANDS['que'] = async (conn, mek, from, senderJid, args, reply) => {
+    await reply(globalTaskQueue.getStatus());
+};
+DANIE_COMMANDS['queue'] = DANIE_COMMANDS['que'];
+DANIE_COMMANDS['qstatus'] = DANIE_COMMANDS['que'];
+
+DANIE_COMMANDS['qdel'] = async (conn, mek, from, senderJid, args, reply) => {
+    if (!args || !args.trim()) {
+        return reply('❌ Please specify the queue item number to delete (e.g. `.qdel 1`).');
+    }
+    const removed = globalTaskQueue.remove(args.trim());
+    if (removed) {
+        await reply(`✅ Removed item from queue:\n*${removed.description}*`);
+    } else {
+        await reply(`❌ Invalid queue position. Use \`.que\` to check active queue items.`);
+    }
+};
+DANIE_COMMANDS['qremove'] = DANIE_COMMANDS['qdel'];
+
+DANIE_COMMANDS['qedit'] = async (conn, mek, from, senderJid, args, reply) => {
+    if (!args || !args.trim()) {
+        return reply('❌ Usage: `.qedit <number> <new_command>`\nExample: `.qedit 1 .p https://tmdb.org/... = link`');
+    }
+    const parts = args.trim().split(/\s+/);
+    const indexNum = parts[0];
+    const newCmd = parts.slice(1).join(' ');
+
+    if (!newCmd) {
+        return reply('❌ Please provide the new command string after the index number.');
+    }
+
+    const res = globalTaskQueue.updateCommand(indexNum, newCmd, conn, mek, from, senderJid, reply);
+    if (res.error) {
+        await reply(`❌ ${res.error}`);
+    } else {
+        await reply(`✅ Updated queue item #${indexNum}:\n*${res.item.description}*`);
+    }
+};
+DANIE_COMMANDS['qupdate'] = DANIE_COMMANDS['qedit'];
 
 DANIE_COMMANDS['sv'] = async (conn, mek, from, senderJid, args, reply) => {
     await searchCommandHandler(conn, mek, from, senderJid, args, reply, 'vegamovies');
@@ -1648,24 +1895,36 @@ async function searchCommandHandler(conn, mek, from, senderJid, q, reply, source
 }
 
 async function executeFallbackDownload(conn, mek, from, senderJid, state, chosenHosts, reply) {
-    const controller = new AbortController();
-    const activeDownloadRef = { filePath: null };
-    state.activeDownload = {
-        controller,
-        ref: activeDownloadRef
-    };
+    const hostsList = Array.isArray(chosenHosts) ? chosenHosts : [chosenHosts];
+    if (!hostsList || hostsList.length === 0) {
+        return reply(`❌ No download links found for this item. Please try a different search.`);
+    }
 
-    // Transition step back so the user can make another choice immediately
+    // Transition step back so user can make another search choice if desired
     if (state.episodesList && state.episodesList.length > 0) {
         state.step = 'select_episode';
     } else {
         state.step = 'select_resolution';
     }
 
-    // Start background download pipeline
-    (async () => {
-        try {
-            const hostsList = Array.isArray(chosenHosts) ? chosenHosts : [chosenHosts];
+    const primaryHost = hostsList[0] || {};
+    let sanitizedTitle = generateCustomFileName(state, primaryHost);
+    if (!sanitizedTitle) {
+        sanitizedTitle = (state.resolutionHeading || state.title || 'Movie')
+            .replace(/[:*?"<>|\\/]/g, '')
+            .trim();
+        if (primaryHost.episode) {
+            sanitizedTitle = `${sanitizedTitle} ${primaryHost.episode}`;
+        }
+    }
+
+    const task = {
+        type: 'search_download',
+        description: `🍿 Search Download: ${sanitizedTitle}`,
+        commandText: `Search Download: ${sanitizedTitle}`,
+        senderJid,
+        from,
+        executeFn: async (signal, ref) => {
             let candidates = [];
             
             // Prefer VCloud hosts (vcloud.zip, hubcloud) over other landing pages (fastdl, filebee)
@@ -1685,17 +1944,14 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
                     console.log(`[DanieSearch] Resolving sub-options for landing url: ${host.href}`);
                     
                     let subOpts = null;
-                    // Try up to 2 attempts for sub-options extraction
                     for (let attempt = 1; attempt <= 2; attempt++) {
                         try {
                             subOpts = await extractSubOptions(host.href);
-                            // Check if we got real server options (not just 'Original Link' fallback)
                             const hasRealServers = subOpts.some(opt => {
                                 const t = opt.text.toLowerCase();
                                 return t.includes('fsl') || t.includes('10gbps') || t.includes('server');
                             });
                             if (hasRealServers || attempt >= 2) break;
-                            // Only got 'Original Link' - retry after delay
                             console.log(`[DanieSearch] Sub-options attempt ${attempt} returned no servers, retrying in 3s...`);
                             await new Promise(r => setTimeout(r, 3000));
                         } catch (subErr) {
@@ -1731,7 +1987,6 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
             // If VCloud servers exist (FSLv2, FSL, 10Gbps), use ONLY those — skip unreliable hosts
             const hasVcloudServers = candidatesFslv2.length > 0 || candidatesFsl.length > 0 || candidates10g.length > 0;
             if (hasVcloudServers) {
-                // Priority: FSLv2 -> FSL -> 10Gbps (last resort, often 404s on cloud IPs)
                 candidates = [
                     ...candidatesFslv2,
                     ...candidatesFsl,
@@ -1741,7 +1996,6 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
                 candidates = [...candidatesOther];
             }
             
-            // If no specific candidates found, fallback to original hosts themselves
             if (candidates.length === 0) {
                 for (const host of hostsList) {
                     candidates.push({ name: host.text || 'Direct Link', href: host.href });
@@ -1750,25 +2004,12 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
 
             console.log(`[DanieSearch] Fallback system candidates:`, candidates.map(c => c.name));
 
-            // Prepare base title using custom filename generation
-            const primaryHost = hostsList[0] || {};
-            let sanitizedTitle = generateCustomFileName(state, primaryHost);
-            if (!sanitizedTitle) {
-                sanitizedTitle = (state.resolutionHeading || state.title || 'Movie')
-                    .replace(/[:*?"<>|\\/]/g, '') // remove invalid filename chars
-                    .trim();
-                if (primaryHost.episode) {
-                    sanitizedTitle = `${sanitizedTitle} ${primaryHost.episode}`;
-                }
-            }
-
             let downloadSuccess = false;
             let lastError = null;
 
             for (let i = 0; i < candidates.length; i++) {
                 const cand = candidates[i];
                 
-                // Resolve 10Gbps server links via redirect chain before download
                 if (cand.name.toLowerCase().includes('10gbps') || cand.name.toLowerCase().includes('10 gbps')) {
                     console.log(`[DanieSearch] Resolving 10Gbps redirect chain for: ${cand.href}`);
                     try {
@@ -1789,13 +2030,13 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
                 console.log(`[DanieSearch] Fallback Attempt ${i + 1}: Trying ${cand.name}...`);
                 
                 try {
-                    await downloadCommandHandler(conn, mek, from, senderJid, downloadQuery, reply, controller.signal, activeDownloadRef, cand.name, true);
+                    await downloadCommandHandler(conn, mek, from, senderJid, downloadQuery, reply, signal, ref, cand.name, true);
                     downloadSuccess = true;
                     console.log(`[DanieSearch] Fallback Attempt ${i + 1} (${cand.name}) succeeded!`);
-                    break; // Stop on first success!
+                    break;
                 } catch (err) {
                     if (err.message === 'Aborted') {
-                        throw err; // Stop if aborted by the user
+                        throw err;
                     }
                     console.error(`[DanieSearch] Fallback Attempt ${i + 1} (${cand.name}) failed:`, err.message);
                     lastError = err;
@@ -1810,24 +2051,13 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
                     delete pendingSearch[cleanJid(senderJid)];
                 }
             }
-
-        } catch (err) {
-            if (err.message === 'Aborted') {
-                console.log('[DanieSearch] Background download successfully aborted.');
-            } else {
-                console.error('[DanieSearch] Background download failed:', err.message);
-                try {
-                    await reply(`❌ Failed to download: ${err.message}`);
-                } catch (replyErr) {
-                    console.error('[DanieSearch] Failed to send error reply:', replyErr.message);
-                }
-            }
-        } finally {
-            if (state.activeDownload && state.activeDownload.controller === controller) {
-                state.activeDownload = null;
-            }
         }
-    })();
+    };
+
+    const queuedTask = globalTaskQueue.add(task);
+    if (globalTaskQueue.activeTask && globalTaskQueue.activeTask.id !== queuedTask.id) {
+        await reply(`📥 *Added to Queue* (Position #${globalTaskQueue.queue.length}):\n🍿 Download: *${sanitizedTitle}*`);
+    }
 }
 
 async function handleSearchReply(conn, mek, senderJid, text, reply) {
