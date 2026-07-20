@@ -12,9 +12,9 @@ function killPreviousInstances() {
     const myPid = process.pid;
     const parentPid = process.ppid;
 
-    console.log(`[SingleInstance] Initializing single instance guard (PID: ${myPid}, Parent PID: ${parentPid})...`);
+    console.log(`[SingleInstance] Initializing 100% single-instance guard (PID: ${myPid}, Parent: ${parentPid})...`);
 
-    // 1. Kill PID recorded in session/bot.pid if running and different from me and my parent
+    // 1. Terminate PID recorded in session/bot.pid if active and different from current process
     if (fs.existsSync(pidFile)) {
         try {
             const oldPidStr = fs.readFileSync(pidFile, 'utf-8').trim();
@@ -36,7 +36,7 @@ function killPreviousInstances() {
         }
     }
 
-    // 2. Cross-platform cleanup of duplicate Node processes running start.js or queen.js
+    // 2. Cross-platform cleanup of duplicate Node processes running start.js or queen.js or pair.js
     if (process.platform === 'win32') {
         try {
             const psScript = [
@@ -46,7 +46,7 @@ function killPreviousInstances() {
                 `foreach ($p in $procs) {`,
                 `  if ($p.ProcessId -ne $currentPid -and $p.ProcessId -ne $ppid) {`,
                 `    $cmd = $p.CommandLine;`,
-                `    if ($cmd -and ($cmd.Contains('queen.js') -or $cmd.Contains('start.js'))) {`,
+                `    if ($cmd -and ($cmd.Contains('queen.js') -or $cmd.Contains('start.js') -or $cmd.Contains('pair.js'))) {`,
                 `      Write-Host "Terminating duplicate node process PID: $($p.ProcessId)";`,
                 `      Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue;`,
                 `    }`,
@@ -61,15 +61,40 @@ function killPreviousInstances() {
         } catch (e) {
             // Silently ignore if PowerShell query fails
         }
-    } else {
-        // Unix/Linux process cleanup
+
+        // 3. Free Port 3000 if occupied by another process
         try {
-            const script = `pgrep -f "node.*(queen\.js|start\.js)" | grep -v "^${myPid}$" | grep -v "^${parentPid}$" | xargs -r kill -9`;
+            const targetPort = process.env.PORT || '3000';
+            const portPsScript = [
+                `$portPids = Get-NetTCPConnection -LocalPort ${targetPort} -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess;`,
+                `foreach ($pid in $portPids) {`,
+                `  if ($pid -ne ${myPid} -and $pid -ne ${parentPid || 0} -and $pid -gt 0) {`,
+                `    Write-Host "Releasing port ${targetPort} held by PID: $pid";`,
+                `    Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue;`,
+                `  }`,
+                `}`
+            ].join(' ');
+
+            const portKilled = execSync(`powershell -NoProfile -ExecutionPolicy Bypass -Command "${portPsScript}"`, { encoding: 'utf-8' }).trim();
+            if (portKilled) {
+                console.log(`[SingleInstance] ${portKilled}`);
+            }
+        } catch (e) {}
+
+    } else {
+        // Unix/Linux process & port cleanup
+        try {
+            const script = `pgrep -f "node.*(queen\.js|start\.js|pair\.js)" | grep -v "^${myPid}$" | grep -v "^${parentPid}$" | xargs -r kill -9`;
             execSync(script, { stdio: 'ignore' });
+        } catch (_) {}
+
+        try {
+            const targetPort = process.env.PORT || '3000';
+            execSync(`fuser -k ${targetPort}/tcp`, { stdio: 'ignore' });
         } catch (_) {}
     }
 
-    // 3. Write current PID to lockfile
+    // 4. Write current PID to lockfile
     try {
         fs.writeFileSync(pidFile, String(myPid), 'utf-8');
     } catch (e) {
