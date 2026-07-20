@@ -1904,13 +1904,33 @@ DANIE_COMMANDS['alive'] = async (conn, mek, from, senderJid, args, reply) => {
     const settings = loadSettings();
     const modeLabel = settings.mode === 'group' ? 'Group' : 'Private';
     const uptime = formatUptime(process.uptime());
-    const msg = `🧚‍♂️⃟🩵 *DANIEWATCH BOT ALIVE* 🧚‍♂️⃟🩵\n\n` +
-                `🤖 *Bot:* DanieWatch Downloader Bot\n` +
-                `👑 *Created By:* Daniyal Aadil\n` +
-                `🍁 *Uptime:* ${uptime}\n` +
-                `⚙️ *Mode:* ${modeLabel}\n\n` +
-                `🚀 *Status:* Active & Ready!`;
-    await reply(msg);
+
+    let targetSummary = 'Default Private Chat';
+    if (settings.targetReceivers && settings.targetReceivers.length > 0) {
+        targetSummary = `${settings.targetReceivers.length} Receiver(s)`;
+    }
+
+    const caption = `✨ *DANIEWATCH DOWNLOADER BOT* ✨\n` +
+                    `━━━━━━━━━━━━━━━━━━━━━━\n` +
+                    `⚙️ *System Status:* Online & Active\n` +
+                    `👑 *Developer:* Daniyal Aadil\n` +
+                    `⏱️ *Uptime:* ${uptime}\n` +
+                    `🔒 *Access Mode:* ${modeLabel}\n` +
+                    `🎯 *Active Destinations:* ${targetSummary}\n` +
+                    `━━━━━━━━━━━━━━━━━━━━━━\n` +
+                    `🚀 *Ready for Video & Movie Downloads!`;
+
+    const logoPath = path.join(__dirname, '..', '..', 'assets', 'daniewatch_logo.png');
+    if (fs.existsSync(logoPath)) {
+        try {
+            const imageBuffer = fs.readFileSync(logoPath);
+            await conn.sendMessage(from, { image: imageBuffer, caption: caption }, { quoted: mek });
+            return;
+        } catch (e) {
+            console.error('Error sending alive logo image:', e);
+        }
+    }
+    await reply(caption);
 };
 
 DANIE_COMMANDS['qupdate'] = DANIE_COMMANDS['qedit'];
