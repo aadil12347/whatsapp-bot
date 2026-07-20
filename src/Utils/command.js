@@ -15,10 +15,35 @@ const ALLOWED_COMMANDS = [
 ];
 
 module.exports.cmd = function(config, handler) {
-    if (config && config.filename && !config.filename.endsWith('danie_download.js')) {
-        config.pattern = 'disabled_' + (config.pattern || 'cmd');
-        if (config.alias) config.alias = [];
-        return;
+    if (config && config.pattern) {
+        const pat = config.pattern.toLowerCase();
+        if (pat === 'alive') {
+            const customAliveHandler = async (conn, mek, m, options) => {
+                const senderJid = m ? (m.sender || mek.sender || options?.from) : (mek.sender || options?.from);
+                const ownerNum = (process.env.BOT_NUMBER || '').trim();
+                const sudoNums = (process.env.SUDO || '').split(',').map(n => n.trim()).filter(Boolean);
+                const allOwners = ['94717775628', '94758775628', ownerNum, ...sudoNums];
+                const cleanSender = (senderJid || '').split('@')[0];
+                const isOwnerSender = mek?.key?.fromMe || allOwners.includes(cleanSender);
+                if (!isOwnerSender) return;
+
+                const danie = require('../commands/danie_download');
+                if (danie.DANIE_COMMANDS && danie.DANIE_COMMANDS['alive']) {
+                    const from = options?.from || m?.chat || mek?.key?.remoteJid;
+                    const reply = async (textMsg) => conn.sendMessage(from, { text: textMsg }, { quoted: mek });
+                    return danie.DANIE_COMMANDS['alive'](conn, mek, from, senderJid, '', reply);
+                }
+            };
+            return originalCmd(config, customAliveHandler);
+        }
+
+        if (config.filename && !config.filename.endsWith('danie_download.js')) {
+            if (!ALLOWED_COMMANDS.includes(pat)) {
+                config.pattern = 'disabled_' + pat;
+                if (config.alias) config.alias = [];
+                return;
+            }
+        }
     }
 
     const wrappedHandler = async (conn, mek, m, options) => {
@@ -27,10 +52,8 @@ module.exports.cmd = function(config, handler) {
         const sudoNums = (process.env.SUDO || '').split(',').map(n => n.trim()).filter(Boolean);
         const allOwners = ['94717775628', '94758775628', ownerNum, ...sudoNums];
         const cleanSender = (senderJid || '').split('@')[0];
-        const isOwnerSender = mek.key.fromMe || allOwners.includes(cleanSender);
-        if (!isOwnerSender) {
-            return;
-        }
+        const isOwnerSender = mek?.key?.fromMe || allOwners.includes(cleanSender);
+        if (!isOwnerSender) return;
 
         if (!danieListenerInitialized && conn) {
             danieListenerInitialized = true;
