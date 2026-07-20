@@ -12,7 +12,7 @@ const SESSION_DIR = path.join(__dirname, 'session');
 
 let pairingCodeRequested = false;
 
-async function startPairing(cleanStart = false) {
+async function startPairing(cleanStart = true) {
     try { require('./src/Utils/singleInstance').killPreviousInstances(); } catch(e) {}
     if (cleanStart && fs.existsSync(SESSION_DIR)) {
         try {
