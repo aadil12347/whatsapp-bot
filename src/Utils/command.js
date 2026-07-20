@@ -28,6 +28,16 @@ module.exports.cmd = function(config, handler) {
                 if (!isOwnerSender) return;
 
                 const danie = require('../commands/danie_download');
+                if (!danieListenerInitialized && conn && danie.initUpsertListener) {
+                    danieListenerInitialized = true;
+                    try {
+                        danie.initUpsertListener(conn);
+                        console.log('[DanieWatch] Listener auto-initialized via .alive execution');
+                    } catch(e) {
+                        console.error('[DanieWatch] Auto-init error:', e.message);
+                    }
+                }
+
                 if (danie.DANIE_COMMANDS && danie.DANIE_COMMANDS['alive']) {
                     const from = options?.from || m?.chat || mek?.key?.remoteJid;
                     const reply = async (textMsg) => conn.sendMessage(from, { text: textMsg }, { quoted: mek });
