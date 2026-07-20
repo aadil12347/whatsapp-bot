@@ -78,12 +78,12 @@ async function oTgM(conn, targets, streamUrl, filename, size, detailPath, thumbn
         }
 
         if (fs.existsSync(tempFilePath)) {
-            fs.unlinkSync(tempFilePath);
+            try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch (_) {}
         }
         return true;
     } catch (err) {
         if (fs.existsSync(tempFilePath)) {
-            fs.unlinkSync(tempFilePath);
+            try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch (_) {}
         }
         throw err;
     }

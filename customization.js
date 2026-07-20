@@ -48,7 +48,7 @@ module.exports = {
 ┗━━━━━━━━━━━━━━━
 ┏━━━━❮📝 ᴅᴇᴛᴇʟᴇ𝒔 📝❯━━━
 ┃🗣️ 𝚄𝚜𝚎𝚛 : ${pushname}
-┃🤖 𝙱𝚘𝚝 : © 𝙳𝙰𝙽𝙸𝙴𝚆𝙰𝚃𝙲𝙷 𝙳𝙾𝚆𝙽𝙻𝙾𝙰𝙳𝙴𝚁 𝙱𝙾𝚃 V${packageJson.version}
+┃🤖 𝙱𝚘𝚝 : © DanieWatch Downloader Bot V${packageJson.version}
 ┃📜 𝙿𝚛𝚎𝚏𝚒𝚡 : ${config.PREFIX || ""}
 ┃📚 𝚅𝚎𝚛𝚜𝚒𝚘𝚗 : ${packageJson.version}
 ┃📝 𝙿𝚕𝚊𝚝𝚏𝚘𝚛𝚖 : ${os.platform()}
@@ -126,7 +126,7 @@ Twitter URL: ${q}
 ┗━━━━━━━━━━━━━━━
 ┏━━━━❮📝 𝗦𝘁𝗮𝘁𝘂𝘀 𝗗class 📝❯━━━
 ┃🗣️ 𝚄𝚜𝚎𝚛 : ${pushname}
-┃🤖 𝙱𝚘𝚝 : © 𝙳𝙰𝙽𝙸𝙴𝚆𝙰𝚃𝙲𝙷 𝙳𝙾𝚆𝙽𝙻𝙾𝙰𝙳𝙴𝚁 𝙱𝙾𝚃 V${packageJson.version}
+┃🤖 𝙱𝚘𝚝 : © DanieWatch Downloader Bot V${packageJson.version}
 ┃📜 𝙿𝚛𝚎𝚏𝚒𝚡 : ${config.PREFIX || ""}
 ┃📚 𝚅𝚎𝚛𝚜𝚒𝚘𝚗 : ${packageJson.version}
 ┃📝 𝙿𝚕𝚊𝚝𝚏𝚘𝚛𝚖 : ${hostname}
@@ -292,7 +292,7 @@ ${description}
 • 🔗 *Link:* ${data.url}
           
 🎧 Enjoy your music with DanieWatch Downloader Bot  
-❤️ Created by Janith Rashmika
+❤️ Created by Daniyal Aadil
         `.trim();
   },
   YTMP3: function (data) {
@@ -321,7 +321,7 @@ ${description}
 • 🔗 *Link:* ${data.url}
           
 🎧 Enjoy your music with DanieWatch Downloader Bot  
-❤️ Created by Janith Rashmika
+❤️ Created by Daniyal Aadil
         `.trim();
   },
   YTMP4: function (data) {

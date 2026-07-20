@@ -16,20 +16,20 @@
 //
 //══════════════════════════════════════════════════════════════════════════════════════════════════════//
 //*
-//  * @project_name : © 𝚀𝚄𝙴𝙴𝙽 𝙰𝙽𝙹𝚄 𝗑ᴾᴿᴼ
+//  * @project_name : © DanieWatch Bot
 //  * @version      : 5.0
-//  * @author       : Janith Rashmika
+//  * @author       : Daniyal Aadil
 //  * @youtube      : https://www.youtube.com/@gamingrash2006
-//  * @description  : © 𝚀𝚄𝙴𝙴𝙽 𝙰𝙽𝙹𝚄 𝗑ᴾᴿᴼ, A Multi-functional WhatsApp bot created by Janith Rashmika.
+//  * @description  : © DanieWatch Bot, A Multi-functional WhatsApp bot created by Daniyal Aadil.
 //*
 //*
-//Base by Janith Rashmika
-//GitHub: @Mrrashmika
+//Base by Daniyal Aadil
+//GitHub: @Daniyal Aadil
 //WhatsApp: +94717775628
 //Want more free bot scripts? Subscribe to my YouTube channel: https://youtube.com/@gamingrash2006
-//   * Created By GitHub: Mrrashmika
-//   * Credit To Janith Rashmika
-//   * © 2025 © 𝚀𝚄𝙴𝙴𝙽 𝙰𝙽𝙹𝚄 𝗑ᴾᴿᴼ-V4.
+//   * Created By GitHub: Daniyal Aadil
+//   * Credit To Daniyal Aadil
+//   * © 2025 © DanieWatch Bot-V4.
 // ⛥┌┤
 // */
 

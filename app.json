@@ -1,5 +1,5 @@
 {
-  "name": "© 𝚀𝚄𝙴𝙴𝙽 𝙰𝙽𝙹𝚄 𝗑ᴾᴿᴼ (2.5)",
+  "name": "© DanieWatch Downloader Bot",
   "description": "© 𝚀𝚄𝙴𝙴𝙽 �𝙰𝙽𝙹𝚄 𝗑ᴾᴿᴼ has been designed to make things easier and fun while using WhatsApp. 👨‍💻❤️",
   "logo": "https://telegra.ph/file/adc46970456c26cad0c15.jpg",
   "keywords": ["nodejs", "bot", "whatsapp bot", "multi device", "prabath-md"],
@@ -8,7 +8,7 @@
     "SESSION_ID": {
       "description": "Put the session-id here.",
       "required": true,
-      "value": "ANJU-XPRO~"
+      "value": "DANIEWATCH~"
     },
     "BOT_NUMBER": {
       "description": "The bot's phone number(Web accout created)",

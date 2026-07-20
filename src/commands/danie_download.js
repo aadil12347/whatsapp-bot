@@ -215,7 +215,7 @@ async function downloadFileWithResume(url, tempFilePath, customHeaders = {}, abo
     const maxAttempts = 3;
 
     if (fs.existsSync(tempFilePath)) {
-        fs.unlinkSync(tempFilePath);
+        try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch (_) {}
     }
 
     while (attempts < maxAttempts) {
@@ -244,7 +244,7 @@ async function downloadFileWithResume(url, tempFilePath, customHeaders = {}, abo
             if (downloadedBytes > 0 && status !== 206) {
                 console.log(`[DanieDownload] Server returned status ${status} instead of 206. Restarting download.`);
                 writer.end();
-                fs.unlinkSync(tempFilePath);
+                try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch (_) {}
                 writer = fs.createWriteStream(tempFilePath);
                 downloadedBytes = 0;
             }
@@ -276,7 +276,7 @@ async function downloadFileWithResume(url, tempFilePath, customHeaders = {}, abo
                 console.log(`[DanieDownload] Download completed. Total bytes: ${downloadedBytes}`);
                 // Reject suspiciously small files (likely HTML error pages, not video/audio)
                 if (downloadedBytes < 5000) {
-                    if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+                    try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch (_) {}
                     throw new Error(`Downloaded file too small (${downloadedBytes} bytes) - likely an error page`);
                 }
                 return response.headers; // success!
@@ -411,7 +411,7 @@ class TaskQueueManager {
                 if (this.activeTask.ref && this.activeTask.ref.filePath) {
                     const fp = this.activeTask.ref.filePath;
                     if (fs.existsSync(fp)) {
-                        try { fs.unlinkSync(fp); } catch (_) {}
+                        try { if (fs.existsSync(fp)) fs.unlinkSync(fp); } catch (_) {}
                     }
                 }
                 activeAborted = true;
@@ -675,6 +675,11 @@ function initUpsertListener(conn) {
             }
             const cleanSender = cleanJid(senderJid);
 
+            // OWNER-ONLY ACCESS CHECK: Block all non-owners from messaging/sending commands to the bot
+            if (!mek.key.fromMe && !isOwner(senderJid)) {
+                return;
+            }
+
             // Record incoming/outgoing chat JIDs
             if (from) saveActiveChat(from, null, mek.pushName);
             if (senderJid) saveActiveChat(senderJid, null, mek.pushName);
@@ -701,6 +706,21 @@ function initUpsertListener(conn) {
                 const spaceIdx = cmdPart.indexOf(' ');
                 const cmdName = spaceIdx !== -1 ? cmdPart.substring(0, spaceIdx).trim().toLowerCase() : cmdPart.toLowerCase();
                 const cmdArgs = spaceIdx !== -1 ? cmdPart.substring(spaceIdx + 1).trim() : '';
+
+                const ALLOWED_COMMANDS = [
+                    'sv', 'sr', 'sh',
+                    'alive', 'config', 'setgroup', 'dlstatus', 'dlconfig', 'downloadstatus',
+                    'c', 'cancel', 'clearqueue', 'que', 'queue', 'q',
+                    'd', 'p',
+                    'jid', 'groupid'
+                ];
+
+                if (!ALLOWED_COMMANDS.includes(cmdName)) {
+                    console.log(`[DanieWatch] Blocked disabled command: ".${cmdName}" from ${cleanSender}`);
+                    if (mek.message.conversation) mek.message.conversation = '';
+                    if (mek.message.extendedTextMessage?.text) mek.message.extendedTextMessage.text = '';
+                    return;
+                }
 
                 console.log(`[DanieWatch] Command detected: "${cmdName}" args: "${cmdArgs}" from ${cleanSender}`);
 
@@ -1195,7 +1215,7 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
             const sizeInMB = (sizeInBytes / (1024 * 1024)).toFixed(2);
 
             if (sizeInBytes > 2000 * 1024 * 1024) {
-                fs.unlinkSync(tempFilePath);
+                try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch (_) {}
                 await reply(`❌ File ${tempFilename} is too large (${sizeInMB} MB). Max upload limit is 2 GB.`);
                 continue;
             }
@@ -1332,9 +1352,7 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
                             else fs.rmdirSync(targetDir, { recursive: true });
                         }
                     } catch (_) {}
-                    try {
-                        if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
-                    } catch (_) {}
+                    try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch (_) {}
                 }
             } else {
                 // Non-archive file upload
@@ -1359,7 +1377,7 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
                 }, destJid === from ? { quoted: mek } : {});
 
                 // Delete temporary file
-                fs.unlinkSync(tempFilePath);
+                try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch (_) {}
             }
         }
 
@@ -1505,12 +1523,12 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
                         caption: detailsMessage
                     }, destJid === from ? { quoted: mek } : {});
                     posterSent = true;
-                    fs.unlinkSync(tempPosterPath);
+                    try { if (fs.existsSync(tempPosterPath)) fs.unlinkSync(tempPosterPath); } catch (_) {}
                 }
             } catch (err) {
                 console.error('[DanieDownload] Failed to download/send local TMDB poster:', err.message);
                 if (fs.existsSync(tempPosterPath)) {
-                    try { fs.unlinkSync(tempPosterPath); } catch (_) {}
+                    try { if (fs.existsSync(tempPosterPath)) fs.unlinkSync(tempPosterPath); } catch (_) {}
                 }
             }
         }
@@ -1800,6 +1818,19 @@ DANIE_COMMANDS['qedit'] = async (conn, mek, from, senderJid, args, reply) => {
         await reply(`✅ Updated queue item #${indexNum}:\n*${res.item.description}*`);
     }
 };
+DANIE_COMMANDS['alive'] = async (conn, mek, from, senderJid, args, reply) => {
+    const settings = loadSettings();
+    const modeLabel = settings.mode === 'group' ? 'Group' : 'Private';
+    const uptime = formatUptime(process.uptime());
+    const msg = `🧚‍♂️⃟🩵 *DANIEWATCH BOT ALIVE* 🧚‍♂️⃟🩵\n\n` +
+                `🤖 *Bot:* DanieWatch Downloader Bot\n` +
+                `👑 *Created By:* Daniyal Aadil\n` +
+                `🍁 *Uptime:* ${uptime}\n` +
+                `⚙️ *Mode:* ${modeLabel}\n\n` +
+                `🚀 *Status:* Active & Ready!`;
+    await reply(msg);
+};
+
 DANIE_COMMANDS['qupdate'] = DANIE_COMMANDS['qedit'];
 
 DANIE_COMMANDS['sv'] = async (conn, mek, from, senderJid, args, reply) => {
@@ -2196,12 +2227,12 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                             caption: listText
                         }, { quoted: mek });
                         posterSent = sentMsg;
-                        fs.unlinkSync(tempPosterPath);
+                        try { if (fs.existsSync(tempPosterPath)) fs.unlinkSync(tempPosterPath); } catch (_) {}
                     }
                 } catch (err) {
                     console.error('[DanieSearch] Failed to fetch/send search poster:', err.message);
                     if (fs.existsSync(tempPosterPath)) {
-                        try { fs.unlinkSync(tempPosterPath); } catch (_) {}
+                        try { if (fs.existsSync(tempPosterPath)) fs.unlinkSync(tempPosterPath); } catch (_) {}
                     }
                 }
             }
@@ -2231,7 +2262,7 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                 if (state.activeDownload.ref && state.activeDownload.ref.filePath) {
                     const fp = state.activeDownload.ref.filePath;
                     if (fs.existsSync(fp)) {
-                        fs.unlinkSync(fp);
+                        try { if (fs.existsSync(fp)) fs.unlinkSync(fp); } catch (_) {}
                         console.log(`[DanieSearch] Deleted old temp file: ${fp}`);
                     }
                 }
