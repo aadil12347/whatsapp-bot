@@ -900,10 +900,6 @@ cmd({
         initUpsertListener(conn);
         const cleanSender = cleanJid(senderJid);
 
-        if (q && q.trim()) {
-            return handleConfigReply(conn, mek, m, senderJid, q.trim(), reply);
-        }
-
         let groupsObj = {};
         try {
             groupsObj = await conn.groupFetchAllParticipating();
@@ -916,6 +912,10 @@ cmd({
 
         pendingConfig[cleanSender] = { step: 'combined_config', groups, messageId: null };
 
+        if (q && q.trim()) {
+            return handleConfigReply(conn, mek, m, senderJid, q.trim(), reply);
+        }
+
         const current = loadSettings();
         let targetText = '';
         if (current.targets && current.targets.length > 0) {
@@ -923,6 +923,8 @@ cmd({
                 const icon = t.type === 'group' ? '📤' : '📥';
                 targetText += `  ${idx + 1}. ${icon} *${t.name}* (${t.jid})\n`;
             });
+        } else if (current.mode === 'group' && current.groupJid) {
+            targetText += `  1. 📤 *${current.groupName || 'Group'}* (${current.groupJid})\n`;
         } else {
             targetText = `  _Defaulting to your Private Chat (*+${cleanSender.split('@')[0]}*)_\n`;
         }
@@ -933,19 +935,19 @@ cmd({
                 groupListText += `  ${i + 1}. 📤 ${g.subject}\n`;
             });
         } else {
-            groupListText = '  _No active groups found._\n';
+            groupListText = '  _No active groups found. Make sure the bot number is added to your WhatsApp group(s)._\n';
         }
 
         const sent = await reply(
             `⚙️ *DanieWatch Receiver Destinations Config*\n\n` +
             `🎯 *Current Active Receiver(s):*\n${targetText}\n` +
-            `📋 *Available WhatsApp Groups:*\n${groupListText}\n` +
+            `📋 *Available WhatsApp Groups (${groups.length}):*\n${groupListText}\n` +
             `*How to set receivers:*\n` +
-            `  • Reply with group serial numbers (e.g. \`1, 2\` or \`1-3\` or \`all\`)\n` +
-            `  • Reply with phone numbers in +92 or 92 format (e.g. \`923253068800\`)\n` +
+            `  • Reply with group serial number(s) (e.g. \`1\`, \`1, 2\`, \`1-3\`, or \`all\`)\n` +
+            `  • Reply with phone number(s) in +92 or 92 format (e.g. \`923253068800\`)\n` +
             `  • Combine both! (e.g. \`1, 2, +923253068800\`)\n` +
             `  • Reply \`clear\` to reset back to your default private chat.\n\n` +
-            `_Reply to this message with your choices._`
+            `_Reply to this message with your choice(s)._`
         );
         if (sent && sent.key) {
             pendingConfig[cleanSender].messageId = sent.key.id;
@@ -958,13 +960,31 @@ cmd({
 
 async function handleConfigReply(conn, mek, m, senderJid, text, reply) {
     const cleanSender = cleanJid(senderJid);
-    const state = pendingConfig[cleanSender];
-    const groups = (state && state.groups) ? state.groups : [];
+    let state = pendingConfig[cleanSender];
+    
+    if (!state || !state.groups || state.groups.length === 0) {
+        let groupsObj = {};
+        try {
+            groupsObj = await conn.groupFetchAllParticipating();
+        } catch (_) {}
+        const groups = Object.values(groupsObj).map(g => ({
+            jid: g.id,
+            subject: g.subject || 'Unknown Group'
+        }));
+        if (!state) {
+            state = { step: 'combined_config', groups, messageId: null };
+            pendingConfig[cleanSender] = state;
+        } else {
+            state.groups = groups;
+        }
+    }
+
+    const groups = state.groups || [];
     const rawText = text.trim();
     const lowerText = rawText.toLowerCase();
 
     if (['clear', 'reset', '4', 'clean'].includes(lowerText)) {
-        saveSettings({ mode: 'private', targets: [] });
+        saveSettings({ mode: 'private', targets: [], groupJid: '', groupName: '', privateJid: '', privateName: '' });
         delete pendingConfig[cleanSender];
         return reply(`🗑️ All target receivers cleared!\n\nDefault receiver reset to your Private Chat: *+${cleanSender.split('@')[0]}*`);
     }
@@ -1007,10 +1027,22 @@ async function handleConfigReply(conn, mek, m, senderJid, text, reply) {
     }
 
     if (selectedTargets.length === 0) {
-        return reply('❌ Invalid choice! Reply with group serial number(s) (e.g. \`1, 2\`), phone number(s) (e.g. \`923253068800\`), or both combined (e.g. \`1, 2, +923253068800\`). Or reply \`clear\` to reset.');
+        if (groups.length === 0) {
+            return reply('❌ No active groups found for the bot. Make sure the bot WhatsApp number is added into your WhatsApp group as a member/admin, then try `.config` or `.setgroup` again.');
+        }
+        return reply(`❌ Invalid choice! Reply with group serial number(s) (e.g. \`1\` or \`1, 2\`), phone number(s) (e.g. \`923253068800\`), or \`all\`. Or reply \`clear\` to reset.`);
     }
 
     const settings = loadSettings();
+    if (!settings.targets) settings.targets = [];
+
+    const firstGroup = selectedTargets.find(t => t.type === 'group');
+    if (firstGroup) {
+        settings.mode = 'group';
+        settings.groupJid = firstGroup.jid;
+        settings.groupName = firstGroup.name;
+    }
+
     selectedTargets.forEach(st => {
         if (!settings.targets.some(t => t.jid === st.jid)) {
             settings.targets.push(st);
@@ -1689,21 +1721,56 @@ cmd({
 DANIE_COMMANDS['config'] = async (conn, mek, from, senderJid, args, reply) => {
     if (!isOwner(senderJid)) return reply('❌ Only the bot owner can use this command.');
     initUpsertListener(conn);
-    const current = loadSettings();
-    let modeLabel = '📥 *Private Chat*';
-    if (current.mode === 'group') modeLabel = `📤 *Group* → ${current.groupName || current.groupJid}`;
-    else if (current.mode === 'private' && current.privateJid) modeLabel = `📥 *Private Chat* → ${current.privateName || current.privateJid}`;
-    if (args) return handleConfigReply(conn, mek, null, senderJid, args, reply);
     const cleanSender = cleanJid(senderJid);
-    pendingConfig[cleanSender] = { step: 'mode', groups: [], chats: [], messageId: null };
+
+    let groupsObj = {};
+    try {
+        groupsObj = await conn.groupFetchAllParticipating();
+    } catch (_) {}
+
+    const groups = Object.values(groupsObj).map(g => ({
+        jid: g.id,
+        subject: g.subject || 'Unknown Group'
+    }));
+
+    pendingConfig[cleanSender] = { step: 'combined_config', groups, messageId: null };
+
+    if (args && args.trim()) {
+        return handleConfigReply(conn, mek, null, senderJid, args.trim(), reply);
+    }
+
+    const current = loadSettings();
+    let targetText = '';
+    if (current.targets && current.targets.length > 0) {
+        current.targets.forEach((t, idx) => {
+            const icon = t.type === 'group' ? '📤' : '📥';
+            targetText += `  ${idx + 1}. ${icon} *${t.name}* (${t.jid})\n`;
+        });
+    } else if (current.mode === 'group' && current.groupJid) {
+        targetText += `  1. 📤 *${current.groupName || 'Group'}* (${current.groupJid})\n`;
+    } else {
+        targetText = `  _Defaulting to your Private Chat (*+${cleanSender.split('@')[0]}*)_\n`;
+    }
+
+    let groupListText = '';
+    if (groups.length > 0) {
+        groups.forEach((g, i) => {
+            groupListText += `  ${i + 1}. 📤 ${g.subject}\n`;
+        });
+    } else {
+        groupListText = '  _No active groups found. Make sure the bot number is added to your WhatsApp group(s)._\n';
+    }
+
     const sent = await reply(
-        `⚙️ *DanieWatch Download Config*\n\n` +
-        `Current setting: ${modeLabel}\n\n` +
-        `Where should downloaded files be sent?\n\n` +
-        `*Reply with:*\n` +
-        `  \`1\` — 📥 Private Chats\n` +
-        `  \`2\` — 📤 WhatsApp Groups\n\n` +
-        `_Reply with just the number to select._`
+        `⚙️ *DanieWatch Receiver Destinations Config*\n\n` +
+        `🎯 *Current Active Receiver(s):*\n${targetText}\n` +
+        `📋 *Available WhatsApp Groups (${groups.length}):*\n${groupListText}\n` +
+        `*How to set receivers:*\n` +
+        `  • Reply with group serial number(s) (e.g. \`1\`, \`1, 2\`, \`1-3\`, or \`all\`)\n` +
+        `  • Reply with phone number(s) in +92 or 92 format (e.g. \`923253068800\`)\n` +
+        `  • Combine both! (e.g. \`1, 2, +923253068800\`)\n` +
+        `  • Reply \`clear\` to reset back to your default private chat.\n\n` +
+        `_Reply to this message with your choice(s)._`
     );
     if (sent && sent.key) {
         pendingConfig[cleanSender].messageId = sent.key.id;
