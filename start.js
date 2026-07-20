@@ -2,6 +2,9 @@ const { fork, execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
+const { killPreviousInstances } = require('./src/Utils/singleInstance');
+killPreviousInstances();
+
 console.log('🚀 Starting your custom DanieWatch Downloader Bot...');
 
 // Auto-update: Pull fresh files from GitHub at startup
