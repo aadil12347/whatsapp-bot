@@ -134,7 +134,7 @@ async function fetchTmdbMetadata(query, mediaType = 'movie', imdbId = null) {
 }
 
 /**
- * Fetch YouTube trailer URL for a TMDB ID with Season support and YouTube search fallback
+ * Fetch YouTube trailer URL for a TMDB ID with Season support (strict TMDB only)
  */
 async function fetchTmdbTrailerUrl(tmdbId, mediaType = 'movie', title = '', seasonNumber = null) {
     try {
@@ -169,16 +169,6 @@ async function fetchTmdbTrailerUrl(tmdbId, mediaType = 'movie', title = '', seas
 
             if (chosen) {
                 return `https://www.youtube.com/watch?v=${chosen.key}`;
-            }
-        }
-
-        // 3. Fallback to YouTube Search if TMDB has no video
-        if (title) {
-            const query = `${title} ${mediaType === 'tv' && seasonNumber ? 'Season ' + seasonNumber : ''} official trailer`.trim();
-            console.log(`[MovieScraper] Trailer YouTube search fallback: "${query}"...`);
-            const searchRes = await yts(query);
-            if (searchRes && searchRes.videos && searchRes.videos.length > 0) {
-                return searchRes.videos[0].url;
             }
         }
 
