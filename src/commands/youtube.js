@@ -18,33 +18,17 @@ const defaultHeaders = {
     "Accept": "*/*"
 };
 
-function remuxToFaststartMp4(inputBuffer) {
-    if (!inputBuffer || inputBuffer.length === 0) return inputBuffer;
-    const tmpInput = path.join(os.tmpdir(), `yt_in_${Date.now()}_${Math.random().toString(36).substr(2, 5)}.mp4`);
-    const tmpOutput = path.join(os.tmpdir(), `yt_out_${Date.now()}_${Math.random().toString(36).substr(2, 5)}.mp4`);
-    try {
-        fs.writeFileSync(tmpInput, inputBuffer);
-        execSync(`ffmpeg -y -i "${tmpInput}" -c copy -movflags +faststart "${tmpOutput}"`, { stdio: 'ignore' });
-        const outputBuffer = fs.readFileSync(tmpOutput);
-        console.log(`[YouTube Remux] Faststart remux succeeded (${inputBuffer.length} -> ${outputBuffer.length} bytes)`);
-        return outputBuffer;
-    } catch (e) {
-        console.error('[YouTube Remux] Faststart remux failed, sending raw buffer:', e.message);
-        return inputBuffer;
-    } finally {
-        try { if (fs.existsSync(tmpInput)) fs.unlinkSync(tmpInput); } catch (_) {}
-        try { if (fs.existsSync(tmpOutput)) fs.unlinkSync(tmpOutput); } catch (_) {}
-    }
-}
-
 async function convertYtMedia(ytUrl, audioBitrate, videoQuality, format) {
+    const tempRawPath = path.join(os.tmpdir(), `yt_raw_${Date.now()}_${Math.random().toString(36).substr(2, 5)}.${format}`);
+    const tempFixedPath = path.join(os.tmpdir(), `yt_fixed_${Date.now()}_${Math.random().toString(36).substr(2, 5)}.${format}`);
+
     try {
-        console.log("[YouTube] Fetching API key...");
+        console.log("[YouTube API] Fetching API key...");
         const keyRes = await fetch("https://cnv.cx/v2/sanity/key", { headers: defaultHeaders });
         if (!keyRes.ok) throw new Error("Key fetch failed");
         const { key } = await keyRes.json();
 
-        console.log("[YouTube] Requesting download conversion link...");
+        console.log("[YouTube API] Requesting download conversion link...");
         const bodyParams = new URLSearchParams({
             link: ytUrl,
             format: format,
@@ -68,27 +52,50 @@ async function convertYtMedia(ytUrl, audioBitrate, videoQuality, format) {
         const convJson = await convRes.json();
         if (!convJson.url) throw new Error("No download URL found in response");
 
-        console.log("[YouTube] Downloading file stream to buffer...");
+        console.log("[YouTube API] Downloading stream directly to disk:", tempRawPath);
         const fileRes = await fetch(convJson.url, { headers: defaultHeaders });
         if (!fileRes.ok) throw new Error("File download failed");
-        
-        const arrayBuf = await fileRes.arrayBuffer();
-        let rawBuffer = Buffer.from(arrayBuf);
-        let mime = "audio/mpeg";
+
+        const fileStream = fs.createWriteStream(tempRawPath);
+        await new Promise((resolve, reject) => {
+            fileRes.body.pipe(fileStream);
+            fileRes.body.on('error', reject);
+            fileStream.on('finish', resolve);
+        });
+
+        const rawSize = fs.existsSync(tempRawPath) ? fs.statSync(tempRawPath).size : 0;
+        console.log(`[YouTube API] Raw download complete (${rawSize} bytes)`);
+
+        let mime = format === 'mp4' ? "video/mp4" : "audio/mpeg";
 
         if (format === 'mp4') {
-            mime = "video/mp4";
-            console.log("[YouTube] Remuxing video to standard MP4 (+faststart) for WhatsApp compatibility...");
-            rawBuffer = remuxToFaststartMp4(rawBuffer);
+            console.log("[YouTube API] Remuxing MP4 to faststart on disk...");
+            try {
+                execSync(`ffmpeg -y -i "${tempRawPath}" -c copy -movflags +faststart "${tempFixedPath}"`, { stdio: 'ignore' });
+                if (fs.existsSync(tempFixedPath) && fs.statSync(tempFixedPath).size > 0) {
+                    console.log("[YouTube API] Faststart remux succeeded!");
+                    try { if (fs.existsSync(tempRawPath)) fs.unlinkSync(tempRawPath); } catch (_) {}
+                    return { filePath: tempFixedPath, filename: convJson.filename, mimetype: mime };
+                }
+            } catch (e) {
+                console.error("[YouTube API] Faststart copy remux failed, attempting x264 transcode:", e.message);
+                try {
+                    execSync(`ffmpeg -y -i "${tempRawPath}" -c:v libx264 -preset ultrafast -crf 26 -c:a aac -b:a 128k -pix_fmt yuv420p -movflags +faststart "${tempFixedPath}"`, { stdio: 'ignore' });
+                    if (fs.existsSync(tempFixedPath) && fs.statSync(tempFixedPath).size > 0) {
+                        try { if (fs.existsSync(tempRawPath)) fs.unlinkSync(tempRawPath); } catch (_) {}
+                        return { filePath: tempFixedPath, filename: convJson.filename, mimetype: mime };
+                    }
+                } catch (transErr) {
+                    console.error("[YouTube API] Transcode failed too, using raw download:", transErr.message);
+                }
+            }
         }
 
-        return {
-            buffer: rawBuffer,
-            filename: convJson.filename,
-            mimetype: mime
-        };
+        return { filePath: tempRawPath, filename: convJson.filename, mimetype: mime };
     } catch (err) {
         console.error("[YouTube Scraper Error]:", err);
+        try { if (fs.existsSync(tempRawPath)) fs.unlinkSync(tempRawPath); } catch (_) {}
+        try { if (fs.existsSync(tempFixedPath)) fs.unlinkSync(tempFixedPath); } catch (_) {}
         return null;
     }
 }
@@ -190,6 +197,7 @@ cmd({
     dontAddCommandList: true,
     filename: __filename
 }, async (conn, mek, m, { from, q, reply, getThumbnailBuffer, config }) => {
+    let dl = null;
     try {
         if (!q) return reply("Please provide a search query.");
         const [query, choice] = q.split(" & ");
@@ -200,8 +208,8 @@ cmd({
         if (!info) return reply("No video found.");
 
         m.react("⬇️");
-        const dl = await convertYtMedia(info.url, "128", "480", "mp3");
-        if (!dl || !dl.buffer) throw new Error("Audio download failed.");
+        dl = await convertYtMedia(info.url, "128", "480", "mp3");
+        if (!dl || !dl.filePath || !fs.existsSync(dl.filePath)) throw new Error("Audio download failed.");
 
         const thumbBuf = await getThumbnailBuffer(info.thumbnail);
         const captionText = configExtra.YTMP3
@@ -210,16 +218,20 @@ cmd({
 
         m.react("⬆️");
         if (choice === '1') {
-            await conn.sendMessage(from, { audio: dl.buffer, mimetype: "audio/mpeg", fileName: `${info.title}.mp3`, caption: captionText, ptt: false });
+            await conn.sendMessage(from, { audio: { url: dl.filePath }, mimetype: "audio/mpeg", fileName: `${info.title}.mp3`, caption: captionText, ptt: false });
         } else if (choice === '2') {
-            await conn.sendMessage(from, { document: dl.buffer, mimetype: "audio/mpeg", fileName: `${info.title}.mp3`, caption: captionText, jpegThumbnail: thumbBuf });
+            await conn.sendMessage(from, { document: { url: dl.filePath }, mimetype: "audio/mpeg", fileName: `${info.title}.mp3`, caption: captionText, jpegThumbnail: thumbBuf });
         } else if (choice === '3') {
-            await conn.sendMessage(from, { audio: dl.buffer, mimetype: "audio/mp4", ptt: true });
+            await conn.sendMessage(from, { audio: { url: dl.filePath }, mimetype: "audio/mp4", ptt: true });
         }
         m.react("✅");
     } catch (err) {
         console.log(err);
         reply(`Failed to download or send audio. Error: ${err.message}`);
+    } finally {
+        if (dl && dl.filePath && fs.existsSync(dl.filePath)) {
+            try { fs.unlinkSync(dl.filePath); } catch (_) {}
+        }
     }
 });
 
@@ -364,6 +376,7 @@ cmd({
     dontAddCommandList: true,
     filename: __filename
 }, async (conn, mek, m, { from, q, reply, config }) => {
+    let dl = null;
     try {
         if (!q) return reply("Please provide a YouTube link or query.");
         const parts = q.split(" & ");
@@ -375,8 +388,8 @@ cmd({
         const videoUrl = info.url;
 
         m.react("⬇️");
-        const dl = await convertYtMedia(videoUrl, "128", quality, "mp4");
-        if (!dl || !dl.buffer) throw new Error("Video download failed.");
+        dl = await convertYtMedia(videoUrl, "128", quality, "mp4");
+        if (!dl || !dl.filePath || !fs.existsSync(dl.filePath)) throw new Error("Video download failed.");
 
         const captionText = configExtra.YTMP4
             ? configExtra.YTMP4(info)
@@ -384,7 +397,7 @@ cmd({
 
         m.react("⬆️");
         await conn.sendMessage(from, {
-            video: dl.buffer,
+            video: { url: dl.filePath },
             mimetype: "video/mp4",
             caption: captionText,
             fileName: "video.mp4"
@@ -393,6 +406,10 @@ cmd({
     } catch (err) {
         console.log(err);
         reply(`Failed to download or send video. Error: ${err.message || err}`);
+    } finally {
+        if (dl && dl.filePath && fs.existsSync(dl.filePath)) {
+            try { fs.unlinkSync(dl.filePath); } catch (_) {}
+        }
     }
 });
 
@@ -402,6 +419,7 @@ cmd({
     dontAddCommandList: true,
     filename: __filename
 }, async (conn, mek, m, { from, q, reply, getThumbnailBuffer, config }) => {
+    let dl = null;
     try {
         if (!q) return reply("Please provide a YouTube link or query.");
         const parts = q.split(" & ");
@@ -415,8 +433,8 @@ cmd({
         const thumbBuf = await getThumbnailBuffer(info.thumbnail);
         m.react("⬇️");
 
-        const dl = await convertYtMedia(videoUrl, "128", quality, "mp4");
-        if (!dl || !dl.buffer) throw new Error("Video document download failed.");
+        dl = await convertYtMedia(videoUrl, "128", quality, "mp4");
+        if (!dl || !dl.filePath || !fs.existsSync(dl.filePath)) throw new Error("Video document download failed.");
 
         const captionText = configExtra.YTMP4
             ? configExtra.YTMP4(info)
@@ -424,7 +442,7 @@ cmd({
 
         m.react("⬆️");
         await conn.sendMessage(from, {
-            document: dl.buffer,
+            document: { url: dl.filePath },
             mimetype: "video/mp4",
             fileName: `${info.title}.mp4`,
             caption: captionText,
@@ -434,6 +452,10 @@ cmd({
     } catch (err) {
         console.log(err);
         reply(`Failed to download or send video. Error: ${err.message || err}`);
+    } finally {
+        if (dl && dl.filePath && fs.existsSync(dl.filePath)) {
+            try { fs.unlinkSync(dl.filePath); } catch (_) {}
+        }
     }
 });
 
@@ -485,6 +507,7 @@ cmd({
     use: ".song lelena",
     filename: __filename
 }, async (conn, mek, m, { from, q, reply, pushname, config }) => {
+    let dl = null;
     try {
         if (!q) return reply("Please give me a URL or title.");
 
@@ -498,17 +521,21 @@ cmd({
 
         const captionText = configExtra.SONG
             ? configExtra.SONG(info, pushname)
-            : `\n${configExtra.SIGNATURE(config)}\n> 𝙷𝚎𝚕𝚕𝚘 𝚃𝚑𝚎𝚛𝚎 *${pushname}*\n> ==========================\n> ${backtick}[  S  O  N  G    D  L  ]${backtick}\n> >>>>>>>>>>>>>>>>>>>>>>>>>>\n> 🎶 *Title:* ${info.title}\n> ⏱️ *Duration:* ${info.timestamp}\n> 👁️ *Views:* ${info.views}\n> 📅 *Uploaded On:* ${info.ago}\n> 🔗 *Link:* ${info.url}\n> >>>>>>>>>>>>>>>>>>>>>>>>>>\n> ==========================`;
+            : `\n${configExtra.SIGNATURE(config)}\n> 𝙷𝚎𝚕𝚕𝚘 𝚃𝚑𝚎𝚛𝚎 *${pushname}*\n> ==========================\n> ${backtick}[  S  O  N  G    D  L  ]\${backtick}\n> >>>>>>>>>>>>>>>>>>>>>>>>>>\n> 🎶 *Title:* ${info.title}\n> ⏱️ *Duration:* ${info.timestamp}\n> 👁️ *Views:* ${info.views}\n> 📅 *Uploaded On:* ${info.ago}\n> 🔗 *Link:* ${info.url}\n> >>>>>>>>>>>>>>>>>>>>>>>>>>\n> ==========================`;
 
-        const dl = await convertYtMedia(info.url, "128", "480", "mp3");
-        if (!dl || !dl.buffer) throw new Error("Audio download failed.");
+        dl = await convertYtMedia(info.url, "128", "480", "mp3");
+        if (!dl || !dl.filePath || !fs.existsSync(dl.filePath)) throw new Error("Audio download failed.");
 
         m.react("⬆️");
         await conn.sendMessage(`${jidStr}`, { image: { url: info.thumbnail }, caption: captionText });
-        await conn.sendMessage(`${jidStr}`, { audio: dl.buffer, mimetype: "audio/mpeg", fileName: dl.filename, ptt: true });
+        await conn.sendMessage(`${jidStr}`, { audio: { url: dl.filePath }, mimetype: "audio/mpeg", fileName: dl.filename, ptt: true });
         m.react("✅");
     } catch (err) {
         console.error(err);
         reply(`${err}`);
+    } finally {
+        if (dl && dl.filePath && fs.existsSync(dl.filePath)) {
+            try { fs.unlinkSync(dl.filePath); } catch (_) {}
+        }
     }
 });

@@ -1456,6 +1456,10 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
                     finalFileName += '.' + ext;
                 }
 
+                if (finalFileName.toLowerCase().endsWith('.mp4') || mime === 'video/mp4') {
+                    remuxFileToFaststart(tempFilePath);
+                }
+
                 const activeTargets = settings.targets && settings.targets.length > 0 ? settings.targets : [{ jid: destJid, name: 'Chat' }];
                 await sendAndForwardFile(conn, activeTargets, {
                     document: { url: tempFilePath },
