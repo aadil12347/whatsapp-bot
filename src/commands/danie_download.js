@@ -755,7 +755,8 @@ function initUpsertListener(conn) {
                     'alive', 'allow', 'disallow', 'addowner', 'delowner', 'addsudo', 'delsudo', 'owners', 'allowed', 'sudolist', 'config', 'setgroup', 'dlstatus', 'dlconfig', 'downloadstatus',
                     'c', 'cancel', 'clearqueue', 'que', 'queue', 'q',
                     'd', 'p',
-                    'jid', 'groupid'
+                    'jid', 'groupid',
+                    'song', 'songdl', 'yt1s', 'yts', 'yts1', 'video', 'yt2s', 'yt3s', 'csong', 'csongdl'
                 ];
 
                 if (!ALLOWED_COMMANDS.includes(cmdName)) {
