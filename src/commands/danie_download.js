@@ -255,12 +255,14 @@ async function sendAndForwardFile(conn, targets, filePayload, sendOptions = {}) 
 function loadSettings() {
     try {
         if (fs.existsSync(SETTINGS_PATH)) {
-            return JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf-8'));
+            const settings = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf-8'));
+            if (!settings.targets) settings.targets = [];
+            return settings;
         }
     } catch (err) {
         console.error('[DanieDownload] Failed to load settings:', err.message);
     }
-    return { mode: 'private', groupJid: '', groupName: '', privateJid: '', privateName: '' };
+    return { mode: 'private', targets: [], groupJid: '', groupName: '', privateJid: '', privateName: '' };
 }
 
 function saveSettings(settings) {
@@ -272,6 +274,33 @@ function saveSettings(settings) {
     } catch (err) {
         console.error('[DanieDownload] Failed to save settings:', err.message);
     }
+}
+
+function getActiveTargetsAndPrimary(settings, senderJid) {
+    let activeTargets = [];
+    if (settings && settings.targets && Array.isArray(settings.targets) && settings.targets.length > 0) {
+        activeTargets = settings.targets;
+    } else if (settings && settings.mode === 'group' && settings.groupJid) {
+        activeTargets = [{ jid: cleanJid(settings.groupJid), name: settings.groupName || 'Group', type: 'group' }];
+    } else if (settings && settings.mode === 'private' && settings.privateJid) {
+        activeTargets = [{ jid: cleanJid(settings.privateJid), name: settings.privateName || `+${cleanJid(settings.privateJid).split('@')[0]}`, type: 'private' }];
+    } else {
+        const cleanSend = cleanJid(senderJid);
+        activeTargets = [{ jid: cleanSend, name: 'You (Private Chat)', type: 'private' }];
+    }
+
+    const primaryTarget = activeTargets[0];
+    const primaryJid = cleanJid(primaryTarget.jid);
+
+    let destLabel = '';
+    if (activeTargets.length === 1) {
+        const icon = primaryTarget.type === 'group' ? '📤 Group' : '📥 Private Chat';
+        destLabel = `${icon}: *${primaryTarget.name}* (${primaryJid})`;
+    } else {
+        destLabel = `${activeTargets.length} target receiver(s) (${activeTargets.map(t => t.name).join(', ')})`;
+    }
+
+    return { activeTargets, primaryJid, primaryTarget, destLabel };
 }
 
 async function downloadFileWithResume(url, tempFilePath, customHeaders = {}, abortSignal = null) {
@@ -1067,20 +1096,29 @@ async function handleConfigReply(conn, mek, m, senderJid, text, reply) {
     }
 
     const settings = loadSettings();
-    if (!settings.targets) settings.targets = [];
+    settings.targets = selectedTargets;
 
     const firstGroup = selectedTargets.find(t => t.type === 'group');
+    const firstPrivate = selectedTargets.find(t => t.type === 'private');
+
     if (firstGroup) {
         settings.mode = 'group';
-        settings.groupJid = firstGroup.jid;
+        settings.groupJid = cleanJid(firstGroup.jid);
         settings.groupName = firstGroup.name;
+    } else {
+        settings.groupJid = '';
+        settings.groupName = '';
     }
 
-    selectedTargets.forEach(st => {
-        if (!settings.targets.some(t => t.jid === st.jid)) {
-            settings.targets.push(st);
-        }
-    });
+    if (firstPrivate) {
+        if (!firstGroup) settings.mode = 'private';
+        settings.privateJid = cleanJid(firstPrivate.jid);
+        settings.privateName = firstPrivate.name;
+    } else {
+        settings.privateJid = '';
+        settings.privateName = '';
+    }
+
     saveSettings(settings);
     delete pendingConfig[cleanSender];
 
@@ -1149,7 +1187,14 @@ cmd({
         }
 
         const chosen = groups[num - 1];
-        const settings = { mode: 'group', groupJid: chosen.jid, groupName: chosen.subject, privateJid: '', privateName: '' };
+        const settings = {
+            mode: 'group',
+            groupJid: cleanJid(chosen.jid),
+            groupName: chosen.subject,
+            privateJid: '',
+            privateName: '',
+            targets: [{ jid: cleanJid(chosen.jid), name: chosen.subject, type: 'group' }]
+        };
         saveSettings(settings);
         delete pendingConfig[cleanSender];
         return reply(`✅ Download target set to group: *${chosen.subject}*\n🆔 \`${chosen.jid}\``);
@@ -1233,10 +1278,8 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
         const items = parseQueryToItems(q);
 
         const settings = loadSettings();
-        const isGroupMode = settings.mode === 'group' && settings.groupJid;
-        const rawDest = isGroupMode ? settings.groupJid : (settings.privateJid || senderJid);
-        const destJid = cleanJid(rawDest);
-        const destLabel = isGroupMode ? `📤 Group: *${settings.groupName}*` : `📥 Private Chat: *${settings.privateName || 'You'}*`;
+        const { activeTargets, primaryJid, destLabel } = getActiveTargetsAndPrimary(settings, senderJid);
+        const destJid = primaryJid;
 
         for (let i = 0; i < items.length; i++) {
             let { customFilename, url } = parseDownloadItem(items[i]);
@@ -1546,10 +1589,8 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
         }
 
         const settings = loadSettings();
-        const isGroupMode = settings.mode === 'group' && settings.groupJid;
-        const rawDest = isGroupMode ? settings.groupJid : (settings.privateJid || senderJid);
-        const destJid = cleanJid(rawDest);
-        const destLabel = isGroupMode ? `📤 Group: *${settings.groupName}*` : `📥 Private Chat: *${settings.privateName || 'You'}*`;
+        const { activeTargets, primaryJid, destLabel } = getActiveTargetsAndPrimary(settings, senderJid);
+        const destJid = primaryJid;
 
         // 1. Format details message (remove top/bottom branding, append daniewatch)
         let seasonText = '';
@@ -1623,10 +1664,10 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
                 });
                 
                 if (fs.existsSync(tempPosterPath)) {
-                    await conn.sendMessage(destJid, {
+                    await sendAndForwardFile(conn, activeTargets, {
                         image: { url: tempPosterPath },
                         caption: detailsMessage
-                    }, destJid === from ? { quoted: mek } : {});
+                    }, { quoted: destJid === from ? mek : null, from });
                     posterSent = true;
                     try { if (fs.existsSync(tempPosterPath)) fs.unlinkSync(tempPosterPath); } catch (_) {}
                 }
@@ -1672,10 +1713,10 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
                             console.log(`[DanieDownload] Remuxing trailer video to faststart MP4 for WhatsApp...`);
                             remuxFileToFaststart(tempTrailerPath);
 
-                            await conn.sendMessage(destJid, {
+                            await sendAndForwardFile(conn, activeTargets, {
                                 video: { url: tempTrailerPath },
                                 caption: `🎬 *Trailer:* *${tmdb.title}*`
-                            }, destJid === from ? { quoted: mek } : {});
+                            }, { quoted: destJid === from ? mek : null, from });
                             console.log(`[DanieDownload] Successfully sent trailer video for ${tmdb.title}`);
                         }
                     }
@@ -1780,17 +1821,15 @@ cmd({
     };
     try {
         const settings = loadSettings();
-        const modeEmoji = settings.mode === 'group' ? '📤' : '📥';
-        const modeLabel = settings.mode === 'group'
-            ? `Group → *${settings.groupName || 'Unknown'}*\n🆔 \`${settings.groupJid}\``
-            : `Private Chat → *${settings.privateName || 'You'}*\n🆔 \`${settings.privateJid || 'N/A'}\``;
-
-        await reply(
-            `📊 *Download Config Status*\n\n` +
-            `${modeEmoji} Mode: *${settings.mode}*\n` +
-            `📍 Destination: ${modeLabel}\n\n` +
-            `_Use \`.config\` to change._`
-        );
+        const { activeTargets } = getActiveTargetsAndPrimary(settings, senderJid);
+        let targetText = '';
+        if (activeTargets.length > 0) {
+            activeTargets.forEach((t, idx) => {
+                const icon = t.type === 'group' ? '📤' : '📥';
+                targetText += `  ${idx + 1}. ${icon} *${t.name}* (${t.jid})\n`;
+            });
+        }
+        await reply(`📊 *Download Config Status*\n\n⚙️ Mode: *${settings.mode}*\n🎯 Active Target Receiver(s):\n${targetText}\n_Use \`.config\` to change._`);
     } catch (error) {
         reply(`❌ Error: ${error.message}`);
     }
@@ -1882,7 +1921,14 @@ DANIE_COMMANDS['setgroup'] = async (conn, mek, from, senderJid, args, reply) => 
     const num = parseInt(arg, 10);
     if (isNaN(num) || num < 1 || num > groups.length) return reply(`❌ Invalid selection. Use a number from 1 to ${groups.length}.`);
     const chosen = groups[num - 1];
-    saveSettings({ mode: 'group', groupJid: chosen.jid, groupName: chosen.subject, privateJid: '', privateName: '' });
+    saveSettings({
+        mode: 'group',
+        groupJid: cleanJid(chosen.jid),
+        groupName: chosen.subject,
+        privateJid: '',
+        privateName: '',
+        targets: [{ jid: cleanJid(chosen.jid), name: chosen.subject, type: 'group' }]
+    });
     return reply(`✅ Download target set to group: *${chosen.subject}*\n🆔 \`${chosen.jid}\``);
 };
 
@@ -1898,11 +1944,15 @@ DANIE_COMMANDS['jid'] = async (conn, mek, from, senderJid, args, reply) => {
 
 DANIE_COMMANDS['dlstatus'] = async (conn, mek, from, senderJid, args, reply) => {
     const settings = loadSettings();
-    const modeEmoji = settings.mode === 'group' ? '📤' : '📥';
-    const modeLabel = settings.mode === 'group'
-        ? `Group → *${settings.groupName || 'Unknown'}*\n🆔 \`${settings.groupJid}\``
-        : `Private Chat → *${settings.privateName || 'You'}*\n🆔 \`${settings.privateJid || 'N/A'}\``;
-    await reply(`📊 *Download Config Status*\n\n${modeEmoji} Mode: *${settings.mode}*\n📍 Destination: ${modeLabel}\n\n_Use \`.config\` to change._`);
+    const { activeTargets } = getActiveTargetsAndPrimary(settings, senderJid);
+    let targetText = '';
+    if (activeTargets.length > 0) {
+        activeTargets.forEach((t, idx) => {
+            const icon = t.type === 'group' ? '📤' : '📥';
+            targetText += `  ${idx + 1}. ${icon} *${t.name}* (${t.jid})\n`;
+        });
+    }
+    await reply(`📊 *Download Config Status*\n\n⚙️ Mode: *${settings.mode}*\n🎯 Active Target Receiver(s):\n${targetText}\n_Use \`.config\` to change._`);
 };
 DANIE_COMMANDS['dlconfig'] = DANIE_COMMANDS['dlstatus'];
 DANIE_COMMANDS['downloadstatus'] = DANIE_COMMANDS['dlstatus'];
