@@ -1535,8 +1535,11 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
         const mediaType = match[1];
         const tmdbId = match[2];
 
+        const seasonMatch = tmdbUrl.match(/\/season\/(\d+)/i);
+        const specifiedSeason = seasonMatch ? parseInt(seasonMatch[1], 10) : null;
+
         await reply(`⏳ Fetching TMDB metadata...`);
-        const tmdb = await fetchTmdbById(tmdbId, mediaType);
+        const tmdb = await fetchTmdbById(tmdbId, mediaType, specifiedSeason);
 
         if (!tmdb) {
             return reply('❌ Error: Could not fetch metadata for that TMDB URL.');
@@ -1552,9 +1555,6 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
         let seasonText = '';
         let episodeText = '';
         if (mediaType === 'tv') {
-            const seasonMatch = tmdbUrl.match(/\/season\/(\d+)/i);
-            const specifiedSeason = seasonMatch ? parseInt(seasonMatch[1], 10) : null;
-
             if (specifiedSeason !== null) {
                 const targetSeason = tmdb.seasons.find(s => s.season_number === specifiedSeason);
                 const epCount = targetSeason ? targetSeason.episode_count : 0;

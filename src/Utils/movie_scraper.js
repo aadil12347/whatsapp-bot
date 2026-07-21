@@ -1,6 +1,7 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 const https = require('https');
+const yts = require('yt-search');
 
 const TMDB_API_KEY = process.env.TMDB_API_KEY || 'fc6d85b3839330e3458701b975195487';
 
@@ -133,29 +134,55 @@ async function fetchTmdbMetadata(query, mediaType = 'movie', imdbId = null) {
 }
 
 /**
- * Fetch YouTube trailer URL for a TMDB ID
+ * Fetch YouTube trailer URL for a TMDB ID with Season support and YouTube search fallback
  */
-async function fetchTmdbTrailerUrl(tmdbId, mediaType = 'movie') {
+async function fetchTmdbTrailerUrl(tmdbId, mediaType = 'movie', title = '', seasonNumber = null) {
     try {
-        const url = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}/videos?api_key=${TMDB_API_KEY}`;
-        const res = await axios.get(url, { headers: HEADERS, timeout: 10000 });
-        if (!res.data || !res.data.results || res.data.results.length === 0) return null;
+        let ytVideos = [];
 
-        const ytVideos = res.data.results.filter(v => v.site === 'YouTube' && v.key);
-        if (ytVideos.length === 0) return null;
+        // 1. Try Season-level videos first if season specified for TV
+        if (mediaType === 'tv' && seasonNumber !== null && seasonNumber !== undefined) {
+            try {
+                const sUrl = `https://api.themoviedb.org/3/tv/${tmdbId}/season/${seasonNumber}/videos?api_key=${TMDB_API_KEY}`;
+                const sRes = await axios.get(sUrl, { headers: HEADERS, timeout: 5000 });
+                if (sRes.data && sRes.data.results) {
+                    ytVideos.push(...sRes.data.results.filter(v => v.site === 'YouTube' && v.key));
+                }
+            } catch (_) {}
+        }
 
-        // Priority 1: Official Trailer
-        let chosen = ytVideos.find(v => v.type === 'Trailer' && v.official);
-        // Priority 2: Any Trailer
-        if (!chosen) chosen = ytVideos.find(v => v.type === 'Trailer');
-        // Priority 3: Official Teaser
-        if (!chosen) chosen = ytVideos.find(v => v.type === 'Teaser' && v.official);
-        // Priority 4: Any Teaser
-        if (!chosen) chosen = ytVideos.find(v => v.type === 'Teaser');
-        // Priority 5: First YouTube video
-        if (!chosen) chosen = ytVideos[0];
+        // 2. Try Series/Movie-level videos
+        try {
+            const mUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}/videos?api_key=${TMDB_API_KEY}`;
+            const mRes = await axios.get(mUrl, { headers: HEADERS, timeout: 5000 });
+            if (mRes.data && mRes.data.results) {
+                ytVideos.push(...mRes.data.results.filter(v => v.site === 'YouTube' && v.key));
+            }
+        } catch (_) {}
 
-        return chosen ? `https://www.youtube.com/watch?v=${chosen.key}` : null;
+        if (ytVideos.length > 0) {
+            let chosen = ytVideos.find(v => v.type === 'Trailer' && v.official);
+            if (!chosen) chosen = ytVideos.find(v => v.type === 'Trailer');
+            if (!chosen) chosen = ytVideos.find(v => v.type === 'Teaser' && v.official);
+            if (!chosen) chosen = ytVideos.find(v => v.type === 'Teaser');
+            if (!chosen) chosen = ytVideos[0];
+
+            if (chosen) {
+                return `https://www.youtube.com/watch?v=${chosen.key}`;
+            }
+        }
+
+        // 3. Fallback to YouTube Search if TMDB has no video
+        if (title) {
+            const query = `${title} ${mediaType === 'tv' && seasonNumber ? 'Season ' + seasonNumber : ''} official trailer`.trim();
+            console.log(`[MovieScraper] Trailer YouTube search fallback: "${query}"...`);
+            const searchRes = await yts(query);
+            if (searchRes && searchRes.videos && searchRes.videos.length > 0) {
+                return searchRes.videos[0].url;
+            }
+        }
+
+        return null;
     } catch (err) {
         console.error('[MovieScraper] TMDB trailer fetch failed:', err.message);
         return null;
@@ -165,7 +192,7 @@ async function fetchTmdbTrailerUrl(tmdbId, mediaType = 'movie') {
 /**
  * Fetch movie/series metadata from TMDB using a specific TMDB ID
  */
-async function fetchTmdbById(tmdbId, mediaType = 'movie') {
+async function fetchTmdbById(tmdbId, mediaType = 'movie', seasonNumber = null) {
     try {
         const url = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
         const res = await axios.get(url, { headers: HEADERS, timeout: 10000 });
@@ -178,7 +205,7 @@ async function fetchTmdbById(tmdbId, mediaType = 'movie') {
         const releaseDate = details.release_date || details.first_air_date || '';
         const year = releaseDate ? releaseDate.split('-')[0] : 'N/A';
         const genres = details.genres ? details.genres.map(g => g.name).join(', ') : 'Unknown';
-        const trailerUrl = await fetchTmdbTrailerUrl(tmdbId, mediaType);
+        const trailerUrl = await fetchTmdbTrailerUrl(tmdbId, mediaType, title, seasonNumber);
 
         return {
             tmdbId,
