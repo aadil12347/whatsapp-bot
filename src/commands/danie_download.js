@@ -217,7 +217,21 @@ async function sendAndForwardFile(conn, targets, filePayload, sendOptions = {}) 
 
     const primaryJid = targetList[0];
     console.log(`[DanieWatch] Uploading file to primary target (${primaryJid})...`);
-    const sentMsg = await conn.sendMessage(primaryJid, filePayload, sendOptions.quoted ? { quoted: sendOptions.quoted } : {});
+    
+    let sentMsg = null;
+    const maxUploadAttempts = 3;
+    for (let attempt = 1; attempt <= maxUploadAttempts; attempt++) {
+        try {
+            sentMsg = await conn.sendMessage(primaryJid, filePayload, sendOptions.quoted ? { quoted: sendOptions.quoted } : {});
+            break;
+        } catch (uploadErr) {
+            console.error(`[DanieWatch] Upload attempt ${attempt}/${maxUploadAttempts} failed for ${primaryJid}:`, uploadErr.message);
+            if (attempt === maxUploadAttempts) throw uploadErr;
+            const delayMs = attempt * 3000;
+            console.log(`[DanieWatch] Retrying upload in ${delayMs / 1000}s...`);
+            await new Promise(r => setTimeout(r, delayMs));
+        }
+    }
 
     if (targetList.length > 1 && sentMsg && sentMsg.key) {
         for (let i = 1; i < targetList.length; i++) {
