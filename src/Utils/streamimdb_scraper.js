@@ -127,27 +127,72 @@ async function getEpisodeEmbedUrl(epUrl) {
 }
 
 /**
- * Resolve available qualities for a movie or TV episode
- * @param {string} embedUrl Embed player URL
+ * Resolve available qualities for a movie or TV episode by parsing player iframe & calling StreamData API
+ * @param {string} embedUrl Embed player URL (e.g. /embed/movie/{id} or /embed/tv/{id}/{s}/{e})
  * @returns {Promise<Array<{quality: string, streamUrl: string}>>}
  */
 async function resolveStreamOptions(embedUrl) {
-    const match = embedUrl.match(/\/embed\/(movie|tv)\/([^\/]+)(?:\/(\d+)\/(\d+))?/i);
-    const type = match ? match[1] : 'movie';
-    const tmdbId = match ? match[2] : '1284465';
-    const season = match && match[3] ? match[3] : 1;
-    const episode = match && match[4] ? match[4] : 1;
+    const fullEmbedUrl = embedUrl.startsWith('/') ? `${BASE_URL}${embedUrl}` : embedUrl;
+    console.log(`[StreamIMDB] Fetching embed player page: ${fullEmbedUrl}`);
 
-    const streams = [];
-    if (type === 'movie') {
-        streams.push({ quality: '1080p Full HD (Fast)', streamUrl: `https://vidsrc.me/embed/movie?tmdb=${tmdbId}` });
-        streams.push({ quality: '720p HD (Server 2)', streamUrl: `https://autoembed.co/movie/tmdb/${tmdbId}` });
-        streams.push({ quality: '480p SD (Server 3)', streamUrl: `https://2embed.org/embed/movie/${tmdbId}` });
-    } else {
-        streams.push({ quality: '1080p Full HD', streamUrl: `https://vidsrc.me/embed/tv?tmdb=${tmdbId}&season=${season}&episode=${episode}` });
-        streams.push({ quality: '720p HD', streamUrl: `https://autoembed.co/tv/tmdb/${tmdbId}-${season}-${episode}` });
-        streams.push({ quality: '480p SD', streamUrl: `https://2embed.org/embed/tv/${tmdbId}/${season}/${episode}` });
+    const res1 = await axios.get(fullEmbedUrl, { headers: HEADERS, timeout: 15000 });
+    const $1 = cheerio.load(res1.data);
+    let nextgenUrl = $1('#pf').attr('src') || '';
+
+    if (!nextgenUrl) {
+        const match = res1.data.match(/<iframe[^>]+src=["']([^"']+)["']/i);
+        if (match) nextgenUrl = match[1];
     }
+
+    if (!nextgenUrl) {
+        throw new Error('Could not find player iframe on StreamIMDB embed page.');
+    }
+
+    if (nextgenUrl.startsWith('//')) nextgenUrl = `https:${nextgenUrl}`;
+
+    console.log(`[StreamIMDB] Parsing stream token from server: ${nextgenUrl}`);
+    const res2 = await axios.get(nextgenUrl, {
+        headers: {
+            ...HEADERS,
+            'Referer': fullEmbedUrl
+        },
+        timeout: 15000
+    });
+
+    const configMatch = res2.data.match(/const CONFIG = ({[\s\S]*?});/);
+    if (!configMatch) {
+        throw new Error('Could not parse player CONFIG from stream server.');
+    }
+
+    const config = JSON.parse(configMatch[1]);
+    let apiUrl = `${config.streamDataApiUrl || 'https://streamdata.vaplayer.ru/api.php'}?${config.idType || 'tmdb'}=${config.mediaId}&type=${config.mediaType || 'movie'}`;
+    if (config.mediaType === 'tv' && config.season && config.episode) {
+        apiUrl += `&season=${config.season}&episode=${config.episode}`;
+    }
+    apiUrl += `&token=${config.playToken}&tokenTs=${config.playTokenTs}`;
+
+    console.log(`[StreamIMDB] Querying StreamData API: ${apiUrl}`);
+    const apiRes = await axios.get(apiUrl, {
+        headers: {
+            'User-Agent': HEADERS['User-Agent'],
+            'Referer': nextgenUrl,
+            'Origin': new URL(nextgenUrl).origin
+        },
+        timeout: 15000
+    });
+
+    if (!apiRes.data || apiRes.data.status_code !== '200' || !apiRes.data.data || !apiRes.data.data.stream_urls) {
+        throw new Error(`Failed to resolve stream links from player backend: ${JSON.stringify(apiRes.data)}`);
+    }
+
+    const streamUrls = apiRes.data.data.stream_urls || [];
+    const qualityLabels = ['1080p Full HD (Fast)', '720p HD (Server 2)', '480p SD (Server 3)', '360p SD (Server 4)'];
+
+    const streams = streamUrls.map((url, idx) => ({
+        quality: qualityLabels[idx] || `Server ${idx + 1}`,
+        streamUrl: url
+    }));
+
     return streams;
 }
 
@@ -158,13 +203,14 @@ async function resolveStreamOptions(embedUrl) {
  * @param {string} referer Referer header
  * @returns {Promise<string>} Output path
  */
-function downloadStreamWithFFmpeg(streamUrl, outputPath, referer = BASE_URL) {
+function downloadStreamWithFFmpeg(streamUrl, outputPath, referer = 'https://nextgencloudfabric.com/') {
     return new Promise((resolve, reject) => {
         const args = [
             '-y',
             '-headers', `Referer: ${referer}\r\nUser-Agent: ${HEADERS['User-Agent']}\r\n`,
             '-i', streamUrl,
-            '-c', 'copy',
+            '-c:v', 'copy',
+            '-c:a', 'aac',
             '-bsf:a', 'aac_adtstoasc',
             '-movflags', '+faststart',
             outputPath
