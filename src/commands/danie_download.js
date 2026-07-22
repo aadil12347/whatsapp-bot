@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const fileType = require('file-type');
 const { fetchTmdbMetadata, fetchTmdbById, downloadYoutubeVideoUrl, scrapePostPage, resolveLandingLink, resolveVcloudLink, resolveFinalUrl, scrapeAllPostLinks, extractDirectDownloadLinks, extractSubOptions, searchHdhub4u } = require('../Utils/movie_scraper');
+const { searchStreamImdb, getMediaDetails, getEpisodeEmbedUrl, resolveStreamOptions, downloadStreamWithFFmpeg, verifyMediaFile } = require('../Utils/streamimdb_scraper');
 
 // Global handlers to prevent background network disconnect errors from crashing the Node process
 process.on('unhandledRejection', (reason, promise) => {
@@ -812,7 +813,7 @@ function initUpsertListener(conn) {
                 const cmdArgs = spaceIdx !== -1 ? cmdPart.substring(spaceIdx + 1).trim() : '';
 
                 const ALLOWED_COMMANDS = [
-                    'sv', 'sr', 'sh',
+                    'sv', 'sr', 'sh', 'si',
                     'alive', 'allow', 'disallow', 'addowner', 'delowner', 'addsudo', 'delsudo', 'owners', 'allowed', 'sudolist', 'config', 'setgroup', 'dlstatus', 'dlconfig', 'downloadstatus',
                     'c', 'cancel', 'clearqueue', 'que', 'queue', 'q',
                     'd', 'p',
@@ -829,8 +830,8 @@ function initUpsertListener(conn) {
 
                 console.log(`[DanieWatch] Command detected: "${cmdName}" args: "${cmdArgs}" from ${cleanSender}`);
 
-                // If starting a new search command (.sv, .sr, .sh), reset uncompleted search state for user
-                if (['sv', 'sr', 'sh'].includes(cmdName)) {
+                // If starting a new search command (.sv, .sr, .sh, .si), reset uncompleted search state for user
+                if (['sv', 'sr', 'sh', 'si'].includes(cmdName)) {
                     delete pendingSearch[cleanSender];
                 }
                 delete pendingConfig[cleanSender];
@@ -2415,6 +2416,180 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
     const from = mek.key.remoteJid;
     const num = parseInt(text.trim(), 10);
 
+    if (state.step === 'streamimdb_select') {
+        const results = state.results || [];
+        if (isNaN(num) || num < 1 || num > results.length) {
+            return reply(`❌ Invalid selection. Reply with a number from 1 to ${results.length}.`);
+        }
+
+        const selected = results[num - 1];
+        await reply(`⏳ *Fetching details for:* "${selected.title}"...`);
+
+        try {
+            const details = await getMediaDetails(selected.href);
+
+            if (details.isTv && details.seasons && details.seasons.length > 0) {
+                // TV Series - Show Seasons
+                let seasonText = `📺 *${details.title}*\n_${details.overview ? details.overview.substring(0, 150) + '...' : ''}_\n\n*Select a Season:*\n`;
+                details.seasons.forEach((s, idx) => {
+                    seasonText += `  \`${idx + 1}\` — *Season ${s.seasonNum}* (${s.episodes.length} episodes)\n`;
+                });
+                seasonText += `\n_Reply with a season number (1-${details.seasons.length})._`;
+
+                const sent = await reply(seasonText);
+                pendingSearch[cleanSender] = {
+                    step: 'streamimdb_season',
+                    title: details.title,
+                    seasons: details.seasons,
+                    messageId: sent && sent.key ? sent.key.id : null
+                };
+            } else {
+                // Movie - Resolve Stream Qualities directly
+                if (!details.embedUrl) {
+                    return reply(`❌ Could not extract player embed URL for movie: "${details.title}".`);
+                }
+                const qualities = await resolveStreamOptions(details.embedUrl);
+                let qualityText = `🎥 *${details.title}*\n_${details.overview ? details.overview.substring(0, 150) + '...' : ''}_\n\n*Available Download Qualities:*\n`;
+                qualities.forEach((q, idx) => {
+                    qualityText += `  \`${idx + 1}\` — *${q.quality}*\n`;
+                });
+                qualityText += `\n_Reply with quality number (1-${qualities.length}) to download._`;
+
+                const sent = await reply(qualityText);
+                pendingSearch[cleanSender] = {
+                    step: 'streamimdb_quality',
+                    title: details.title,
+                    qualities,
+                    messageId: sent && sent.key ? sent.key.id : null
+                };
+            }
+        } catch (err) {
+            console.error('[StreamIMDB] Details fetch error:', err);
+            return reply(`❌ Error loading media details: ${err.message}`);
+        }
+        return;
+    }
+
+    if (state.step === 'streamimdb_season') {
+        const seasons = state.seasons || [];
+        if (isNaN(num) || num < 1 || num > seasons.length) {
+            return reply(`❌ Invalid season. Reply with a number from 1 to ${seasons.length}.`);
+        }
+
+        const chosenSeason = seasons[num - 1];
+        let epText = `📺 *${state.title}* - *Season ${chosenSeason.seasonNum}*\n\n*Select an Episode:*\n`;
+        chosenSeason.episodes.forEach((ep, idx) => {
+            epText += `  \`${idx + 1}\` — *Episode ${ep.epNum}: ${ep.title}*\n`;
+        });
+        epText += `\n_Reply with an episode number (1-${chosenSeason.episodes.length})._`;
+
+        const sent = await reply(epText);
+        pendingSearch[cleanSender] = {
+            step: 'streamimdb_episode',
+            title: state.title,
+            seasonNum: chosenSeason.seasonNum,
+            episodes: chosenSeason.episodes,
+            messageId: sent && sent.key ? sent.key.id : null
+        };
+        return;
+    }
+
+    if (state.step === 'streamimdb_episode') {
+        const episodes = state.episodes || [];
+        if (isNaN(num) || num < 1 || num > episodes.length) {
+            return reply(`❌ Invalid episode. Reply with a number from 1 to ${episodes.length}.`);
+        }
+
+        const chosenEpisode = episodes[num - 1];
+        const fullTitle = `${state.title} S${state.seasonNum}E${chosenEpisode.epNum} - ${chosenEpisode.title}`;
+        await reply(`⏳ *Fetching stream qualities for:* "${fullTitle}"...`);
+
+        try {
+            const embedUrl = await getEpisodeEmbedUrl(chosenEpisode.href);
+            if (!embedUrl) {
+                return reply(`❌ Could not extract player embed URL for episode: "${fullTitle}".`);
+            }
+            const qualities = await resolveStreamOptions(embedUrl);
+            let qualityText = `📺 *${fullTitle}*\n\n*Available Download Qualities:*\n`;
+            qualities.forEach((q, idx) => {
+                qualityText += `  \`${idx + 1}\` — *${q.quality}*\n`;
+            });
+            qualityText += `\n_Reply with quality number (1-${qualities.length}) to download._`;
+
+            const sent = await reply(qualityText);
+            pendingSearch[cleanSender] = {
+                step: 'streamimdb_quality',
+                title: fullTitle,
+                qualities,
+                messageId: sent && sent.key ? sent.key.id : null
+            };
+        } catch (err) {
+            console.error('[StreamIMDB] Episode embed error:', err);
+            return reply(`❌ Error resolving episode stream: ${err.message}`);
+        }
+        return;
+    }
+
+    if (state.step === 'streamimdb_quality') {
+        const qualities = state.qualities || [];
+        if (isNaN(num) || num < 1 || num > qualities.length) {
+            return reply(`❌ Invalid quality selection. Reply with a number from 1 to ${qualities.length}.`);
+        }
+
+        const chosenQuality = qualities[num - 1];
+        const title = state.title;
+        delete pendingSearch[cleanSender];
+
+        await reply(`📥 *Added to Queue:* "${title}" (${chosenQuality.quality})\n⚙️ Stream downloading via FFmpeg & remuxing into MP4 document...`);
+
+        const settings = loadSettings();
+        const { activeTargets } = getActiveTargetsAndPrimary(settings, senderJid);
+
+        const task = {
+            id: `si_${Date.now()}`,
+            description: `StreamIMDB: ${title} (${chosenQuality.quality})`,
+            execute: async () => {
+                const tempDir = path.join(__dirname, '..', '..', 'scratch');
+                if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+                const sanitizedName = title.replace(/[^a-zA-Z0-9_\-]/g, '_');
+                const tempFilePath = path.join(tempDir, `${sanitizedName}_${Date.now()}.mp4`);
+
+                try {
+                    await downloadStreamWithFFmpeg(chosenQuality.streamUrl, tempFilePath);
+                    const verification = await verifyMediaFile(tempFilePath);
+
+                    if (!verification.valid) {
+                        throw new Error(`Media verification failed. File size: ${verification.sizeMB.toFixed(2)}MB, duration: ${verification.duration}s`);
+                    }
+
+                    console.log(`[StreamIMDB] Media verified valid: ${verification.sizeMB.toFixed(2)}MB, ${verification.duration.toFixed(1)}s`);
+                    
+                    const filePayload = {
+                        document: { url: tempFilePath },
+                        mimetype: 'video/mp4',
+                        fileName: `${sanitizedName}.mp4`,
+                        caption: `🎬 *${title}*\n📺 *Quality:* ${chosenQuality.quality}\n📦 *Size:* ${verification.sizeMB.toFixed(2)}MB\n\nDownloaded via DanieBot (.si)`
+                    };
+
+                    await sendAndForwardFile(conn, activeTargets, filePayload);
+                } catch (dlErr) {
+                    console.error('[StreamIMDB] Download/upload error:', dlErr);
+                    await reply(`❌ StreamIMDB download/upload failed for "${title}": ${dlErr.message}`);
+                } finally {
+                    if (fs.existsSync(tempFilePath)) {
+                        try { fs.unlinkSync(tempFilePath); } catch (_) {}
+                    }
+                }
+            }
+        };
+
+        const queuedTask = globalTaskQueue.add(task);
+        if (globalTaskQueue.activeTask && globalTaskQueue.activeTask.id !== queuedTask.id) {
+            await reply(`📥 *Position in Queue (#${globalTaskQueue.queue.length}):* "${title}"`);
+        }
+        return;
+    }
+
     if (state.step === 'select_movie') {
         const movies = state.results || [];
         if (isNaN(num) || num < 1 || num > movies.length) {
@@ -2744,6 +2919,52 @@ cmd({
     };
     const senderJid = m.sender || mek.sender || from;
     await searchCommandHandler(conn, mek, from, senderJid, q, reply, 'rogmovies');
+});
+
+cmd({
+    pattern: 'si',
+    react: '🎬',
+    desc: 'Searches StreamIMDB.ru for movies & TV series to stream and download directly.',
+    category: 'download',
+    use: '.si <keyword>',
+    filename: __filename
+}, async (conn, mek, m, { from, quoted, q }) => {
+    const reply = async (textMsg) => {
+        return conn.sendMessage(from, { text: textMsg }, { quoted: mek });
+    };
+    const senderJid = m.sender || mek.sender || from;
+    const cleanSender = cleanJid(senderJid);
+
+    if (!q || !q.trim()) {
+        return reply('❌ Please provide a movie or TV show name to search!\n\n*Example:* `.si Interstellar`');
+    }
+
+    const query = q.trim();
+    await reply(`🔍 *Searching StreamIMDB for:* "${query}"...`);
+
+    try {
+        const results = await searchStreamImdb(query);
+        if (!results || results.length === 0) {
+            return reply(`❌ No results found on StreamIMDB for "${query}".`);
+        }
+
+        let listText = `🎬 *StreamIMDB Search Results for:* _"${query}"_\n\n`;
+        results.forEach((item, idx) => {
+            const badge = item.type === 'tv' ? '📺 TV Series' : '🎥 Movie';
+            listText += `  \`${idx + 1}\` — *${item.title}* (${item.year}) [${badge}]\n`;
+        });
+        listText += `\n_Reply with a number (1-${results.length}) to select._`;
+
+        const sent = await reply(listText);
+        pendingSearch[cleanSender] = {
+            step: 'streamimdb_select',
+            results,
+            messageId: sent && sent.key ? sent.key.id : null
+        };
+    } catch (err) {
+        console.error('[StreamIMDB] Search error:', err);
+        return reply(`❌ Failed to search StreamIMDB: ${err.message}`);
+    }
 });
 
 // Export initUpsertListener so command.js can auto-initialize it

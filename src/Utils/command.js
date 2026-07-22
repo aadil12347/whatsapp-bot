@@ -7,7 +7,7 @@ const originalCmd = module.exports.cmd;
 let danieListenerInitialized = false;
 
 const ALLOWED_COMMANDS = [
-    'sv', 'sr', 'sh',
+    'sv', 'sr', 'sh', 'si',
     'alive', 'allow', 'disallow', 'addowner', 'delowner', 'addsudo', 'delsudo', 'owners', 'allowed', 'sudolist', 'config', 'setgroup', 'dlstatus', 'dlconfig', 'downloadstatus',
     'c', 'cancel', 'clearqueue', 'que', 'queue', 'q',
     'd', 'p',
