@@ -220,10 +220,10 @@ function downloadStreamWithFFmpeg(streamUrl, outputPath, referer = 'https://next
     return new Promise((resolve, reject) => {
         const args = [
             '-y',
+            '-http_persistent', '1',
             '-headers', `Referer: ${referer}\r\nUser-Agent: ${HEADERS['User-Agent']}\r\n`,
             '-i', streamUrl,
-            '-c:v', 'copy',
-            '-c:a', 'aac',
+            '-c', 'copy',
             '-bsf:a', 'aac_adtstoasc',
             '-movflags', '+faststart',
             outputPath
