@@ -185,15 +185,28 @@ async function resolveStreamOptions(embedUrl) {
         throw new Error(`Failed to resolve stream links from player backend: ${JSON.stringify(apiRes.data)}`);
     }
 
-    const streamUrls = apiRes.data.data.stream_urls || [];
+    const rawStreamUrls = apiRes.data.data.stream_urls || [];
     const qualityLabels = ['1080p Full HD (Fast)', '720p HD (Server 2)', '480p SD (Server 3)', '360p SD (Server 4)'];
 
-    const streams = streamUrls.map((url, idx) => ({
-        quality: qualityLabels[idx] || `Server ${idx + 1}`,
-        streamUrl: url
-    }));
+    const validStreams = [];
+    for (let idx = 0; idx < rawStreamUrls.length; idx++) {
+        const url = rawStreamUrls[idx];
+        if (!url || url.includes('putgate.com')) continue; // Skip broken putgate.com 404 CDN links
 
-    return streams;
+        validStreams.push({
+            quality: qualityLabels[idx] || `Server ${idx + 1}`,
+            streamUrl: url
+        });
+    }
+
+    if (validStreams.length === 0 && rawStreamUrls.length > 0) {
+        validStreams.push({
+            quality: qualityLabels[0] || '1080p Full HD (Fast)',
+            streamUrl: rawStreamUrls[0]
+        });
+    }
+
+    return validStreams;
 }
 
 /**
