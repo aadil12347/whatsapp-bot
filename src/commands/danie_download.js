@@ -2423,10 +2423,23 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
         }
 
         const selected = results[num - 1];
+        const posterUrl = selected.poster || '';
         await reply(`⏳ *Fetching details for:* "${selected.title}"...`);
+
+        const sendWithPoster = async (textMsg, imgUrl) => {
+            if (imgUrl && (imgUrl.startsWith('http://') || imgUrl.startsWith('https://'))) {
+                try {
+                    return await conn.sendMessage(from, { image: { url: imgUrl }, caption: textMsg }, { quoted: mek });
+                } catch (imgErr) {
+                    console.error('[StreamIMDB] Failed to send poster image, falling back to text:', imgErr.message);
+                }
+            }
+            return reply(textMsg);
+        };
 
         try {
             const details = await getMediaDetails(selected.href);
+            const mediaPoster = details.poster || posterUrl;
 
             if (details.isTv && details.seasons && details.seasons.length > 0) {
                 // TV Series - Show Seasons
@@ -2436,10 +2449,11 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                 });
                 seasonText += `\n_Reply with a season number (1-${details.seasons.length})._`;
 
-                const sent = await reply(seasonText);
+                const sent = await sendWithPoster(seasonText, mediaPoster);
                 pendingSearch[cleanSender] = {
                     step: 'streamimdb_season',
                     title: details.title,
+                    poster: mediaPoster,
                     seasons: details.seasons,
                     messageId: sent && sent.key ? sent.key.id : null
                 };
@@ -2455,10 +2469,11 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                 });
                 qualityText += `\n_Reply with quality number (1-${qualities.length}) to download._`;
 
-                const sent = await reply(qualityText);
+                const sent = await sendWithPoster(qualityText, mediaPoster);
                 pendingSearch[cleanSender] = {
                     step: 'streamimdb_quality',
                     title: details.title,
+                    poster: mediaPoster,
                     qualities,
                     messageId: sent && sent.key ? sent.key.id : null
                 };
@@ -2483,10 +2498,22 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
         });
         epText += `\n_Reply with an episode number (1-${chosenSeason.episodes.length})._`;
 
-        const sent = await reply(epText);
+        const sendWithPoster = async (textMsg, imgUrl) => {
+            if (imgUrl && (imgUrl.startsWith('http://') || imgUrl.startsWith('https://'))) {
+                try {
+                    return await conn.sendMessage(from, { image: { url: imgUrl }, caption: textMsg }, { quoted: mek });
+                } catch (imgErr) {
+                    console.error('[StreamIMDB] Failed to send poster image, falling back to text:', imgErr.message);
+                }
+            }
+            return reply(textMsg);
+        };
+
+        const sent = await sendWithPoster(epText, state.poster);
         pendingSearch[cleanSender] = {
             step: 'streamimdb_episode',
             title: state.title,
+            poster: state.poster,
             seasonNum: chosenSeason.seasonNum,
             episodes: chosenSeason.episodes,
             messageId: sent && sent.key ? sent.key.id : null
@@ -2504,6 +2531,17 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
         const fullTitle = `${state.title} S${state.seasonNum}E${chosenEpisode.epNum} - ${chosenEpisode.title}`;
         await reply(`⏳ *Fetching stream qualities for:* "${fullTitle}"...`);
 
+        const sendWithPoster = async (textMsg, imgUrl) => {
+            if (imgUrl && (imgUrl.startsWith('http://') || imgUrl.startsWith('https://'))) {
+                try {
+                    return await conn.sendMessage(from, { image: { url: imgUrl }, caption: textMsg }, { quoted: mek });
+                } catch (imgErr) {
+                    console.error('[StreamIMDB] Failed to send poster image, falling back to text:', imgErr.message);
+                }
+            }
+            return reply(textMsg);
+        };
+
         try {
             const embedUrl = await getEpisodeEmbedUrl(chosenEpisode.href);
             if (!embedUrl) {
@@ -2516,10 +2554,11 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
             });
             qualityText += `\n_Reply with quality number (1-${qualities.length}) to download._`;
 
-            const sent = await reply(qualityText);
+            const sent = await sendWithPoster(qualityText, state.poster);
             pendingSearch[cleanSender] = {
                 step: 'streamimdb_quality',
                 title: fullTitle,
+                poster: state.poster,
                 qualities,
                 messageId: sent && sent.key ? sent.key.id : null
             };
@@ -2548,11 +2587,12 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
         const task = {
             id: `si_${Date.now()}`,
             description: `StreamIMDB: ${title} (${chosenQuality.quality})`,
-            execute: async () => {
+            executeFn: async (signal, ref) => {
                 const tempDir = path.join(__dirname, '..', '..', 'scratch');
                 if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
                 const sanitizedName = title.replace(/[^a-zA-Z0-9_\-]/g, '_');
                 const tempFilePath = path.join(tempDir, `${sanitizedName}_${Date.now()}.mp4`);
+                if (ref) ref.filePath = tempFilePath;
 
                 try {
                     await downloadStreamWithFFmpeg(chosenQuality.streamUrl, tempFilePath);
