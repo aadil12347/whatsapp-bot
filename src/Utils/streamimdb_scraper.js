@@ -304,14 +304,15 @@ function downloadStreamWithTunedFFmpeg(streamUrl, outputPath, referer = 'https:/
 }
 
 /**
- * High-speed parallel HLS downloader using 16 concurrent HTTP connections, with fallback to tuned FFmpeg
+ * High-speed parallel HLS downloader using 32 concurrent HTTP connections, with fallback to tuned FFmpeg
  * @param {string} streamUrl Direct stream or m3u8 URL
  * @param {string} outputPath Target .mp4 file path
  * @param {string} referer Referer header
- * @param {number} concurrency Number of parallel segment download threads (default: 16)
+ * @param {number} concurrency Number of parallel segment download threads (default: 32)
+ * @param {Function} [onProgress] Progress callback: ({ completed, total, downloadedMB, totalEstMB, speedMBs, percentage }) => void
  * @returns {Promise<string>} Output path
  */
-async function downloadStreamWithFFmpeg(streamUrl, outputPath, referer = 'https://nextgencloudfabric.com/', concurrency = 16) {
+async function downloadStreamWithFFmpeg(streamUrl, outputPath, referer = 'https://nextgencloudfabric.com/', concurrency = 32, onProgress = null) {
     const startTime = Date.now();
     console.log(`[FastHLS] Initializing high-speed parallel downloader for: ${streamUrl}`);
 
@@ -341,7 +342,9 @@ async function downloadStreamWithFFmpeg(streamUrl, outputPath, referer = 'https:
     };
 
     let completed = 0;
+    let downloadedBytes = 0;
     const total = segmentUrls.length;
+    let lastProgressNotify = 0;
 
     const downloadSegment = async (index) => {
         const segUrl = segmentUrls[index];
@@ -362,9 +365,31 @@ async function downloadStreamWithFFmpeg(streamUrl, outputPath, referer = 'https:
                 });
                 fs.writeFileSync(segPath, response.data);
                 completed++;
-                if (completed % 100 === 0 || completed === total) {
-                    const pct = Math.round((completed / total) * 100);
-                    console.log(`[FastHLS] Progress: ${completed}/${total} segments (${pct}%)`);
+                downloadedBytes += response.data.byteLength || response.data.length || 0;
+
+                const now = Date.now();
+                const elapsedSec = (now - startTime) / 1000 || 0.001;
+                const downloadedMB = downloadedBytes / (1024 * 1024);
+                const speedMBs = downloadedMB / elapsedSec;
+                const percentage = Math.round((completed / total) * 100);
+                const totalEstMB = percentage > 0 ? (downloadedMB / (percentage / 100)) : 0;
+
+                if (completed % 50 === 0 || completed === total) {
+                    console.log(`[FastHLS] Progress: ${completed}/${total} (${percentage}%) | ${downloadedMB.toFixed(1)}MB downloaded @ ${speedMBs.toFixed(1)} MB/s`);
+                }
+
+                if (typeof onProgress === 'function' && (now - lastProgressNotify > 3000 || completed === total)) {
+                    lastProgressNotify = now;
+                    try {
+                        onProgress({
+                            completed,
+                            total,
+                            downloadedMB: parseFloat(downloadedMB.toFixed(1)),
+                            totalEstMB: parseFloat(totalEstMB.toFixed(1)),
+                            speedMBs: parseFloat(speedMBs.toFixed(1)),
+                            percentage
+                        });
+                    } catch (_) {}
                 }
                 return;
             } catch (err) {
@@ -432,7 +457,6 @@ async function downloadStreamWithFFmpeg(streamUrl, outputPath, referer = 'https:
         return outputPath;
     } catch (err) {
         console.warn(`[FastHLS] Parallel download error (${err.message}). Falling back to tuned FFmpeg...`);
-        // Cleanup temp folder if left
         try {
             if (fs.existsSync(tempTsDir)) fs.rmdirSync(tempTsDir, { recursive: true });
         } catch (_) {}

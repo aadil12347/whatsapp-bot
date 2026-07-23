@@ -2579,7 +2579,7 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
         const title = state.title;
         delete pendingSearch[cleanSender];
 
-        await reply(`📥 *Added to Queue:* "${title}" (${chosenQuality.quality})\n⚙️ Stream downloading via FFmpeg & remuxing into MP4 document...`);
+        let statusMsg = await reply(`📥 *Starting Download:* "${title}" (${chosenQuality.quality})\n⚡ Initializing 32-worker parallel stream engine...`);
 
         const settings = loadSettings();
         const { activeTargets } = getActiveTargetsAndPrimary(settings, senderJid);
@@ -2595,15 +2595,36 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                 if (ref) ref.filePath = tempFilePath;
 
                 try {
-                    await downloadStreamWithFFmpeg(chosenQuality.streamUrl, tempFilePath);
-                    const verification = await verifyMediaFile(tempFilePath);
+                    let lastUpdate = 0;
+                    await downloadStreamWithFFmpeg(chosenQuality.streamUrl, tempFilePath, 'https://nextgencloudfabric.com/', 32, async (info) => {
+                        const now = Date.now();
+                        if (now - lastUpdate > 3500 || info.percentage === 100) {
+                            lastUpdate = now;
+                            const updateText = `⚡ *StreamIMDB Download Progress:*\n🎬 *Title:* "${title}"\n📺 *Quality:* ${chosenQuality.quality}\n📦 *Downloaded:* ${info.downloadedMB} MB / ~${info.totalEstMB} MB (${info.percentage}%)\n🚀 *Speed:* ${info.speedMBs} MB/s`;
+                            try {
+                                if (statusMsg && statusMsg.key) {
+                                    await conn.sendMessage(from, { text: updateText, edit: statusMsg.key });
+                                } else {
+                                    statusMsg = await reply(updateText);
+                                }
+                            } catch (_) {}
+                        }
+                    });
 
+                    const verification = await verifyMediaFile(tempFilePath);
                     if (!verification.valid) {
                         throw new Error(`Media verification failed. File size: ${verification.sizeMB.toFixed(2)}MB, duration: ${verification.duration}s`);
                     }
 
                     console.log(`[StreamIMDB] Media verified valid: ${verification.sizeMB.toFixed(2)}MB, ${verification.duration.toFixed(1)}s`);
                     
+                    try {
+                        const uploadText = `📤 *Uploading to WhatsApp:* "${title}"\n📦 *File Size:* ${verification.sizeMB.toFixed(2)} MB\n⏳ Sending video document to chat...`;
+                        if (statusMsg && statusMsg.key) {
+                            await conn.sendMessage(from, { text: uploadText, edit: statusMsg.key });
+                        }
+                    } catch (_) {}
+
                     const filePayload = {
                         document: { url: tempFilePath },
                         mimetype: 'video/mp4',
