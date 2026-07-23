@@ -1612,6 +1612,27 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
     }
 }
 
+async function sendStickyStatusUpdate(conn, from, currentStatusMsg, textMsg, isMajorPhaseChange = false) {
+    try {
+        if (isMajorPhaseChange && currentStatusMsg && currentStatusMsg.key) {
+            try {
+                await conn.sendMessage(from, { delete: currentStatusMsg.key });
+            } catch (_) {}
+            return await conn.sendMessage(from, { text: textMsg });
+        } else if (currentStatusMsg && currentStatusMsg.key) {
+            try {
+                return await conn.sendMessage(from, { text: textMsg, edit: currentStatusMsg.key });
+            } catch (editErr) {
+                return await conn.sendMessage(from, { text: textMsg });
+            }
+        } else {
+            return await conn.sendMessage(from, { text: textMsg });
+        }
+    } catch (_) {
+        return null;
+    }
+}
+
 async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal = null, activeDownloadRef = null) {
     console.log("=== P COMMAND TRIGGERED ===");
     console.log("q:", q);
@@ -1626,14 +1647,8 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
         }
 
         let statusMsg = await reply('⏳ *[1/3] Fetching TMDB metadata & poster...*');
-        const updatePStatus = async (textMsg) => {
-            try {
-                if (statusMsg && statusMsg.key) {
-                    await conn.sendMessage(from, { text: textMsg, edit: statusMsg.key });
-                } else {
-                    statusMsg = await reply(textMsg);
-                }
-            } catch (_) {}
+        const updatePStatus = async (textMsg, isMajorChange = false) => {
+            statusMsg = await sendStickyStatusUpdate(conn, from, statusMsg, textMsg, isMajorChange);
         };
 
         const items = q.split(',').map(item => item.trim()).filter(Boolean);
@@ -1755,7 +1770,7 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
             }
         }
         
-        await updatePStatus(`✅ *[1/3] TMDB details & poster sent to:* *${destLabel}*`);
+        await updatePStatus(`✅ *[1/3] TMDB details & poster sent to:* *${destLabel}*`, true);
 
         // 3. Fetch and send trailer video from YouTube if available
         if (tmdb && tmdb.trailerUrl) {
@@ -1764,7 +1779,7 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
             try {
                 const directVideoUrl = await downloadYoutubeVideoUrl(tmdb.trailerUrl);
                 if (directVideoUrl) {
-                    await updatePStatus(`⏳ *[2/3] Downloading trailer video from YouTube...*`);
+                    await updatePStatus(`⏳ *[2/3] Downloading trailer video from YouTube...*`, true);
                     const videoResponse = await axios({
                         method: 'get',
                         url: directVideoUrl,
@@ -1794,7 +1809,7 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
                                 caption: `🎬 *Trailer:* *${tmdb.title}*`
                             }, { quoted: destJid === from ? mek : null, from });
                             console.log(`[DanieDownload] Successfully sent trailer video for ${tmdb.title}`);
-                            await updatePStatus(`✅ *[2/3] Trailer video sent to:* *${destLabel}*`);
+                            await updatePStatus(`✅ *[2/3] Trailer video sent to:* *${destLabel}*`, true);
                         }
                     }
                 } else {
@@ -1821,11 +1836,11 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
         if (downloadItems.length > 0) {
             const downloadQuery = downloadItems.join(', ');
             console.log(`[DanieWatch] Executing media downloads for .p command: ${downloadQuery}`);
-            await updatePStatus(`⏳ *[3/3] Initializing media download(s)...*`);
+            await updatePStatus(`⏳ *[3/3] Initializing media download(s)...*`, true);
             await downloadCommandHandler(conn, mek, from, senderJid, downloadQuery, reply, abortSignal, activeDownloadRef, null, true);
-            await updatePStatus(`✅ *[3/3] Completed processing for:* *${tmdb.title}*`);
+            await updatePStatus(`✅ *[3/3] Completed processing for:* *${tmdb.title}*`, true);
         } else {
-            await updatePStatus(`✅ *Processing completed for:* *${tmdb.title}*`);
+            await updatePStatus(`✅ *Processing completed for:* *${tmdb.title}*`, true);
         }
 
     } catch (error) {
