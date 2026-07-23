@@ -881,7 +881,7 @@ function initUpsertListener(conn) {
                     'sv', 'sr', 'sh', 'si',
                     'alive', 'allow', 'disallow', 'addowner', 'delowner', 'addsudo', 'delsudo', 'owners', 'allowed', 'sudolist', 'config', 'setgroup', 'dlstatus', 'dlconfig', 'downloadstatus',
                     'c', 'cancel', 'clearqueue', 'que', 'queue', 'q',
-                    'd', 'p',
+                    'd', 'p', 's', 'status', 'progress',
                     'jid', 'groupid',
                     'song', 'songdl', 'yt1s', 'yts', 'yts1', 'video', 'yt2s', 'yt3s', 'csong', 'csongdl'
                 ];
