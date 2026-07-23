@@ -3,6 +3,11 @@ const cheerio = require('cheerio');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const http = require('http');
+const https = require('https');
+
+const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 32 });
+const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 32 });
 
 const BASE_URL = 'https://streamimdb.ru';
 
@@ -209,18 +214,66 @@ async function resolveStreamOptions(embedUrl) {
     return validStreams;
 }
 
-/**
- * Downloads m3u8 or video stream to MP4 using FFmpeg
- * @param {string} streamUrl Direct stream or m3u8 URL
- * @param {string} outputPath Target .mp4 file path
- * @param {string} referer Referer header
- * @returns {Promise<string>} Output path
- */
-function downloadStreamWithFFmpeg(streamUrl, outputPath, referer = 'https://nextgencloudfabric.com/') {
+async function parseM3u8Segments(m3u8Url, referer) {
+    const headers = {
+        'User-Agent': HEADERS['User-Agent'],
+        'Referer': referer
+    };
+
+    let res = await axios.get(m3u8Url, { headers, httpAgent, httpsAgent, timeout: 15000 });
+    let content = res.data;
+
+    if (content.includes('#EXT-X-STREAM-INF')) {
+        const lines = content.split('\n');
+        let selectedSubUrl = '';
+        for (let i = 0; i < lines.length; i++) {
+            if (lines[i].startsWith('#EXT-X-STREAM-INF')) {
+                for (let j = i + 1; j < lines.length; j++) {
+                    const l = lines[j].trim();
+                    if (l && !l.startsWith('#')) {
+                        selectedSubUrl = l;
+                        break;
+                    }
+                }
+            }
+        }
+        if (selectedSubUrl) {
+            const resolvedSubUrl = new URL(selectedSubUrl, m3u8Url).href;
+            res = await axios.get(resolvedSubUrl, { headers, httpAgent, httpsAgent, timeout: 15000 });
+            content = res.data;
+            m3u8Url = resolvedSubUrl;
+        }
+    }
+
+    const lines = content.split('\n');
+    const segmentUrls = [];
+    let isKeyEncrypted = false;
+
+    for (let line of lines) {
+        line = line.trim();
+        if (line.startsWith('#EXT-X-KEY')) {
+            isKeyEncrypted = true;
+        }
+        if (line && !line.startsWith('#')) {
+            const absoluteUrl = new URL(line, m3u8Url).href;
+            segmentUrls.push(absoluteUrl);
+        }
+    }
+
+    return { segmentUrls, isKeyEncrypted };
+}
+
+function downloadStreamWithTunedFFmpeg(streamUrl, outputPath, referer = 'https://nextgencloudfabric.com/') {
     return new Promise((resolve, reject) => {
         const args = [
             '-y',
+            '-probesize', '32K',
+            '-analyzeduration', '0',
+            '-reconnect', '1',
+            '-reconnect_streamed', '1',
+            '-reconnect_delay_max', '5',
             '-http_persistent', '1',
+            '-rw_timeout', '15000000',
             '-headers', `Referer: ${referer}\r\nUser-Agent: ${HEADERS['User-Agent']}\r\n`,
             '-i', streamUrl,
             '-c', 'copy',
@@ -229,7 +282,7 @@ function downloadStreamWithFFmpeg(streamUrl, outputPath, referer = 'https://next
             outputPath
         ];
 
-        console.log(`[FFmpeg-StreamIMDB] Command: ffmpeg ${args.join(' ')}`);
+        console.log(`[FFmpeg-Tuned] Command: ffmpeg ${args.join(' ')}`);
         const ffmpeg = spawn('ffmpeg', args);
 
         let errorLog = '';
@@ -239,7 +292,7 @@ function downloadStreamWithFFmpeg(streamUrl, outputPath, referer = 'https://next
 
         ffmpeg.on('close', (code) => {
             if (code === 0 && fs.existsSync(outputPath) && fs.statSync(outputPath).size > 0) {
-                console.log(`[FFmpeg-StreamIMDB] Success: ${outputPath}`);
+                console.log(`[FFmpeg-Tuned] Success: ${outputPath}`);
                 resolve(outputPath);
             } else {
                 reject(new Error(`FFmpeg failed (code ${code}): ${errorLog.slice(-300)}`));
@@ -248,6 +301,143 @@ function downloadStreamWithFFmpeg(streamUrl, outputPath, referer = 'https://next
 
         ffmpeg.on('error', (err) => reject(err));
     });
+}
+
+/**
+ * High-speed parallel HLS downloader using 16 concurrent HTTP connections, with fallback to tuned FFmpeg
+ * @param {string} streamUrl Direct stream or m3u8 URL
+ * @param {string} outputPath Target .mp4 file path
+ * @param {string} referer Referer header
+ * @param {number} concurrency Number of parallel segment download threads (default: 16)
+ * @returns {Promise<string>} Output path
+ */
+async function downloadStreamWithFFmpeg(streamUrl, outputPath, referer = 'https://nextgencloudfabric.com/', concurrency = 16) {
+    const startTime = Date.now();
+    console.log(`[FastHLS] Initializing high-speed parallel downloader for: ${streamUrl}`);
+
+    let segmentData;
+    try {
+        segmentData = await parseM3u8Segments(streamUrl, referer);
+    } catch (parseErr) {
+        console.warn(`[FastHLS] Failed to parse m3u8 playlist (${parseErr.message}). Falling back to tuned FFmpeg...`);
+        return downloadStreamWithTunedFFmpeg(streamUrl, outputPath, referer);
+    }
+
+    const { segmentUrls, isKeyEncrypted } = segmentData;
+
+    if (isKeyEncrypted || segmentUrls.length === 0) {
+        console.log(`[FastHLS] Stream is encrypted or single binary file. Using tuned FFmpeg...`);
+        return downloadStreamWithTunedFFmpeg(streamUrl, outputPath, referer);
+    }
+
+    console.log(`[FastHLS] Downloading ${segmentUrls.length} HLS segments in parallel (${concurrency} workers)...`);
+
+    const tempTsDir = path.join(path.dirname(outputPath), `hls_segments_${Date.now()}`);
+    if (!fs.existsSync(tempTsDir)) fs.mkdirSync(tempTsDir, { recursive: true });
+
+    const headers = {
+        'User-Agent': HEADERS['User-Agent'],
+        'Referer': referer
+    };
+
+    let completed = 0;
+    const total = segmentUrls.length;
+
+    const downloadSegment = async (index) => {
+        const segUrl = segmentUrls[index];
+        const segPath = path.join(tempTsDir, `seg_${String(index).padStart(6, '0')}.ts`);
+
+        let attempts = 0;
+        while (attempts < 3) {
+            try {
+                attempts++;
+                const response = await axios({
+                    method: 'get',
+                    url: segUrl,
+                    headers,
+                    responseType: 'arraybuffer',
+                    httpAgent,
+                    httpsAgent,
+                    timeout: 12000
+                });
+                fs.writeFileSync(segPath, response.data);
+                completed++;
+                if (completed % 100 === 0 || completed === total) {
+                    const pct = Math.round((completed / total) * 100);
+                    console.log(`[FastHLS] Progress: ${completed}/${total} segments (${pct}%)`);
+                }
+                return;
+            } catch (err) {
+                if (attempts >= 3) {
+                    throw new Error(`Failed segment ${index}: ${err.message}`);
+                }
+                await new Promise(r => setTimeout(r, 400));
+            }
+        }
+    };
+
+    const queue = segmentUrls.map((_, i) => i);
+    const workers = Array(concurrency).fill(null).map(async () => {
+        while (queue.length > 0) {
+            const idx = queue.shift();
+            if (idx !== undefined) {
+                await downloadSegment(idx);
+            }
+        }
+    });
+
+    try {
+        await Promise.all(workers);
+        const concatTsPath = path.join(tempTsDir, 'combined.ts');
+        const writeStream = fs.createWriteStream(concatTsPath);
+
+        for (let i = 0; i < total; i++) {
+            const segPath = path.join(tempTsDir, `seg_${String(i).padStart(6, '0')}.ts`);
+            if (fs.existsSync(segPath)) {
+                writeStream.write(fs.readFileSync(segPath));
+                try { fs.unlinkSync(segPath); } catch (_) {}
+            }
+        }
+        writeStream.end();
+        await new Promise(resolve => writeStream.on('finish', resolve));
+
+        console.log(`[FastHLS] Remuxing combined segments into MP4...`);
+        await new Promise((resolve, reject) => {
+            const ffmpeg = spawn('ffmpeg', [
+                '-y',
+                '-i', concatTsPath,
+                '-c', 'copy',
+                '-bsf:a', 'aac_adtstoasc',
+                '-movflags', '+faststart',
+                outputPath
+            ]);
+            ffmpeg.on('close', (code) => {
+                if (code === 0 && fs.existsSync(outputPath) && fs.statSync(outputPath).size > 0) {
+                    resolve();
+                } else {
+                    reject(new Error(`FFmpeg remux failed with code ${code}`));
+                }
+            });
+        });
+
+        // Cleanup
+        try {
+            if (fs.existsSync(concatTsPath)) fs.unlinkSync(concatTsPath);
+            fs.rmdirSync(tempTsDir);
+        } catch (_) {}
+
+        const durationSec = ((Date.now() - startTime) / 1000).toFixed(2);
+        const sizeMB = (fs.statSync(outputPath).size / (1024 * 1024)).toFixed(2);
+        console.log(`[FastHLS] Complete! ${sizeMB} MB downloaded and saved to ${outputPath} in ${durationSec}s`);
+        return outputPath;
+    } catch (err) {
+        console.warn(`[FastHLS] Parallel download error (${err.message}). Falling back to tuned FFmpeg...`);
+        // Cleanup temp folder if left
+        try {
+            if (fs.existsSync(tempTsDir)) fs.rmdirSync(tempTsDir, { recursive: true });
+        } catch (_) {}
+        return downloadStreamWithTunedFFmpeg(streamUrl, outputPath, referer);
+    }
 }
 
 /**
