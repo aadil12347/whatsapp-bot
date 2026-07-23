@@ -249,9 +249,14 @@ async function parseM3u8Segments(m3u8Url, referer) {
     const lines = content.split('\n');
     const segmentUrls = [];
     let isKeyEncrypted = false;
+    let totalDurationSeconds = 0;
 
     for (let line of lines) {
         line = line.trim();
+        if (line.startsWith('#EXTINF:')) {
+            const match = line.match(/#EXTINF:([\d.]+)/);
+            if (match) totalDurationSeconds += parseFloat(match[1]);
+        }
         if (line.startsWith('#EXT-X-KEY')) {
             isKeyEncrypted = true;
         }
@@ -261,7 +266,13 @@ async function parseM3u8Segments(m3u8Url, referer) {
         }
     }
 
-    return { segmentUrls, isKeyEncrypted, mediaM3u8Url: finalMediaUrl };
+    return {
+        segmentUrls,
+        isKeyEncrypted,
+        mediaM3u8Url: finalMediaUrl,
+        totalDurationSeconds,
+        durationMinutes: (totalDurationSeconds / 60).toFixed(1)
+    };
 }
 
 function downloadStreamWithTunedFFmpeg(streamUrl, outputPath, referer = 'https://nextgencloudfabric.com/') {

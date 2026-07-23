@@ -2809,8 +2809,14 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                     console.log(`[StreamIMDB] Media verified valid: ${verification.sizeMB.toFixed(2)}MB, ${verification.duration.toFixed(1)}s`);
                     globalProgressState.phaseText = `Uploading (${verification.sizeMB.toFixed(2)} MB)`;
                     
+                    const durationMins = (verification.duration / 60).toFixed(1);
+                    let durationText = `⏱️ *Duration:* ${durationMins} mins`;
+                    if (verification.duration < 1800 && !state.seasonNum) {
+                        durationText += `\n⚠️ *Notice:* StreamIMDB CDN provider provided a sample/short clip (${durationMins}m). For full 2hr movie files, use \`.d ${title}\`!`;
+                    }
+
                     try {
-                        const uploadText = `📤 *Uploading to WhatsApp:* "${formattedFileName}"\n📦 *File Size:* ${verification.sizeMB.toFixed(2)} MB\n⏳ Sending video document to chat...`;
+                        const uploadText = `📤 *Uploading to WhatsApp:* "${formattedFileName}"\n📦 *File Size:* ${verification.sizeMB.toFixed(2)} MB\n${durationText}\n⏳ Sending video document to chat...`;
                         if (globalProgressState.statusMsg && globalProgressState.statusMsg.key) {
                             await conn.sendMessage(globalProgressState.statusMsg.from || from, { text: uploadText, edit: globalProgressState.statusMsg.key });
                         }
@@ -2820,13 +2826,13 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                         document: { url: tempFilePath },
                         mimetype: 'video/mp4',
                         fileName: formattedFileName,
-                        caption: `🎬 *${formattedFileName.replace(/\.mp4$/i, '')}*\n📺 *Quality:* ${chosenQuality.quality}\n📦 *Size:* ${verification.sizeMB.toFixed(2)}MB\n\nDownloaded via DanieBot (.si)`
+                        caption: `🎬 *${formattedFileName.replace(/\.mp4$/i, '')}*\n📺 *Quality:* ${chosenQuality.quality}\n📦 *Size:* ${verification.sizeMB.toFixed(2)}MB\n${durationText}\n\nDownloaded via DanieBot (.si)`
                     };
 
                     await sendAndForwardFile(conn, activeTargets, filePayload);
 
                     try {
-                        const completeText = `✅ *Upload Completed:* "${formattedFileName}" (${verification.sizeMB.toFixed(2)} MB)`;
+                        const completeText = `✅ *Upload Completed:* "${formattedFileName}" (${verification.sizeMB.toFixed(2)} MB)\n${durationText}`;
                         if (statusMsg && statusMsg.key) {
                             await conn.sendMessage(from, { text: completeText, edit: statusMsg.key });
                         }
