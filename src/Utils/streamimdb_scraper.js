@@ -222,6 +222,7 @@ async function parseM3u8Segments(m3u8Url, referer) {
 
     let res = await axios.get(m3u8Url, { headers, httpAgent, httpsAgent, timeout: 15000 });
     let content = res.data;
+    let finalMediaUrl = m3u8Url;
 
     if (content.includes('#EXT-X-STREAM-INF')) {
         const lines = content.split('\n');
@@ -241,7 +242,7 @@ async function parseM3u8Segments(m3u8Url, referer) {
             const resolvedSubUrl = new URL(selectedSubUrl, m3u8Url).href;
             res = await axios.get(resolvedSubUrl, { headers, httpAgent, httpsAgent, timeout: 15000 });
             content = res.data;
-            m3u8Url = resolvedSubUrl;
+            finalMediaUrl = resolvedSubUrl;
         }
     }
 
@@ -255,12 +256,12 @@ async function parseM3u8Segments(m3u8Url, referer) {
             isKeyEncrypted = true;
         }
         if (line && !line.startsWith('#')) {
-            const absoluteUrl = new URL(line, m3u8Url).href;
+            const absoluteUrl = new URL(line, finalMediaUrl).href;
             segmentUrls.push(absoluteUrl);
         }
     }
 
-    return { segmentUrls, isKeyEncrypted };
+    return { segmentUrls, isKeyEncrypted, mediaM3u8Url: finalMediaUrl };
 }
 
 function downloadStreamWithTunedFFmpeg(streamUrl, outputPath, referer = 'https://nextgencloudfabric.com/') {
@@ -304,15 +305,15 @@ function downloadStreamWithTunedFFmpeg(streamUrl, outputPath, referer = 'https:/
 }
 
 /**
- * High-speed parallel HLS downloader using 32 concurrent HTTP connections, with fallback to tuned FFmpeg
+ * High-speed parallel HLS downloader using 12 concurrent HTTP connections with 429 backoff retries & tuned FFmpeg fallback
  * @param {string} streamUrl Direct stream or m3u8 URL
  * @param {string} outputPath Target .mp4 file path
  * @param {string} referer Referer header
- * @param {number} concurrency Number of parallel segment download threads (default: 32)
+ * @param {number} concurrency Number of parallel segment download threads (default: 12)
  * @param {Function} [onProgress] Progress callback: ({ completed, total, downloadedMB, totalEstMB, speedMBs, percentage }) => void
  * @returns {Promise<string>} Output path
  */
-async function downloadStreamWithFFmpeg(streamUrl, outputPath, referer = 'https://nextgencloudfabric.com/', concurrency = 32, onProgress = null) {
+async function downloadStreamWithFFmpeg(streamUrl, outputPath, referer = 'https://nextgencloudfabric.com/', concurrency = 12, onProgress = null) {
     const startTime = Date.now();
     console.log(`[FastHLS] Initializing high-speed parallel downloader for: ${streamUrl}`);
 
@@ -324,11 +325,12 @@ async function downloadStreamWithFFmpeg(streamUrl, outputPath, referer = 'https:
         return downloadStreamWithTunedFFmpeg(streamUrl, outputPath, referer);
     }
 
-    const { segmentUrls, isKeyEncrypted } = segmentData;
+    const { segmentUrls, isKeyEncrypted, mediaM3u8Url } = segmentData;
+    const targetM3u8Url = mediaM3u8Url || streamUrl;
 
     if (isKeyEncrypted || segmentUrls.length === 0) {
-        console.log(`[FastHLS] Stream is encrypted or single binary file. Using tuned FFmpeg...`);
-        return downloadStreamWithTunedFFmpeg(streamUrl, outputPath, referer);
+        console.log(`[FastHLS] Stream is encrypted or single binary file. Using tuned FFmpeg on ${targetM3u8Url}...`);
+        return downloadStreamWithTunedFFmpeg(targetM3u8Url, outputPath, referer);
     }
 
     console.log(`[FastHLS] Downloading ${segmentUrls.length} HLS segments in parallel (${concurrency} workers)...`);
@@ -351,7 +353,8 @@ async function downloadStreamWithFFmpeg(streamUrl, outputPath, referer = 'https:
         const segPath = path.join(tempTsDir, `seg_${String(index).padStart(6, '0')}.ts`);
 
         let attempts = 0;
-        while (attempts < 3) {
+        const maxAttempts = 6;
+        while (attempts < maxAttempts) {
             try {
                 attempts++;
                 const response = await axios({
@@ -361,7 +364,7 @@ async function downloadStreamWithFFmpeg(streamUrl, outputPath, referer = 'https:
                     responseType: 'arraybuffer',
                     httpAgent,
                     httpsAgent,
-                    timeout: 12000
+                    timeout: 15000
                 });
                 fs.writeFileSync(segPath, response.data);
                 completed++;
@@ -393,10 +396,16 @@ async function downloadStreamWithFFmpeg(streamUrl, outputPath, referer = 'https:
                 }
                 return;
             } catch (err) {
-                if (attempts >= 3) {
+                const status = err.response ? err.response.status : 0;
+                if (status === 429) {
+                    const backoffMs = attempts * 1500 + Math.floor(Math.random() * 500);
+                    console.warn(`[FastHLS] 429 Rate limited on segment ${index}. Retrying in ${backoffMs}ms (attempt ${attempts}/${maxAttempts})...`);
+                    await new Promise(r => setTimeout(r, backoffMs));
+                } else if (attempts >= maxAttempts) {
                     throw new Error(`Failed segment ${index}: ${err.message}`);
+                } else {
+                    await new Promise(r => setTimeout(r, 500 * attempts));
                 }
-                await new Promise(r => setTimeout(r, 400));
             }
         }
     };
@@ -407,6 +416,8 @@ async function downloadStreamWithFFmpeg(streamUrl, outputPath, referer = 'https:
             const idx = queue.shift();
             if (idx !== undefined) {
                 await downloadSegment(idx);
+                // 15ms stagger to prevent CDN micro-burst rate limits
+                await new Promise(r => setTimeout(r, 15));
             }
         }
     });
@@ -456,11 +467,11 @@ async function downloadStreamWithFFmpeg(streamUrl, outputPath, referer = 'https:
         console.log(`[FastHLS] Complete! ${sizeMB} MB downloaded and saved to ${outputPath} in ${durationSec}s`);
         return outputPath;
     } catch (err) {
-        console.warn(`[FastHLS] Parallel download error (${err.message}). Falling back to tuned FFmpeg...`);
+        console.warn(`[FastHLS] Parallel download error (${err.message}). Falling back to tuned FFmpeg on ${targetM3u8Url}...`);
         try {
             if (fs.existsSync(tempTsDir)) fs.rmdirSync(tempTsDir, { recursive: true });
         } catch (_) {}
-        return downloadStreamWithTunedFFmpeg(streamUrl, outputPath, referer);
+        return downloadStreamWithTunedFFmpeg(targetM3u8Url, outputPath, referer);
     }
 }
 

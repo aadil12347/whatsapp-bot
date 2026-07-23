@@ -2596,7 +2596,7 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
 
                 try {
                     let lastUpdate = 0;
-                    await downloadStreamWithFFmpeg(chosenQuality.streamUrl, tempFilePath, 'https://nextgencloudfabric.com/', 32, async (info) => {
+                    await downloadStreamWithFFmpeg(chosenQuality.streamUrl, tempFilePath, 'https://nextgencloudfabric.com/', 12, async (info) => {
                         const now = Date.now();
                         if (now - lastUpdate > 3500 || info.percentage === 100) {
                             lastUpdate = now;
