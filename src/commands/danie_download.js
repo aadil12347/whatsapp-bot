@@ -2338,6 +2338,99 @@ DANIE_COMMANDS['sh'] = async (conn, mek, from, senderJid, args, reply) => {
     await searchCommandHandler(conn, mek, from, senderJid, args, reply, 'hdhub4u');
 };
 
+DANIE_COMMANDS['si'] = async (conn, mek, from, senderJid, args, reply) => {
+    await streamImdbSearchHandler(conn, mek, from, senderJid, args, reply);
+};
+
+async function streamImdbSearchHandler(conn, mek, from, senderJid, q, reply) {
+    try {
+        if (!q || !q.trim()) {
+            return reply('❌ Please provide a movie or TV show title to search!\n\n*Usage:*\n`.si The House That Jack Built`');
+        }
+
+        const query = q.trim();
+        await reply(`🔍 Searching IMDb/TMDB & EmbedMaster for *"${query}"*...`);
+
+        initUpsertListener(conn);
+
+        // 1. Search via TMDB Multi-Search API
+        const TMDB_KEY = 'fc6d85b3839330e3458701b975195487';
+        const searchUrl = `https://api.themoviedb.org/3/search/multi?query=${encodeURIComponent(query)}&api_key=${TMDB_KEY}`;
+        const searchRes = await axios.get(searchUrl, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            },
+            timeout: 10000
+        });
+
+        let results = [];
+        if (searchRes.data && searchRes.data.results) {
+            results = searchRes.data.results
+                .filter(r => r.media_type === 'movie' || r.media_type === 'tv')
+                .slice(0, 8)
+                .map(r => ({
+                    tmdbId: r.id,
+                    type: r.media_type,
+                    title: r.title || r.name || 'Unknown',
+                    year: (r.release_date || r.first_air_date || '').substring(0, 4),
+                    poster: r.poster_path ? `https://image.tmdb.org/t/p/w500${r.poster_path}` : '',
+                    overview: r.overview || '',
+                    href: r.media_type === 'movie'
+                        ? `https://streamimdb.ru/movie/${r.id}`
+                        : `https://streamimdb.ru/tv/${r.id}`,
+                    embedMasterUrl: r.media_type === 'movie'
+                        ? `https://embedmaster.link/movie/${r.id}`
+                        : `https://embedmaster.link/tv/${r.id}`
+                }));
+        }
+
+        // Fallback to StreamIMDB HTML search if TMDB returned no results
+        if (results.length === 0) {
+            console.log(`[StreamIMDB] TMDB search returned empty, trying StreamIMDB fallback...`);
+            const fallbackResults = await searchStreamImdb(query);
+            if (fallbackResults && fallbackResults.length > 0) {
+                results = fallbackResults.map(r => ({
+                    tmdbId: r.href.match(/\d+/)?.[0] || '0',
+                    type: r.type || 'movie',
+                    title: r.title,
+                    year: r.year || '',
+                    poster: r.poster || '',
+                    overview: '',
+                    href: r.href,
+                    embedMasterUrl: `https://embedmaster.link/movie/${r.title}`
+                }));
+            }
+        }
+
+        if (!results || results.length === 0) {
+            return reply(`❌ No IMDb/TMDB search results found for *"${query}"*.`);
+        }
+
+        const cleanSender = cleanJid(senderJid);
+        pendingSearch[cleanSender] = {
+            step: 'streamimdb_select',
+            results: results,
+            messageId: null
+        };
+
+        let responseText = `🎬 *IMDb / EmbedMaster Results for "${query}":*\n\n`;
+        results.forEach((r, idx) => {
+            const typeLabel = r.type === 'tv' ? '📺 TV Series' : '🎥 Movie';
+            const yearLabel = r.year ? `(${r.year})` : '';
+            responseText += `  \`${idx + 1}\` — *${r.title}* ${yearLabel} [${typeLabel}]\n`;
+        });
+        responseText += `\n_Reply with a number (1-${results.length}) to select and load poster image & download options._`;
+
+        const sent = await reply(responseText);
+        if (sent && sent.key) {
+            pendingSearch[cleanSender].messageId = sent.key.id;
+        }
+    } catch (err) {
+        console.error('[StreamIMDB] Search failed:', err.message);
+        reply(`❌ Search failed: ${err.message}`);
+    }
+}
+
 async function searchCommandHandler(conn, mek, from, senderJid, q, reply, source = 'vegamovies') {
     try {
         const isRog = source === 'rogmovies';
@@ -2600,7 +2693,7 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
 
         const selected = results[num - 1];
         const posterUrl = selected.poster || '';
-        await reply(`⏳ *Fetching details for:* "${selected.title}"...`);
+        await reply(`⏳ *Fetching details & poster for:* "${selected.title}"...`);
 
         const sendWithPoster = async (textMsg, imgUrl) => {
             if (imgUrl && (imgUrl.startsWith('http://') || imgUrl.startsWith('https://'))) {
@@ -2614,32 +2707,50 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
         };
 
         try {
-            const details = await getMediaDetails(selected.href);
-            const mediaPoster = details.poster || posterUrl;
+            let details = null;
+            if (selected.tmdbId && selected.tmdbId !== '0') {
+                details = await fetchTmdbById(selected.tmdbId, selected.type || 'movie');
+            }
+            if (!details) {
+                details = await getMediaDetails(selected.href);
+            }
 
-            if (details.isTv && details.seasons && details.seasons.length > 0) {
+            const mediaPoster = details.posterUrl || details.poster || posterUrl;
+            const mediaTitle = details.title || selected.title;
+            const mediaYear = details.year || selected.year || '';
+            const overview = details.overview || selected.overview || '';
+
+            if (selected.type === 'tv' || (details.isTv && details.seasons && details.seasons.length > 0)) {
                 // TV Series - Show Seasons
-                let seasonText = `📺 *${details.title}*\n_${details.overview ? details.overview.substring(0, 150) + '...' : ''}_\n\n*Select a Season:*\n`;
-                details.seasons.forEach((s, idx) => {
-                    seasonText += `  \`${idx + 1}\` — *Season ${s.seasonNum}* (${s.episodes.length} episodes)\n`;
+                const seasonsList = details.seasons && details.seasons.length > 0
+                    ? details.seasons.filter(s => s.season_number > 0 || s.seasonNum > 0)
+                    : [{ seasonNum: 1, episodes: [{ epNum: 1, title: 'Episode 1', href: selected.href }] }];
+
+                let seasonText = `📺 *${mediaTitle}* ${mediaYear ? `(${mediaYear})` : ''}\n_${overview ? overview.substring(0, 150) + '...' : ''}_\n\n*Select a Season:*\n`;
+                seasonsList.forEach((s, idx) => {
+                    const sNum = s.season_number || s.seasonNum;
+                    const epCount = s.episode_count || (s.episodes ? s.episodes.length : 10);
+                    seasonText += `  \`${idx + 1}\` — *Season ${sNum}* (${epCount} episodes)\n`;
                 });
-                seasonText += `\n_Reply with a season number (1-${details.seasons.length})._`;
+                seasonText += `\n_Reply with a season number (1-${seasonsList.length})._`;
 
                 const sent = await sendWithPoster(seasonText, mediaPoster);
                 pendingSearch[cleanSender] = {
                     step: 'streamimdb_season',
-                    title: details.title,
+                    title: mediaTitle,
+                    year: mediaYear,
+                    tmdbId: selected.tmdbId,
                     poster: mediaPoster,
-                    seasons: details.seasons,
+                    seasons: seasonsList,
                     messageId: sent && sent.key ? sent.key.id : null
                 };
             } else {
                 // Movie - Resolve Stream Qualities directly
-                if (!details.embedUrl) {
-                    return reply(`❌ Could not extract player embed URL for movie: "${details.title}".`);
-                }
-                const qualities = await resolveStreamOptions(details.embedUrl);
-                let qualityText = `🎥 *${details.title}*\n_${details.overview ? details.overview.substring(0, 150) + '...' : ''}_\n\n*Available Download Qualities:*\n`;
+                const targetEmbedUrl = selected.embedMasterUrl || `https://streamimdb.ru/embed/movie/${selected.tmdbId}`;
+                console.log(`[StreamIMDB] Resolving stream options for: ${targetEmbedUrl}`);
+                const qualities = await resolveStreamOptions(targetEmbedUrl);
+                
+                let qualityText = `🎬 *${mediaTitle}* ${mediaYear ? `(${mediaYear})` : ''}\n_${overview ? overview.substring(0, 150) + '...' : ''}_\n\n*Available Download Qualities:*\n`;
                 qualities.forEach((q, idx) => {
                     qualityText += `  \`${idx + 1}\` — *${q.quality}*\n`;
                 });
@@ -2648,7 +2759,9 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                 const sent = await sendWithPoster(qualityText, mediaPoster);
                 pendingSearch[cleanSender] = {
                     step: 'streamimdb_quality',
-                    title: details.title,
+                    title: mediaTitle,
+                    year: mediaYear,
+                    tmdbId: selected.tmdbId,
                     poster: mediaPoster,
                     qualities,
                     messageId: sent && sent.key ? sent.key.id : null
