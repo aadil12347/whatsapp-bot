@@ -1633,6 +1633,57 @@ async function sendStickyStatusUpdate(conn, from, currentStatusMsg, textMsg, isM
     }
 }
 
+let globalProgressState = {
+    active: false,
+    fileName: '',
+    quality: '',
+    downloadedMB: 0,
+    totalEstMB: 0,
+    speedMBs: 0,
+    percentage: 0,
+    phaseText: 'Idle',
+    statusMsg: null
+};
+
+async function handlePullDownStatus(conn, mek, from, reply) {
+    if (globalProgressState.statusMsg && globalProgressState.statusMsg.key) {
+        try {
+            await conn.sendMessage(globalProgressState.statusMsg.from || from, { delete: globalProgressState.statusMsg.key });
+        } catch (_) {}
+        globalProgressState.statusMsg = null;
+    }
+
+    const pendingCount = globalTaskQueue ? globalTaskQueue.queue.length : 0;
+    const isTaskRunning = globalTaskQueue && globalTaskQueue.activeTask;
+
+    let statusText = '';
+    if (globalProgressState.active && globalProgressState.percentage < 100) {
+        statusText = `⚡ *Active Stream Download Status:*\n` +
+                     `🎬 *File:* "${globalProgressState.fileName}"\n` +
+                     `📺 *Quality:* ${globalProgressState.quality}\n` +
+                     `📦 *Downloaded:* ${globalProgressState.downloadedMB} MB / ~${globalProgressState.totalEstMB} MB (${globalProgressState.percentage}%)\n` +
+                     `🚀 *Speed:* ${globalProgressState.speedMBs} MB/s\n\n` +
+                     `📥 *Pending Queue:* ${pendingCount} task(s)\n` +
+                     `_Send \`.s\` anytime to pull this status card to the bottom of the chat._`;
+    } else if (isTaskRunning) {
+        const desc = globalTaskQueue.activeTask.description || 'Active Task';
+        statusText = `⚙️ *Processing Task:* "${desc}"\n` +
+                     `📌 *Phase:* ${globalProgressState.phaseText || 'In Progress'}\n\n` +
+                     `📥 *Pending Queue:* ${pendingCount} task(s)\n` +
+                     `_Send \`.s\` anytime to pull this status card to the bottom of the chat._`;
+    } else {
+        statusText = `📊 *DanieWatch Status Summary*\n\n` +
+                     `🟢 No active downloads currently running.\n` +
+                     `📥 Pending Queue: *${pendingCount}*\n\n` +
+                     `_Send \`.si <movie>\` or \`.p <tmdb_url>\` to start downloading._`;
+    }
+
+    const sent = await reply(statusText);
+    if (sent && sent.key) {
+        globalProgressState.statusMsg = { key: sent.key, from };
+    }
+}
+
 async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal = null, activeDownloadRef = null) {
     console.log("=== P COMMAND TRIGGERED ===");
     console.log("q:", q);
@@ -1647,8 +1698,17 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
         }
 
         let statusMsg = await reply('⏳ *[1/3] Fetching TMDB metadata & poster...*');
-        const updatePStatus = async (textMsg, isMajorChange = false) => {
-            statusMsg = await sendStickyStatusUpdate(conn, from, statusMsg, textMsg, isMajorChange);
+        globalProgressState.statusMsg = statusMsg && statusMsg.key ? { key: statusMsg.key, from } : null;
+        globalProgressState.active = true;
+        globalProgressState.phaseText = '[1/3] Fetching TMDB metadata';
+
+        const updatePStatus = async (textMsg) => {
+            globalProgressState.phaseText = textMsg.replace(/[*_]/g, '');
+            if (globalProgressState.statusMsg && globalProgressState.statusMsg.key) {
+                try {
+                    await conn.sendMessage(globalProgressState.statusMsg.from || from, { text: textMsg, edit: globalProgressState.statusMsg.key });
+                } catch (_) {}
+            }
         };
 
         const items = q.split(',').map(item => item.trim()).filter(Boolean);
@@ -1879,6 +1939,21 @@ cmd({
     await pCommandHandler(conn, mek, from, senderJid, q, reply);
 });
 
+cmd({
+    pattern: 's',
+    alias: ['status', 'progress'],
+    react: '⚡',
+    desc: 'Pulls down the active download progress card to the bottom of the chat, deleting the old message higher up.',
+    category: 'download',
+    use: '.s',
+    filename: __filename
+}, async (conn, mek, m, { from }) => {
+    const reply = async (textMsg) => {
+        return conn.sendMessage(from, { text: textMsg }, { quoted: mek });
+    };
+    await handlePullDownStatus(conn, mek, from, reply);
+});
+
 // =========================================================================
 //  .groupid — unchanged from original
 // =========================================================================
@@ -1935,6 +2010,12 @@ cmd({
 //  REGISTER DIRECT COMMAND HANDLERS
 //  These bypass the obfuscated framework entirely via messages.upsert
 // =========================================================================
+DANIE_COMMANDS['s'] = async (conn, mek, from, senderJid, args, reply) => {
+    await handlePullDownStatus(conn, mek, from, reply);
+};
+DANIE_COMMANDS['status'] = DANIE_COMMANDS['s'];
+DANIE_COMMANDS['progress'] = DANIE_COMMANDS['s'];
+
 DANIE_COMMANDS['config'] = async (conn, mek, from, senderJid, args, reply) => {
     if (!isOwner(senderJid)) return reply('❌ Only the bot owner can use this command.');
     initUpsertListener(conn);
@@ -2677,6 +2758,12 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
         delete pendingSearch[cleanSender];
 
         let statusMsg = await reply(`⚡ *Starting Download:* "${formattedFileName}"\n📦 Initializing 12-worker stream engine...`);
+        globalProgressState.statusMsg = statusMsg && statusMsg.key ? { key: statusMsg.key, from } : null;
+        globalProgressState.active = true;
+        globalProgressState.fileName = formattedFileName;
+        globalProgressState.quality = chosenQuality.quality;
+        globalProgressState.percentage = 0;
+        globalProgressState.phaseText = 'Initializing stream engine';
 
         const settings = loadSettings();
         const { activeTargets } = getActiveTargetsAndPrimary(settings, senderJid);
@@ -2693,17 +2780,24 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                 try {
                     let lastUpdate = 0;
                     await downloadStreamWithFFmpeg(chosenQuality.streamUrl, tempFilePath, 'https://nextgencloudfabric.com/', 12, async (info) => {
+                        globalProgressState.active = true;
+                        globalProgressState.fileName = formattedFileName;
+                        globalProgressState.quality = chosenQuality.quality;
+                        globalProgressState.downloadedMB = info.downloadedMB;
+                        globalProgressState.totalEstMB = info.totalEstMB;
+                        globalProgressState.speedMBs = info.speedMBs;
+                        globalProgressState.percentage = info.percentage;
+                        globalProgressState.phaseText = `Downloading (${info.percentage}%)`;
+
                         const now = Date.now();
                         if (now - lastUpdate > 3000 || info.percentage === 100) {
                             lastUpdate = now;
                             const updateText = `⚡ *StreamIMDB Download Progress:*\n🎬 *File:* "${formattedFileName}"\n📺 *Quality:* ${chosenQuality.quality}\n📦 *Downloaded:* ${info.downloadedMB} MB / ~${info.totalEstMB} MB (${info.percentage}%)\n🚀 *Speed:* ${info.speedMBs} MB/s`;
-                            try {
-                                if (statusMsg && statusMsg.key) {
-                                    await conn.sendMessage(from, { text: updateText, edit: statusMsg.key });
-                                } else {
-                                    statusMsg = await reply(updateText);
-                                }
-                            } catch (_) {}
+                            if (globalProgressState.statusMsg && globalProgressState.statusMsg.key) {
+                                try {
+                                    await conn.sendMessage(globalProgressState.statusMsg.from || from, { text: updateText, edit: globalProgressState.statusMsg.key });
+                                } catch (_) {}
+                            }
                         }
                     });
 
@@ -2713,11 +2807,12 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                     }
 
                     console.log(`[StreamIMDB] Media verified valid: ${verification.sizeMB.toFixed(2)}MB, ${verification.duration.toFixed(1)}s`);
+                    globalProgressState.phaseText = `Uploading (${verification.sizeMB.toFixed(2)} MB)`;
                     
                     try {
                         const uploadText = `📤 *Uploading to WhatsApp:* "${formattedFileName}"\n📦 *File Size:* ${verification.sizeMB.toFixed(2)} MB\n⏳ Sending video document to chat...`;
-                        if (statusMsg && statusMsg.key) {
-                            await conn.sendMessage(from, { text: uploadText, edit: statusMsg.key });
+                        if (globalProgressState.statusMsg && globalProgressState.statusMsg.key) {
+                            await conn.sendMessage(globalProgressState.statusMsg.from || from, { text: uploadText, edit: globalProgressState.statusMsg.key });
                         }
                     } catch (_) {}
 
