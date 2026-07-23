@@ -30,6 +30,71 @@ function cleanFileName(filename) {
     return filename.replace(/\.(mp4|mkv|avi|webm|mov|3gp|srt)$/i, '').trim();
 }
 
+/**
+ * Standardized file name generator: Title (Year) [Season/Episode] Quality - DanieWatch.mp4
+ */
+function buildFormattedDanieFileName(title, year = '', seasonNum = null, epNum = null, quality = '', ext = 'mp4') {
+    let cleanTitle = (title || 'Media')
+        .replace(/^Watch\s+/i, '')
+        .replace(/\s+Online\s+Free.*$/i, '')
+        .replace(/\s*\|\s*StreamIMDB/i, '')
+        .replace(/\s*\|\s*Vegamovies/i, '')
+        .replace(/\s*\|\s*Rogmovies/i, '')
+        .replace(/\s*\|\s*HDHub4u/i, '')
+        .trim();
+
+    let parsedYear = year;
+    if (!parsedYear) {
+        const yMatch = cleanTitle.match(/\((\d{4})\)/) || cleanTitle.match(/\b(19\d\d|20\d\d)\b/);
+        if (yMatch) {
+            parsedYear = yMatch[1];
+        }
+    }
+    cleanTitle = cleanTitle.replace(/\s*\(\d{4}\)/g, '').replace(/\b(19\d\d|20\d\d)\b/g, '').trim();
+
+    let sNum = seasonNum;
+    let eNum = epNum;
+    if (sNum === null || sNum === undefined || eNum === null || eNum === undefined) {
+        const seMatch = cleanTitle.match(/S(\d+)\s*E(\d+)/i);
+        if (seMatch) {
+            sNum = parseInt(seMatch[1], 10);
+            eNum = parseInt(seMatch[2], 10);
+            cleanTitle = cleanTitle.replace(/S\d+\s*E\d+.*/i, '').trim();
+        }
+    }
+
+    let cleanQuality = (quality || '')
+        .replace(/\s*\([^)]*\)/g, '')
+        .trim();
+
+    const parts = [cleanTitle];
+
+    if (parsedYear && (sNum === null || sNum === undefined)) {
+        parts.push(`(${parsedYear})`);
+    }
+
+    if (sNum !== null && sNum !== undefined && eNum !== null && eNum !== undefined) {
+        const sLabel = `S${String(sNum).padStart(2, '0')}`;
+        const eLabel = `E${String(eNum).padStart(2, '0')}`;
+        parts.push(`${sLabel}${eLabel}`);
+    }
+
+    if (cleanQuality) {
+        parts.push(cleanQuality);
+    }
+
+    parts.push('- DanieWatch');
+
+    let base = parts.join(' ').replace(/[:*?"<>|\\/]/g, '').replace(/\s+/g, ' ').trim();
+    if (ext) {
+        const extension = ext.startsWith('.') ? ext : `.${ext}`;
+        if (!base.toLowerCase().endsWith(extension.toLowerCase())) {
+            base += extension;
+        }
+    }
+    return base;
+}
+
 function cleanJunkWords(text) {
     const junkRegexes = [
         /\bdual\s+audio\b/gi,
@@ -1560,6 +1625,17 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
             );
         }
 
+        let statusMsg = await reply('⏳ *[1/3] Fetching TMDB metadata & poster...*');
+        const updatePStatus = async (textMsg) => {
+            try {
+                if (statusMsg && statusMsg.key) {
+                    await conn.sendMessage(from, { text: textMsg, edit: statusMsg.key });
+                } else {
+                    statusMsg = await reply(textMsg);
+                }
+            } catch (_) {}
+        };
+
         const items = q.split(',').map(item => item.trim()).filter(Boolean);
         
         // Find TMDB URL in the first item
@@ -1572,7 +1648,7 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
         }
 
         if (!tmdbUrl) {
-            return reply('❌ Error: First item must specify a valid TMDB URL (e.g. `.p https://www.themoviedb.org/movie/550 = ...`)');
+            return updatePStatus('❌ Error: First item must specify a valid TMDB URL (e.g. `.p https://www.themoviedb.org/movie/550 = ...`)');
         }
 
         const match = tmdbUrl.match(/themoviedb\.org\/(movie|tv)\/(\d+)/i);
@@ -1582,18 +1658,17 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
         const seasonMatch = tmdbUrl.match(/\/season\/(\d+)/i);
         const specifiedSeason = seasonMatch ? parseInt(seasonMatch[1], 10) : null;
 
-        await reply(`⏳ Fetching TMDB metadata...`);
         const tmdb = await fetchTmdbById(tmdbId, mediaType, specifiedSeason);
 
         if (!tmdb) {
-            return reply('❌ Error: Could not fetch metadata for that TMDB URL.');
+            return updatePStatus('❌ Error: Could not fetch metadata for that TMDB URL.');
         }
 
         const settings = loadSettings();
         const { activeTargets, primaryJid, destLabel } = getActiveTargetsAndPrimary(settings, senderJid);
         const destJid = primaryJid;
 
-        // 1. Format details message (remove top/bottom branding, append daniewatch)
+        // 1. Format details message
         let seasonText = '';
         let episodeText = '';
         if (mediaType === 'tv') {
@@ -1680,7 +1755,7 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
             }
         }
         
-        await reply(`✅ TMDB details and poster successfully fetched and sent to: *${destLabel}*`);
+        await updatePStatus(`✅ *[1/3] TMDB details & poster sent to:* *${destLabel}*`);
 
         // 3. Fetch and send trailer video from YouTube if available
         if (tmdb && tmdb.trailerUrl) {
@@ -1689,7 +1764,7 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
             try {
                 const directVideoUrl = await downloadYoutubeVideoUrl(tmdb.trailerUrl);
                 if (directVideoUrl) {
-                    await reply(`⏳ Downloading trailer video from YouTube...`);
+                    await updatePStatus(`⏳ *[2/3] Downloading trailer video from YouTube...*`);
                     const videoResponse = await axios({
                         method: 'get',
                         url: directVideoUrl,
@@ -1719,6 +1794,7 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
                                 caption: `🎬 *Trailer:* *${tmdb.title}*`
                             }, { quoted: destJid === from ? mek : null, from });
                             console.log(`[DanieDownload] Successfully sent trailer video for ${tmdb.title}`);
+                            await updatePStatus(`✅ *[2/3] Trailer video sent to:* *${destLabel}*`);
                         }
                     }
                 } else {
@@ -1745,7 +1821,11 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
         if (downloadItems.length > 0) {
             const downloadQuery = downloadItems.join(', ');
             console.log(`[DanieWatch] Executing media downloads for .p command: ${downloadQuery}`);
+            await updatePStatus(`⏳ *[3/3] Initializing media download(s)...*`);
             await downloadCommandHandler(conn, mek, from, senderJid, downloadQuery, reply, abortSignal, activeDownloadRef, null, true);
+            await updatePStatus(`✅ *[3/3] Completed processing for:* *${tmdb.title}*`);
+        } else {
+            await updatePStatus(`✅ *Processing completed for:* *${tmdb.title}*`);
         }
 
     } catch (error) {
@@ -2577,30 +2657,31 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
 
         const chosenQuality = qualities[num - 1];
         const title = state.title;
+        const formattedFileName = buildFormattedDanieFileName(title, state.year || '', state.seasonNum || null, state.epNum || null, chosenQuality.quality, 'mp4');
+        
         delete pendingSearch[cleanSender];
 
-        let statusMsg = await reply(`📥 *Starting Download:* "${title}" (${chosenQuality.quality})\n⚡ Initializing 32-worker parallel stream engine...`);
+        let statusMsg = await reply(`⚡ *Starting Download:* "${formattedFileName}"\n📦 Initializing 12-worker stream engine...`);
 
         const settings = loadSettings();
         const { activeTargets } = getActiveTargetsAndPrimary(settings, senderJid);
 
         const task = {
             id: `si_${Date.now()}`,
-            description: `StreamIMDB: ${title} (${chosenQuality.quality})`,
+            description: `StreamIMDB: ${formattedFileName}`,
             executeFn: async (signal, ref) => {
                 const tempDir = path.join(__dirname, '..', '..', 'scratch');
                 if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
-                const sanitizedName = title.replace(/[^a-zA-Z0-9_\-]/g, '_');
-                const tempFilePath = path.join(tempDir, `${sanitizedName}_${Date.now()}.mp4`);
+                const tempFilePath = path.join(tempDir, `temp_${Date.now()}_${formattedFileName.replace(/[^a-zA-Z0-9._\-]/g, '_')}`);
                 if (ref) ref.filePath = tempFilePath;
 
                 try {
                     let lastUpdate = 0;
                     await downloadStreamWithFFmpeg(chosenQuality.streamUrl, tempFilePath, 'https://nextgencloudfabric.com/', 12, async (info) => {
                         const now = Date.now();
-                        if (now - lastUpdate > 3500 || info.percentage === 100) {
+                        if (now - lastUpdate > 3000 || info.percentage === 100) {
                             lastUpdate = now;
-                            const updateText = `⚡ *StreamIMDB Download Progress:*\n🎬 *Title:* "${title}"\n📺 *Quality:* ${chosenQuality.quality}\n📦 *Downloaded:* ${info.downloadedMB} MB / ~${info.totalEstMB} MB (${info.percentage}%)\n🚀 *Speed:* ${info.speedMBs} MB/s`;
+                            const updateText = `⚡ *StreamIMDB Download Progress:*\n🎬 *File:* "${formattedFileName}"\n📺 *Quality:* ${chosenQuality.quality}\n📦 *Downloaded:* ${info.downloadedMB} MB / ~${info.totalEstMB} MB (${info.percentage}%)\n🚀 *Speed:* ${info.speedMBs} MB/s`;
                             try {
                                 if (statusMsg && statusMsg.key) {
                                     await conn.sendMessage(from, { text: updateText, edit: statusMsg.key });
@@ -2619,7 +2700,7 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                     console.log(`[StreamIMDB] Media verified valid: ${verification.sizeMB.toFixed(2)}MB, ${verification.duration.toFixed(1)}s`);
                     
                     try {
-                        const uploadText = `📤 *Uploading to WhatsApp:* "${title}"\n📦 *File Size:* ${verification.sizeMB.toFixed(2)} MB\n⏳ Sending video document to chat...`;
+                        const uploadText = `📤 *Uploading to WhatsApp:* "${formattedFileName}"\n📦 *File Size:* ${verification.sizeMB.toFixed(2)} MB\n⏳ Sending video document to chat...`;
                         if (statusMsg && statusMsg.key) {
                             await conn.sendMessage(from, { text: uploadText, edit: statusMsg.key });
                         }
@@ -2628,14 +2709,27 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                     const filePayload = {
                         document: { url: tempFilePath },
                         mimetype: 'video/mp4',
-                        fileName: `${sanitizedName}.mp4`,
-                        caption: `🎬 *${title}*\n📺 *Quality:* ${chosenQuality.quality}\n📦 *Size:* ${verification.sizeMB.toFixed(2)}MB\n\nDownloaded via DanieBot (.si)`
+                        fileName: formattedFileName,
+                        caption: `🎬 *${formattedFileName.replace(/\.mp4$/i, '')}*\n📺 *Quality:* ${chosenQuality.quality}\n📦 *Size:* ${verification.sizeMB.toFixed(2)}MB\n\nDownloaded via DanieBot (.si)`
                     };
 
                     await sendAndForwardFile(conn, activeTargets, filePayload);
+
+                    try {
+                        const completeText = `✅ *Upload Completed:* "${formattedFileName}" (${verification.sizeMB.toFixed(2)} MB)`;
+                        if (statusMsg && statusMsg.key) {
+                            await conn.sendMessage(from, { text: completeText, edit: statusMsg.key });
+                        }
+                    } catch (_) {}
                 } catch (dlErr) {
                     console.error('[StreamIMDB] Download/upload error:', dlErr);
-                    await reply(`❌ StreamIMDB download/upload failed for "${title}": ${dlErr.message}`);
+                    try {
+                        if (statusMsg && statusMsg.key) {
+                            await conn.sendMessage(from, { text: `❌ StreamIMDB download/upload failed for "${formattedFileName}": ${dlErr.message}`, edit: statusMsg.key });
+                        } else {
+                            await reply(`❌ StreamIMDB download/upload failed for "${formattedFileName}": ${dlErr.message}`);
+                        }
+                    } catch (_) {}
                 } finally {
                     if (fs.existsSync(tempFilePath)) {
                         try { fs.unlinkSync(tempFilePath); } catch (_) {}
@@ -2646,7 +2740,7 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
 
         const queuedTask = globalTaskQueue.add(task);
         if (globalTaskQueue.activeTask && globalTaskQueue.activeTask.id !== queuedTask.id) {
-            await reply(`📥 *Position in Queue (#${globalTaskQueue.queue.length}):* "${title}"`);
+            await reply(`📥 *Position in Queue (#${globalTaskQueue.queue.length}):* "${formattedFileName}"`);
         }
         return;
     }
