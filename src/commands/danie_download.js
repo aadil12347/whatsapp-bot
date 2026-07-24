@@ -2367,8 +2367,8 @@ async function searchTmdbApi(query) {
                         ? `https://streamimdb.ru/movie/${r.id}`
                         : `https://streamimdb.ru/tv/${r.id}`,
                     embedMasterUrl: r.media_type === 'movie'
-                        ? `https://embedmaster.link/movie/${r.id}`
-                        : `https://embedmaster.link/tv/${r.id}`
+                        ? `https://streamimdb.ru/embed/movie/${r.id}`
+                        : `https://streamimdb.ru/embed/tv/${r.id}`
                 }));
         }
     } catch (e) {
@@ -2427,16 +2427,21 @@ async function streamImdbSearchHandler(conn, mek, from, senderJid, q, reply) {
             console.log(`[StreamIMDB] TMDB search for "${query}" returned empty, trying StreamIMDB fallback...`);
             const fallbackResults = await searchStreamImdb(query);
             if (fallbackResults && fallbackResults.length > 0) {
-                results = fallbackResults.map(r => ({
-                    tmdbId: r.href.match(/\d+/)?.[0] || '0',
-                    type: r.type || 'movie',
-                    title: r.title,
-                    year: r.year || '',
-                    poster: r.poster || '',
-                    overview: '',
-                    href: r.href,
-                    embedMasterUrl: `https://embedmaster.link/movie/${r.title}`
-                }));
+                results = fallbackResults.map(r => {
+                    const idMatch = r.href.match(/\d+/)?.[0] || '0';
+                    return {
+                        tmdbId: idMatch,
+                        type: r.type || 'movie',
+                        title: r.title,
+                        year: r.year || '',
+                        poster: r.poster || '',
+                        overview: '',
+                        href: r.href,
+                        embedMasterUrl: r.type === 'tv'
+                            ? `https://streamimdb.ru/embed/tv/${idMatch}`
+                            : `https://streamimdb.ru/embed/movie/${idMatch}`
+                    };
+                });
             }
         }
 
@@ -2450,16 +2455,21 @@ async function streamImdbSearchHandler(conn, mek, from, senderJid, q, reply) {
                 if (altResults.length === 0) {
                     const streamAlt = await searchStreamImdb(altQ);
                     if (streamAlt && streamAlt.length > 0) {
-                        altResults = streamAlt.map(r => ({
-                            tmdbId: r.href.match(/\d+/)?.[0] || '0',
-                            type: r.type || 'movie',
-                            title: r.title,
-                            year: r.year || '',
-                            poster: r.poster || '',
-                            overview: '',
-                            href: r.href,
-                            embedMasterUrl: `https://embedmaster.link/movie/${r.title}`
-                        }));
+                        altResults = streamAlt.map(r => {
+                            const idMatch = r.href.match(/\d+/)?.[0] || '0';
+                            return {
+                                tmdbId: idMatch,
+                                type: r.type || 'movie',
+                                title: r.title,
+                                year: r.year || '',
+                                poster: r.poster || '',
+                                overview: '',
+                                href: r.href,
+                                embedMasterUrl: r.type === 'tv'
+                                    ? `https://streamimdb.ru/embed/tv/${idMatch}`
+                                    : `https://streamimdb.ru/embed/movie/${idMatch}`
+                            };
+                        });
                     }
                 }
                 if (altResults.length > 0) {

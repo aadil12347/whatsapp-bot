@@ -137,10 +137,36 @@ async function getEpisodeEmbedUrl(epUrl) {
  * @returns {Promise<Array<{quality: string, streamUrl: string}>>}
  */
 async function resolveStreamOptions(embedUrl) {
-    const fullEmbedUrl = embedUrl.startsWith('/') ? `${BASE_URL}${embedUrl}` : embedUrl;
+    let fullEmbedUrl = embedUrl.startsWith('/') ? `${BASE_URL}${embedUrl}` : embedUrl;
+    
+    // Bypasses Cloudflare 403 challenge on embedmaster.link by using clean streamimdb.ru embed endpoint
+    if (fullEmbedUrl.includes('embedmaster.link')) {
+        const tmdbMatch = fullEmbedUrl.match(/\/(movie|tv)\/(\d+)/i);
+        if (tmdbMatch) {
+            fullEmbedUrl = `${BASE_URL}/embed/${tmdbMatch[1]}/${tmdbMatch[2]}`;
+            console.log(`[StreamIMDB] Replaced embedmaster URL with clean streamimdb embed URL: ${fullEmbedUrl}`);
+        }
+    }
     console.log(`[StreamIMDB] Fetching embed player page: ${fullEmbedUrl}`);
 
-    const res1 = await axios.get(fullEmbedUrl, { headers: HEADERS, timeout: 15000 });
+    let res1;
+    try {
+        res1 = await axios.get(fullEmbedUrl, { headers: HEADERS, timeout: 15000 });
+    } catch (err) {
+        if (err.response && (err.response.status === 403 || err.response.status === 404)) {
+            const tmdbMatch = fullEmbedUrl.match(/\/(movie|tv)\/(\d+)/i);
+            if (tmdbMatch) {
+                const fallbackEmbedUrl = `${BASE_URL}/embed/${tmdbMatch[1]}/${tmdbMatch[2]}`;
+                console.log(`[StreamIMDB] Primary embed returned ${err.response.status}. Retrying with fallback embed: ${fallbackEmbedUrl}`);
+                res1 = await axios.get(fallbackEmbedUrl, { headers: HEADERS, timeout: 15000 });
+                fullEmbedUrl = fallbackEmbedUrl;
+            } else {
+                throw err;
+            }
+        } else {
+            throw err;
+        }
+    }
     const $1 = cheerio.load(res1.data);
     let nextgenUrl = $1('#pf').attr('src') || '';
 
