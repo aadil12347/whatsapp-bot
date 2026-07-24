@@ -2342,30 +2342,18 @@ DANIE_COMMANDS['si'] = async (conn, mek, from, senderJid, args, reply) => {
     await streamImdbSearchHandler(conn, mek, from, senderJid, args, reply);
 };
 
-async function streamImdbSearchHandler(conn, mek, from, senderJid, q, reply) {
+async function searchTmdbApi(query) {
+    const TMDB_KEY = 'fc6d85b3839330e3458701b975195487';
+    const searchUrl = `https://api.themoviedb.org/3/search/multi?query=${encodeURIComponent(query)}&api_key=${TMDB_KEY}`;
     try {
-        if (!q || !q.trim()) {
-            return reply('❌ Please provide a movie or TV show title to search!\n\n*Usage:*\n`.si The House That Jack Built`');
-        }
-
-        const query = q.trim();
-        await reply(`🔍 Searching IMDb/TMDB & EmbedMaster for *"${query}"*...`);
-
-        initUpsertListener(conn);
-
-        // 1. Search via TMDB Multi-Search API
-        const TMDB_KEY = 'fc6d85b3839330e3458701b975195487';
-        const searchUrl = `https://api.themoviedb.org/3/search/multi?query=${encodeURIComponent(query)}&api_key=${TMDB_KEY}`;
         const searchRes = await axios.get(searchUrl, {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             },
             timeout: 10000
         });
-
-        let results = [];
         if (searchRes.data && searchRes.data.results) {
-            results = searchRes.data.results
+            return searchRes.data.results
                 .filter(r => r.media_type === 'movie' || r.media_type === 'tv')
                 .slice(0, 8)
                 .map(r => ({
@@ -2383,10 +2371,60 @@ async function streamImdbSearchHandler(conn, mek, from, senderJid, q, reply) {
                         : `https://embedmaster.link/tv/${r.id}`
                 }));
         }
+    } catch (e) {
+        console.error('[StreamIMDB] TMDB API search failed:', e.message);
+    }
+    return [];
+}
 
-        // Fallback to StreamIMDB HTML search if TMDB returned no results
+function generateFallbackQueries(query) {
+    const stopWords = new Set(['i', 'a', 'an', 'the', 'that', 'this', 'and', 'or', 'in', 'on', 'at', 'to', 'for', 'with', 'of', 'by', 'my', 'your', 'it', 'is', 'was']);
+    const cleaned = query.replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
+    const words = cleaned.split(' ').filter(Boolean);
+    const candidates = [];
+
+    // Candidate 1: Strip stop words if query has > 2 words
+    const nonStop = words.filter(w => !stopWords.has(w.toLowerCase()));
+    if (nonStop.length > 0 && nonStop.length < words.length) {
+        candidates.push(nonStop.join(' '));
+    }
+
+    // Candidate 2: Strip season/episode labels like s1, s01, e01, etc.
+    const noSeason = query.replace(/\b[sS]\d+([eE]\d+)?\b/g, '').replace(/\bseason\s*\d+\b/gi, '').trim();
+    if (noSeason && noSeason !== query && !candidates.includes(noSeason)) {
+        candidates.push(noSeason);
+    }
+
+    // Candidate 3: Longest 2 key words if query is multi-word
+    if (words.length >= 3) {
+        const sortedByLength = [...words].sort((a, b) => b.length - a.length);
+        const topWords = sortedByLength.slice(0, 2).join(' ');
+        if (topWords && !candidates.includes(topWords) && topWords !== query) {
+            candidates.push(topWords);
+        }
+    }
+
+    return candidates;
+}
+
+async function streamImdbSearchHandler(conn, mek, from, senderJid, q, reply) {
+    try {
+        if (!q || !q.trim()) {
+            return reply('❌ Please provide a movie or TV show title to search!\n\n*Usage:*\n`.si The House That Jack Built`');
+        }
+
+        const query = q.trim();
+        await reply(`🔍 Searching IMDb/TMDB & EmbedMaster for *"${query}"*...`);
+
+        initUpsertListener(conn);
+
+        // 1. Search via TMDB Multi-Search API
+        let results = await searchTmdbApi(query);
+        let fallbackQueryUsed = null;
+
+        // 2. Fallback to StreamIMDB HTML search if TMDB returned no results
         if (results.length === 0) {
-            console.log(`[StreamIMDB] TMDB search returned empty, trying StreamIMDB fallback...`);
+            console.log(`[StreamIMDB] TMDB search for "${query}" returned empty, trying StreamIMDB fallback...`);
             const fallbackResults = await searchStreamImdb(query);
             if (fallbackResults && fallbackResults.length > 0) {
                 results = fallbackResults.map(r => ({
@@ -2402,8 +2440,38 @@ async function streamImdbSearchHandler(conn, mek, from, senderJid, q, reply) {
             }
         }
 
+        // 3. Smart Fallback Query Reformulation if both returned 0 results
+        if (results.length === 0) {
+            const fallbackCandidates = generateFallbackQueries(query);
+            for (const altQ of fallbackCandidates) {
+                if (!altQ || altQ.trim() === query) continue;
+                console.log(`[StreamIMDB] Trying smart fallback query: "${altQ}"...`);
+                let altResults = await searchTmdbApi(altQ);
+                if (altResults.length === 0) {
+                    const streamAlt = await searchStreamImdb(altQ);
+                    if (streamAlt && streamAlt.length > 0) {
+                        altResults = streamAlt.map(r => ({
+                            tmdbId: r.href.match(/\d+/)?.[0] || '0',
+                            type: r.type || 'movie',
+                            title: r.title,
+                            year: r.year || '',
+                            poster: r.poster || '',
+                            overview: '',
+                            href: r.href,
+                            embedMasterUrl: `https://embedmaster.link/movie/${r.title}`
+                        }));
+                    }
+                }
+                if (altResults.length > 0) {
+                    results = altResults;
+                    fallbackQueryUsed = altQ;
+                    break;
+                }
+            }
+        }
+
         if (!results || results.length === 0) {
-            return reply(`❌ No IMDb/TMDB search results found for *"${query}"*.`);
+            return reply(`❌ No IMDb/TMDB search results found for *"${query}"*.\n\n💡 *Tip:* Try searching with main title keywords (e.g. \`.si house\`).`);
         }
 
         const cleanSender = cleanJid(senderJid);
@@ -2413,7 +2481,11 @@ async function streamImdbSearchHandler(conn, mek, from, senderJid, q, reply) {
             messageId: null
         };
 
-        let responseText = `🎬 *IMDb / EmbedMaster Results for "${query}":*\n\n`;
+        let responseText = `🎬 *IMDb / EmbedMaster Results for "${query}":*\n`;
+        if (fallbackQueryUsed) {
+            responseText += `ℹ️ _(Showing closest matches for "${fallbackQueryUsed}")_\n`;
+        }
+        responseText += `\n`;
         results.forEach((r, idx) => {
             const typeLabel = r.type === 'tv' ? '📺 TV Series' : '🎥 Movie';
             const yearLabel = r.year ? `(${r.year})` : '';
