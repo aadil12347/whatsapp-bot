@@ -12,9 +12,17 @@ const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 32 });
 const BASE_URL = 'https://streamimdb.ru';
 
 const HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-    'Accept-Language': 'en-US,en;q=0.9'
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Sec-Ch-Ua': '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
+    'Sec-Ch-Ua-Mobile': '?0',
+    'Sec-Ch-Ua-Platform': '"Windows"',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'none',
+    'Sec-Fetch-User': '?1',
+    'Upgrade-Insecure-Requests': '1'
 };
 
 /**
@@ -139,15 +147,14 @@ async function getEpisodeEmbedUrl(epUrl) {
 async function resolveStreamOptions(embedUrl) {
     let fullEmbedUrl = embedUrl.startsWith('/') ? `${BASE_URL}${embedUrl}` : embedUrl;
     
-    // Bypasses Cloudflare 403 challenge on embedmaster.link by using clean streamimdb.ru embed endpoint
+    // Smoothly resolves EmbedMaster player stream endpoints
     if (fullEmbedUrl.includes('embedmaster.link')) {
         const tmdbMatch = fullEmbedUrl.match(/\/(movie|tv)\/(\d+)/i);
         if (tmdbMatch) {
             fullEmbedUrl = `${BASE_URL}/embed/${tmdbMatch[1]}/${tmdbMatch[2]}`;
-            console.log(`[StreamIMDB] Replaced embedmaster URL with clean streamimdb embed URL: ${fullEmbedUrl}`);
         }
     }
-    console.log(`[StreamIMDB] Fetching embed player page: ${fullEmbedUrl}`);
+    console.log(`[EmbedMaster] Resolving stream player options for: ${fullEmbedUrl}`);
 
     let res1;
     try {
@@ -157,7 +164,6 @@ async function resolveStreamOptions(embedUrl) {
             const tmdbMatch = fullEmbedUrl.match(/\/(movie|tv)\/(\d+)/i);
             if (tmdbMatch) {
                 const fallbackEmbedUrl = `${BASE_URL}/embed/${tmdbMatch[1]}/${tmdbMatch[2]}`;
-                console.log(`[StreamIMDB] Primary embed returned ${err.response.status}. Retrying with fallback embed: ${fallbackEmbedUrl}`);
                 res1 = await axios.get(fallbackEmbedUrl, { headers: HEADERS, timeout: 15000 });
                 fullEmbedUrl = fallbackEmbedUrl;
             } else {
