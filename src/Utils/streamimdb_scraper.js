@@ -356,7 +356,7 @@ function downloadStreamWithTunedFFmpeg(streamUrl, outputPath, referer = 'https:/
  * @param {Function} [onProgress] Progress callback: ({ completed, total, downloadedMB, totalEstMB, speedMBs, percentage }) => void
  * @returns {Promise<string>} Output path
  */
-async function downloadStreamWithFFmpeg(streamUrl, outputPath, referer = 'https://nextgencloudfabric.com/', concurrency = 12, onProgress = null) {
+async function downloadStreamWithFFmpeg(streamUrl, outputPath, referer = 'https://nextgencloudfabric.com/', concurrency = 6, onProgress = null) {
     const startTime = Date.now();
     console.log(`[FastHLS] Initializing high-speed parallel downloader for: ${streamUrl}`);
 

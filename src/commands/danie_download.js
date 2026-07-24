@@ -2952,7 +2952,7 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
         
         delete pendingSearch[cleanSender];
 
-        let statusMsg = await reply(`⚡ *Starting Download:* "${formattedFileName}"\n📦 Initializing 12-worker stream engine...`);
+        let statusMsg = await reply(`⚡ *Starting Download:* "${formattedFileName}"\n📦 Initializing EmbedMaster stream engine...`);
         globalProgressState.statusMsg = statusMsg && statusMsg.key ? { key: statusMsg.key, from } : null;
         globalProgressState.active = true;
         globalProgressState.fileName = formattedFileName;
@@ -2965,7 +2965,7 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
 
         const task = {
             id: `si_${Date.now()}`,
-            description: `StreamIMDB: ${formattedFileName}`,
+            description: `EmbedMaster: ${formattedFileName}`,
             executeFn: async (signal, ref) => {
                 const tempDir = path.join(__dirname, '..', '..', 'scratch');
                 if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
@@ -2974,7 +2974,7 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
 
                 try {
                     let lastUpdate = 0;
-                    await downloadStreamWithFFmpeg(chosenQuality.streamUrl, tempFilePath, 'https://nextgencloudfabric.com/', 12, async (info) => {
+                    await downloadStreamWithFFmpeg(chosenQuality.streamUrl, tempFilePath, 'https://nextgencloudfabric.com/', 6, async (info) => {
                         globalProgressState.active = true;
                         globalProgressState.fileName = formattedFileName;
                         globalProgressState.quality = chosenQuality.quality;
@@ -2987,7 +2987,7 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                         const now = Date.now();
                         if (now - lastUpdate > 3000 || info.percentage === 100) {
                             lastUpdate = now;
-                            const updateText = `⚡ *StreamIMDB Download Progress:*\n🎬 *File:* "${formattedFileName}"\n📺 *Quality:* ${chosenQuality.quality}\n📦 *Downloaded:* ${info.downloadedMB} MB / ~${info.totalEstMB} MB (${info.percentage}%)\n🚀 *Speed:* ${info.speedMBs} MB/s`;
+                            const updateText = `⚡ *EmbedMaster Download Progress:*\n🎬 *File:* "${formattedFileName}"\n📺 *Quality:* ${chosenQuality.quality}\n📦 *Downloaded:* ${info.downloadedMB} MB / ~${info.totalEstMB} MB (${info.percentage}%)\n🚀 *Speed:* ${info.speedMBs} MB/s`;
                             if (globalProgressState.statusMsg && globalProgressState.statusMsg.key) {
                                 try {
                                     await conn.sendMessage(globalProgressState.statusMsg.from || from, { text: updateText, edit: globalProgressState.statusMsg.key });
@@ -3007,7 +3007,7 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                     const durationMins = (verification.duration / 60).toFixed(1);
                     let durationText = `⏱️ *Duration:* ${durationMins} mins`;
                     if (verification.duration < 1800 && !state.seasonNum) {
-                        durationText += `\n⚠️ *Notice:* StreamIMDB CDN provider provided a sample/short clip (${durationMins}m). For full 2hr movie files, use \`.d ${title}\`!`;
+                        durationText += `\n⚠️ *Notice:* EmbedMaster CDN provider provided a sample/short clip (${durationMins}m). For full 2hr movie files, use \`.d ${title}\`!`;
                     }
 
                     try {
