@@ -148,11 +148,8 @@ async function resolveStreamOptions(embedUrl) {
     let fullEmbedUrl = embedUrl.startsWith('/') ? `${BASE_URL}${embedUrl}` : embedUrl;
     
     // Smoothly resolves EmbedMaster player stream endpoints
-    if (fullEmbedUrl.includes('embedmaster.link')) {
-        const tmdbMatch = fullEmbedUrl.match(/\/(movie|tv)\/(\d+)/i);
-        if (tmdbMatch) {
-            fullEmbedUrl = `${BASE_URL}/embed/${tmdbMatch[1]}/${tmdbMatch[2]}`;
-        }
+    if (!fullEmbedUrl.includes('embedmaster.link') && !fullEmbedUrl.startsWith('http')) {
+        fullEmbedUrl = `https://embedmaster.link/30ffbr4ijvhbf4ks${embedUrl.startsWith('/') ? embedUrl : '/' + embedUrl}`;
     }
     console.log(`[EmbedMaster] Resolving stream player options for: ${fullEmbedUrl}`);
 
@@ -161,7 +158,7 @@ async function resolveStreamOptions(embedUrl) {
         res1 = await axios.get(fullEmbedUrl, { headers: HEADERS, timeout: 15000 });
     } catch (err) {
         if (err.response && (err.response.status === 403 || err.response.status === 404)) {
-            const tmdbMatch = fullEmbedUrl.match(/\/(movie|tv)\/(\d+)/i);
+            const tmdbMatch = fullEmbedUrl.match(/\/(movie|tv)\/([^\/]+)/i);
             if (tmdbMatch) {
                 const fallbackEmbedUrl = `${BASE_URL}/embed/${tmdbMatch[1]}/${tmdbMatch[2]}`;
                 res1 = await axios.get(fallbackEmbedUrl, { headers: HEADERS, timeout: 15000 });
@@ -173,12 +170,28 @@ async function resolveStreamOptions(embedUrl) {
             throw err;
         }
     }
-    const $1 = cheerio.load(res1.data);
+    let $1 = cheerio.load(res1.data);
     let nextgenUrl = $1('#pf').attr('src') || '';
 
     if (!nextgenUrl) {
         const match = res1.data.match(/<iframe[^>]+src=["']([^"']+)["']/i);
         if (match) nextgenUrl = match[1];
+    }
+
+    if (!nextgenUrl) {
+        const tmdbMatch = fullEmbedUrl.match(/\/(movie|tv)\/([^\/]+)/i);
+        if (tmdbMatch) {
+            const fallbackEmbedUrl = `${BASE_URL}/embed/${tmdbMatch[1]}/${tmdbMatch[2]}`;
+            console.log(`[EmbedMaster] Direct player ID page required interactive verification. Falling back to stream endpoint: ${fallbackEmbedUrl}`);
+            res1 = await axios.get(fallbackEmbedUrl, { headers: HEADERS, timeout: 15000 });
+            fullEmbedUrl = fallbackEmbedUrl;
+            $1 = cheerio.load(res1.data);
+            nextgenUrl = $1('#pf').attr('src') || '';
+            if (!nextgenUrl) {
+                const match = res1.data.match(/<iframe[^>]+src=["']([^"']+)["']/i);
+                if (match) nextgenUrl = match[1];
+            }
+        }
     }
 
     if (!nextgenUrl) {

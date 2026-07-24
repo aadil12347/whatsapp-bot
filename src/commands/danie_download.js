@@ -2342,8 +2342,50 @@ DANIE_COMMANDS['si'] = async (conn, mek, from, senderJid, args, reply) => {
     await streamImdbSearchHandler(conn, mek, from, senderJid, args, reply);
 };
 
+async function fetchImdbId(tmdbId, type = 'movie') {
+    const TMDB_KEY = 'fc6d85b3839330e3458701b975195487';
+    try {
+        const url = `https://api.themoviedb.org/3/${type}/${tmdbId}/external_ids?api_key=${TMDB_KEY}`;
+        const res = await axios.get(url, { timeout: 8000 });
+        return res.data?.imdb_id || null;
+    } catch (_) {
+        return null;
+    }
+}
+
 async function searchTmdbApi(query) {
     const TMDB_KEY = 'fc6d85b3839330e3458701b975195487';
+    const trimmed = query.trim();
+    
+    // Check if user entered an IMDb ID (e.g. tt4003440)
+    if (/^tt\d+/i.test(trimmed)) {
+        const findUrl = `https://api.themoviedb.org/3/find/${encodeURIComponent(trimmed)}?external_source=imdb_id&api_key=${TMDB_KEY}`;
+        try {
+            const findRes = await axios.get(findUrl, { timeout: 10000 });
+            const movies = (findRes.data?.movie_results || []).map(r => ({ ...r, media_type: 'movie' }));
+            const tvs = (findRes.data?.tv_results || []).map(r => ({ ...r, media_type: 'tv' }));
+            const combined = [...movies, ...tvs];
+            if (combined.length > 0) {
+                return combined.slice(0, 8).map(r => ({
+                    tmdbId: r.id,
+                    type: r.media_type,
+                    title: r.title || r.name || 'Unknown',
+                    year: (r.release_date || r.first_air_date || '').substring(0, 4),
+                    poster: r.poster_path ? `https://image.tmdb.org/t/p/w500${r.poster_path}` : '',
+                    overview: r.overview || '',
+                    href: r.media_type === 'movie'
+                        ? `https://embedmaster.link/30ffbr4ijvhbf4ks/movie/${r.id}`
+                        : `https://embedmaster.link/30ffbr4ijvhbf4ks/tv/${r.id}`,
+                    embedMasterUrl: r.media_type === 'movie'
+                        ? `https://embedmaster.link/30ffbr4ijvhbf4ks/movie/${r.id}`
+                        : `https://embedmaster.link/30ffbr4ijvhbf4ks/tv/${r.id}`
+                }));
+            }
+        } catch (e) {
+            console.error('[StreamIMDB] TMDB find API failed:', e.message);
+        }
+    }
+
     const searchUrl = `https://api.themoviedb.org/3/search/multi?query=${encodeURIComponent(query)}&api_key=${TMDB_KEY}`;
     try {
         const searchRes = await axios.get(searchUrl, {
@@ -2364,11 +2406,11 @@ async function searchTmdbApi(query) {
                     poster: r.poster_path ? `https://image.tmdb.org/t/p/w500${r.poster_path}` : '',
                     overview: r.overview || '',
                     href: r.media_type === 'movie'
-                        ? `https://streamimdb.ru/movie/${r.id}`
-                        : `https://streamimdb.ru/tv/${r.id}`,
+                        ? `https://embedmaster.link/30ffbr4ijvhbf4ks/movie/${r.id}`
+                        : `https://embedmaster.link/30ffbr4ijvhbf4ks/tv/${r.id}`,
                     embedMasterUrl: r.media_type === 'movie'
-                        ? `https://streamimdb.ru/embed/movie/${r.id}`
-                        : `https://streamimdb.ru/embed/tv/${r.id}`
+                        ? `https://embedmaster.link/30ffbr4ijvhbf4ks/movie/${r.id}`
+                        : `https://embedmaster.link/30ffbr4ijvhbf4ks/tv/${r.id}`
                 }));
         }
     } catch (e) {
@@ -2801,6 +2843,8 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
             const mediaTitle = details.title || selected.title;
             const mediaYear = details.year || selected.year || '';
             const overview = details.overview || selected.overview || '';
+            const imdbId = (await fetchImdbId(selected.tmdbId, selected.type || 'movie')) || selected.imdbId || null;
+            const imdbDisplay = imdbId ? `🆔 *IMDb ID:* \`${imdbId}\` | *TMDB:* \`${selected.tmdbId}\`` : `🆔 *TMDB ID:* \`${selected.tmdbId}\``;
 
             if (selected.type === 'tv' || (details.isTv && details.seasons && details.seasons.length > 0)) {
                 // TV Series - Show Seasons
@@ -2808,7 +2852,7 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                     ? details.seasons.filter(s => s.season_number > 0 || s.seasonNum > 0)
                     : [{ seasonNum: 1, episodes: [{ epNum: 1, title: 'Episode 1', href: selected.href }] }];
 
-                let seasonText = `📺 *${mediaTitle}* ${mediaYear ? `(${mediaYear})` : ''}\n_${overview ? overview.substring(0, 150) + '...' : ''}_\n\n*Select a Season:*\n`;
+                let seasonText = `📺 *${mediaTitle}* ${mediaYear ? `(${mediaYear})` : ''}\n${imdbDisplay}\n_${overview ? overview.substring(0, 150) + '...' : ''}_\n\n*Select a Season:*\n`;
                 seasonsList.forEach((s, idx) => {
                     const sNum = s.season_number || s.seasonNum;
                     const epCount = s.episode_count || (s.episodes ? s.episodes.length : 10);
@@ -2822,17 +2866,18 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                     title: mediaTitle,
                     year: mediaYear,
                     tmdbId: selected.tmdbId,
+                    imdbId,
                     poster: mediaPoster,
                     seasons: seasonsList,
                     messageId: sent && sent.key ? sent.key.id : null
                 };
             } else {
                 // Movie - Resolve Stream Qualities directly
-                const targetEmbedUrl = selected.embedMasterUrl || `https://streamimdb.ru/embed/movie/${selected.tmdbId}`;
+                const targetEmbedUrl = selected.embedMasterUrl || (imdbId ? `https://embedmaster.link/30ffbr4ijvhbf4ks/movie/${imdbId}` : `https://embedmaster.link/30ffbr4ijvhbf4ks/movie/${selected.tmdbId}`);
                 console.log(`[StreamIMDB] Resolving stream options for: ${targetEmbedUrl}`);
                 const qualities = await resolveStreamOptions(targetEmbedUrl);
                 
-                let qualityText = `🎬 *${mediaTitle}* ${mediaYear ? `(${mediaYear})` : ''}\n_${overview ? overview.substring(0, 150) + '...' : ''}_\n\n*Available Download Qualities:*\n`;
+                let qualityText = `🎬 *${mediaTitle}* ${mediaYear ? `(${mediaYear})` : ''}\n${imdbDisplay}\n_${overview ? overview.substring(0, 150) + '...' : ''}_\n\n*Available Download Qualities:*\n`;
                 qualities.forEach((q, idx) => {
                     qualityText += `  \`${idx + 1}\` — *${q.quality}*\n`;
                 });
