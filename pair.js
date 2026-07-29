@@ -8,7 +8,10 @@ if (fs.existsSync(envPath)) {
     require('dotenv').config({ path: envPath });
 }
 
-const SESSION_DIR = path.join(__dirname, 'session');
+// ⚠️ IMPORTANT: Use the SAME session directory as queen.js ('sess/')
+// Using a different directory ('session/') creates a conflicting linked device,
+// which causes WhatsApp to reject the connection with 405 "Method Not Allowed"
+const SESSION_DIR = path.join(__dirname, 'sess');
 
 let pairingCodeRequested = false;
 let retryCount = 0;
@@ -20,6 +23,33 @@ function delay(ms) {
 
 async function startPairing(cleanStart = true) {
     try { require('./src/Utils/singleInstance').killPreviousInstances(); } catch(e) {}
+
+    // Check if we already have a valid registered session
+    const credsPath = path.join(SESSION_DIR, 'creds.json');
+    if (fs.existsSync(credsPath)) {
+        try {
+            const creds = JSON.parse(fs.readFileSync(credsPath, 'utf-8'));
+            if (creds.registered === true && creds.me && creds.me.id) {
+                console.log('\n=========================================');
+                console.log('✅ Session already exists and is registered!');
+                console.log(`🤖 Linked to: ${creds.me.id}`);
+                console.log('=========================================');
+                console.log('You can start your bot directly with:');
+                console.log('  pnpm start  or  node start.js');
+                console.log('=========================================');
+                console.log('\n⚠️  If you want to pair a NEW device, first:');
+                console.log('  1. Open WhatsApp → Settings → Linked Devices');
+                console.log('  2. Remove the old linked device');
+                console.log('  3. Delete the sess/ folder');
+                console.log('  4. Run "node pair.js" again\n');
+                process.exit(0);
+            }
+        } catch (e) {
+            // Corrupted creds file — clean start
+            console.log('⚠️  Found corrupted creds.json, will clean and re-pair...');
+        }
+    }
+
     if (cleanStart && fs.existsSync(SESSION_DIR)) {
         try {
             fs.rmSync(SESSION_DIR, { recursive: true, force: true });
@@ -63,7 +93,6 @@ async function startPairing(cleanStart = true) {
 
     // Wait for socket to be ready before requesting pairing code
     if (!pairingCodeRequested) {
-        // Give the socket time to connect before requesting pairing code
         await delay(5000);
         
         if (!sock.authState.creds.registered) {
@@ -96,6 +125,7 @@ async function startPairing(cleanStart = true) {
             console.log('🎉 SUCCESS! WhatsApp Connected Successfully!');
             console.log(`🤖 Logged in as: ${sock.user.name || sock.user.id}`);
             console.log('=========================================');
+            console.log('Session saved to: sess/ directory');
             console.log('You can now close this terminal and start your bot with:');
             console.log('  pnpm start  or  node start.js');
             console.log('=========================================\n');
@@ -107,32 +137,26 @@ async function startPairing(cleanStart = true) {
             const statusCode = lastDisconnect?.error?.output?.statusCode;
             console.log(`🔄 Socket connection closed. Status Code: ${statusCode || 'unknown'}`);
             
-            // 405 = Method Not Allowed — session/auth is rejected by WhatsApp
-            // 401 = Unauthorized — logged out
-            // 403 = Forbidden — banned
-            // 440 = loggedOut
             if (statusCode === 405 || statusCode === 403) {
                 retryCount++;
                 if (retryCount > MAX_RETRIES) {
                     console.log('❌ Max retries reached with 405 error.');
                     console.log('💡 Possible causes:');
-                    console.log('   - WhatsApp servers are temporarily blocking rapid connections');
-                    console.log('   - Your IP might be rate-limited (common in Codespaces/VPS)');
-                    console.log('   - Try again after waiting 5-10 minutes');
-                    console.log('   - Try from a different network/IP if the issue persists');
+                    console.log('   - This number already has a linked device session');
+                    console.log('   - Go to WhatsApp → Settings → Linked Devices');
+                    console.log('   - Remove ALL linked devices');
+                    console.log('   - Delete the sess/ folder completely');
+                    console.log('   - Wait 5 minutes, then run "node pair.js" again');
                     process.exit(1);
                 }
                 
-                // Clear corrupted session data and retry with exponential backoff
                 console.log(`⚠️  Got 405 error. Clearing session and retrying... (attempt ${retryCount}/${MAX_RETRIES})`);
                 try {
                     fs.rmSync(SESSION_DIR, { recursive: true, force: true });
                 } catch (e) {}
                 
-                // Reset pairing code flag so it gets re-requested
                 pairingCodeRequested = false;
                 
-                // Exponential backoff: 10s, 20s, 40s, 80s, 160s
                 const backoffMs = Math.min(10000 * Math.pow(2, retryCount - 1), 120000);
                 console.log(`⏳ Waiting ${backoffMs / 1000} seconds before retrying...`);
                 await delay(backoffMs);
@@ -146,7 +170,6 @@ async function startPairing(cleanStart = true) {
                 process.exit(1);
                 
             } else {
-                // Other errors — retry with backoff
                 retryCount++;
                 if (retryCount > MAX_RETRIES) {
                     console.log('❌ Max retries reached. Please try again later.');
