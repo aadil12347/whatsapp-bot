@@ -1,4 +1,4 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('anju-xpro-baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, makeCacheableSignalKeyStore } = require('anju-xpro-baileys');
 const pino = require('pino');
 const fs = require('fs');
 const path = require('path');
@@ -8,9 +8,7 @@ if (fs.existsSync(envPath)) {
     require('dotenv').config({ path: envPath });
 }
 
-// ⚠️ IMPORTANT: Use the SAME session directory as queen.js ('sess/')
-// Using a different directory ('session/') creates a conflicting linked device,
-// which causes WhatsApp to reject the connection with 405 "Method Not Allowed"
+// Use the SAME session directory as queen.js ('sess/')
 const SESSION_DIR = path.join(__dirname, 'sess');
 
 let pairingCodeRequested = false;
@@ -45,7 +43,6 @@ async function startPairing(cleanStart = true) {
                 process.exit(0);
             }
         } catch (e) {
-            // Corrupted creds file — clean start
             console.log('⚠️  Found corrupted creds.json, will clean and re-pair...');
         }
     }
@@ -64,10 +61,8 @@ async function startPairing(cleanStart = true) {
     
     if (!botNumber || botNumber.includes('your account') || botNumber.trim() === '') {
         console.log('❌ BOT_NUMBER is not configured!');
-        console.log('Please edit the file named "config.env" in the root directory and add your number:');
-        console.log('----------------------------------------');
+        console.log('Please edit "config.env" and add your number:');
         console.log('BOT_NUMBER=923013068663');
-        console.log('----------------------------------------');
         process.exit(1);
     }
 
@@ -77,13 +72,17 @@ async function startPairing(cleanStart = true) {
     
     const sock = makeWASocket({
         logger: pino({ level: 'silent' }),
-        auth: state,
+        auth: {
+            creds: state.creds,
+            keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' })),
+        },
         printQRInTerminal: false,
         browser: ['Chrome (Linux)', '', ''],
-        connectTimeoutMs: 60000,
+        connectTimeoutMs: 120000,
         defaultQueryTimeoutMs: 0,
-        keepAliveIntervalMs: 25000,
-        retryRequestDelayMs: 250,
+        keepAliveIntervalMs: 30000,
+        retryRequestDelayMs: 500,
+        markOnlineOnConnect: false,
     });
     
     sock.ev.on('creds.update', saveCreds);
@@ -91,12 +90,16 @@ async function startPairing(cleanStart = true) {
     console.log(`🤖 Target Phone Number: +${botNumber}`);
     console.log('⏳ Connecting to WhatsApp servers...');
 
-    // Wait for socket to be ready before requesting pairing code
-    if (!pairingCodeRequested) {
-        await delay(5000);
-        
-        if (!sock.authState.creds.registered) {
+    sock.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect, qr } = update;
+
+        // When QR is generated, it means the socket is ready — request pairing code instead
+        if (qr && !pairingCodeRequested) {
             pairingCodeRequested = true;
+            
+            // Small delay to let the connection stabilize after QR is ready
+            await delay(2000);
+            
             console.log('⏳ Requesting pairing code from WhatsApp...');
             try {
                 const code = await sock.requestPairingCode(botNumber);
@@ -109,16 +112,13 @@ async function startPairing(cleanStart = true) {
                 console.log('3. Tap "Link with phone number instead" at the bottom.');
                 console.log('4. Enter the code above.');
                 console.log('=========================================\n');
-                console.log('Waiting for authorization from WhatsApp... Keep this terminal open.');
+                console.log('⏳ Waiting for you to enter the code on your phone...');
             } catch (err) {
                 console.error('❌ Failed to request pairing code:', err.message);
                 pairingCodeRequested = false;
+                // Don't exit — the connection.update 'close' handler will retry
             }
         }
-    }
-
-    sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect } = update;
 
         if (connection === 'open') {
             console.log('\n=========================================');
@@ -126,7 +126,7 @@ async function startPairing(cleanStart = true) {
             console.log(`🤖 Logged in as: ${sock.user.name || sock.user.id}`);
             console.log('=========================================');
             console.log('Session saved to: sess/ directory');
-            console.log('You can now close this terminal and start your bot with:');
+            console.log('You can now start your bot with:');
             console.log('  pnpm start  or  node start.js');
             console.log('=========================================\n');
             retryCount = 0;
@@ -135,58 +135,43 @@ async function startPairing(cleanStart = true) {
         
         if (connection === 'close') {
             const statusCode = lastDisconnect?.error?.output?.statusCode;
-            console.log(`🔄 Socket connection closed. Status Code: ${statusCode || 'unknown'}`);
+            const reason = lastDisconnect?.error?.output?.payload?.message || 'Unknown';
+            console.log(`🔄 Connection closed. Code: ${statusCode || '?'} | Reason: ${reason}`);
             
-            if (statusCode === 405 || statusCode === 403) {
-                retryCount++;
-                if (retryCount > MAX_RETRIES) {
-                    console.log('❌ Max retries reached with 405 error.');
-                    console.log('💡 Possible causes:');
-                    console.log('   - This number already has a linked device session');
-                    console.log('   - Go to WhatsApp → Settings → Linked Devices');
-                    console.log('   - Remove ALL linked devices');
-                    console.log('   - Delete the sess/ folder completely');
-                    console.log('   - Wait 5 minutes, then run "node pair.js" again');
-                    process.exit(1);
-                }
-                
-                console.log(`⚠️  Got 405 error. Clearing session and retrying... (attempt ${retryCount}/${MAX_RETRIES})`);
-                try {
-                    fs.rmSync(SESSION_DIR, { recursive: true, force: true });
-                } catch (e) {}
-                
-                pairingCodeRequested = false;
-                
-                const backoffMs = Math.min(10000 * Math.pow(2, retryCount - 1), 120000);
-                console.log(`⏳ Waiting ${backoffMs / 1000} seconds before retrying...`);
-                await delay(backoffMs);
-                startPairing(true);
-                
-            } else if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
-                console.log('❌ Connection logged out! Clearing session directory...');
-                try {
-                    fs.rmSync(SESSION_DIR, { recursive: true, force: true });
-                } catch (e) {}
+            if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
+                console.log('❌ Logged out! Clearing session...');
+                try { fs.rmSync(SESSION_DIR, { recursive: true, force: true }); } catch (e) {}
                 process.exit(1);
-                
-            } else {
-                retryCount++;
-                if (retryCount > MAX_RETRIES) {
-                    console.log('❌ Max retries reached. Please try again later.');
-                    process.exit(1);
-                }
-                
-                pairingCodeRequested = false;
-                const backoffMs = Math.min(5000 * retryCount, 30000);
-                console.log(`🔄 Reconnecting in ${backoffMs / 1000}s... (attempt ${retryCount}/${MAX_RETRIES})`);
-                await delay(backoffMs);
-                startPairing(false);
             }
+            
+            retryCount++;
+            if (retryCount > MAX_RETRIES) {
+                console.log('❌ Max retries reached.');
+                console.log('💡 Tips:');
+                console.log('   - Make sure you removed old linked devices from WhatsApp');
+                console.log('   - Delete the sess/ folder and try again');
+                console.log('   - If on Codespaces/VPS, try from a different IP or local machine');
+                console.log('   - Wait 5-10 minutes before trying again');
+                process.exit(1);
+            }
+
+            // Reset pairing code flag so it gets re-requested on reconnect
+            pairingCodeRequested = false;
+            
+            // Clean session on 405 errors (rejected by WhatsApp)
+            if (statusCode === 405 || statusCode === 403) {
+                try { fs.rmSync(SESSION_DIR, { recursive: true, force: true }); } catch (e) {}
+            }
+            
+            const backoffMs = Math.min(3000 * Math.pow(2, retryCount - 1), 60000);
+            console.log(`🔄 Retrying in ${Math.round(backoffMs / 1000)}s... (attempt ${retryCount}/${MAX_RETRIES})`);
+            await delay(backoffMs);
+            startPairing(statusCode === 405 || statusCode === 403);
         }
     });
 }
 
-// Clean start to pair fresh
+// Start fresh pairing
 startPairing(true).catch(err => {
     console.error('Error starting pairing:', err);
 });
