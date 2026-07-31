@@ -19,15 +19,152 @@ const browserHttpsAgent = new https.Agent({
     minVersion: 'TLSv1.2'
 });
 
-// Common User-Agent to bypass simple blocks
+// Common User-Agent list for rotation on retries
+const USER_AGENTS = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36 Edg/133.0.0.0'
+];
+
+// Common browser headers to bypass Cloudflare/V-Cloud 403 blocks
 const HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-    'Accept-Language': 'en-US,en;q=0.5'
+    'User-Agent': USER_AGENTS[0],
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Sec-Ch-Ua': '"Not(A:Brand";v="99", "Google Chrome";v="133", "Chromium";v="133"',
+    'Sec-Ch-Ua-Mobile': '?0',
+    'Sec-Ch-Ua-Platform': '"Windows"',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'cross-site',
+    'Sec-Fetch-User': '?1',
+    'Upgrade-Insecure-Requests': '1'
 };
 
 /**
- * Follow redirect chain using HEAD requests (up to 7 hops) to resolve final URL.
+ * Fetch HTML content from URL with TLS fingerprinting bypass, dynamic headers,
+ * domain mirror substitution, and web proxy fallbacks to bypass Cloudflare 403 blocks.
+ */
+async function fetchHtmlWithRetry(url, parentUrl = null) {
+    if (!url || typeof url !== 'string') throw new Error('Invalid URL provided to fetchHtmlWithRetry');
+    let currentUrl = url;
+
+    let parsedUrl;
+    try { parsedUrl = new URL(currentUrl); } catch (e) {}
+
+    const buildHeaders = (targetUrl, referer, attemptIdx = 0) => {
+        let targetOrigin = '';
+        try { targetOrigin = new URL(targetUrl).origin; } catch (e) {}
+        let refOrigin = '';
+        try { if (referer) refOrigin = new URL(referer).origin; } catch (e) {}
+
+        const isSameSite = refOrigin && refOrigin === targetOrigin;
+
+        return {
+            'User-Agent': USER_AGENTS[attemptIdx % USER_AGENTS.length],
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Sec-Ch-Ua': '"Not(A:Brand";v="99", "Google Chrome";v="133", "Chromium";v="133"',
+            'Sec-Ch-Ua-Mobile': '?0',
+            'Sec-Ch-Ua-Platform': '"Windows"',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': isSameSite ? 'same-origin' : 'cross-site',
+            'Sec-Fetch-User': '?1',
+            'Upgrade-Insecure-Requests': '1',
+            ...(referer ? { 'Referer': referer, 'Origin': refOrigin || targetOrigin } : { 'Referer': targetOrigin + '/' })
+        };
+    };
+
+    // Strategy 1: Direct request with browser TLS agent and dynamic headers
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            const reqHeaders = buildHeaders(currentUrl, parentUrl, attempt - 1);
+            const res = await axios.get(currentUrl, {
+                headers: reqHeaders,
+                httpsAgent: browserHttpsAgent,
+                timeout: 15000,
+                maxRedirects: 5,
+                validateStatus: (status) => status >= 200 && status < 400
+            });
+            if (res.data) {
+                return typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
+            }
+        } catch (err) {
+            const status = err.response ? err.response.status : null;
+            console.warn(`[MovieScraper] Direct fetch attempt ${attempt} failed for ${currentUrl}: ${err.message} (status=${status})`);
+            if (status !== 403 && status !== 503 && attempt < maxAttempts) {
+                await new Promise(r => setTimeout(r, 1000));
+            }
+        }
+    }
+
+    // Strategy 2: Domain Mirrors (for vcloud/hubcloud/fastdl/vgmlink)
+    if (parsedUrl) {
+        const domain = parsedUrl.hostname.toLowerCase();
+        let mirrors = [];
+        if (domain.includes('vcloud') || domain.includes('hubcloud') || domain.includes('hubdrive')) {
+            mirrors = ['vcloud.zip', 'vcloud.lol', 'hubcloud.link', 'hubcloud.club', 'hubdrive.space', 'hubcloud.one'];
+        } else if (domain.includes('fastdl')) {
+            mirrors = ['fastdl.zip', 'fastdl.app', 'fastdl.site'];
+        } else if (domain.includes('vgmlink')) {
+            mirrors = ['vgmlink.com', 'vgmlink.org', 'vgmlink.net'];
+        }
+
+        for (const mirror of mirrors) {
+            if (mirror === domain) continue;
+            const mirrorUrl = currentUrl.replace(domain, mirror);
+            console.log(`[MovieScraper] Trying domain mirror: ${mirrorUrl}`);
+            try {
+                const reqHeaders = buildHeaders(mirrorUrl, parentUrl, 0);
+                const res = await axios.get(mirrorUrl, {
+                    headers: reqHeaders,
+                    httpsAgent: browserHttpsAgent,
+                    timeout: 10000,
+                    validateStatus: (status) => status >= 200 && status < 400
+                });
+                if (res.data) {
+                    console.log(`[MovieScraper] Mirror fetch succeeded: ${mirrorUrl}`);
+                    return typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
+                }
+            } catch (err) {
+                console.warn(`[MovieScraper] Mirror fetch failed for ${mirrorUrl}: ${err.message}`);
+            }
+        }
+    }
+
+    // Strategy 3: CORS/Proxy Fallback for 403 Cloudflare blocks
+    console.log(`[MovieScraper] Trying proxy fallback for Cloudflare 403 on ${url}...`);
+    const proxies = [
+        `https://proxy.cors.sh/${url}`,
+        `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`
+    ];
+
+    for (const proxyUrl of proxies) {
+        try {
+            const res = await axios.get(proxyUrl, {
+                headers: {
+                    'User-Agent': USER_AGENTS[0],
+                    'x-cors-api-key': 'temp_demo'
+                },
+                timeout: 15000
+            });
+            if (res.data && typeof res.data === 'string' && res.data.length > 200) {
+                console.log(`[MovieScraper] Proxy fetch succeeded via ${proxyUrl.substring(0, 45)}...`);
+                return res.data;
+            }
+        } catch (err) {
+            console.warn(`[MovieScraper] Proxy fetch failed via ${proxyUrl.substring(0, 45)}: ${err.message}`);
+        }
+    }
+
+    throw new Error(`Request failed with status code 403 (Cloudflare Block)`);
+}
+
+/**
+ * Follow redirect chain using HEAD/GET requests (up to 7 hops) to resolve final URL.
  * Used for 10Gbps server links that go through multiple redirects.
  * Mirrors the CSX/VegaMovies Extractors.kt resolveFinalUrl approach.
  */
@@ -39,6 +176,7 @@ async function resolveFinalUrl(startUrl) {
         try {
             const res = await axios.head(currentUrl, {
                 headers: HEADERS,
+                httpsAgent: browserHttpsAgent,
                 timeout: 5000,
                 maxRedirects: 0,
                 validateStatus: (status) => status >= 200 && status < 400
@@ -283,8 +421,8 @@ function getGenreName(id) {
  */
 async function scrapePostPage(url) {
     try {
-        const response = await axios.get(url, { headers: HEADERS, timeout: 15000 });
-        const $ = cheerio.load(response.data);
+        const html = await fetchHtmlWithRetry(url);
+        const $ = cheerio.load(html);
 
         // 1. Find IMDb URL/ID
         let imdbId = null;
@@ -397,19 +535,13 @@ async function scrapePostPage(url) {
 /**
  * Follow shorteners or redirects to get the VCloud/HubCloud link
  */
-async function resolveLandingLink(url) {
+async function resolveLandingLink(url, parentUrl = null) {
     try {
         let currentUrl = url;
         console.log('[MovieScraper] Resolving landing link:', currentUrl);
 
-        const res = await axios.get(currentUrl, {
-            headers: HEADERS,
-            timeout: 15000,
-            maxRedirects: 5,
-            validateStatus: () => true
-        });
-
-        const $ = cheerio.load(res.data);
+        const html = await fetchHtmlWithRetry(currentUrl, parentUrl);
+        const $ = cheerio.load(html);
 
         // Keywords for final hosts (exclude landing domains like nexdrive/vgmlink/gdflix if we are already on them)
         const currentDomain = new URL(currentUrl).hostname.toLowerCase();
@@ -432,11 +564,6 @@ async function resolveLandingLink(url) {
             return resolvedUrl;
         }
 
-        const finalUrl = res.request.res.responseUrl || currentUrl;
-        if (keywords.some(kw => finalUrl.toLowerCase().includes(kw))) {
-            return finalUrl;
-        }
-
         return currentUrl;
     } catch (err) {
         console.error('[MovieScraper] Landing link resolution failed:', err.message);
@@ -447,7 +574,7 @@ async function resolveLandingLink(url) {
 /**
  * Extract direct download links from V-Cloud / HubCloud / Fastdl / Filebee pages
  */
-async function resolveVcloudLink(url, preferredServer = null) {
+async function resolveVcloudLink(url, preferredServer = null, parentUrl = null) {
     try {
         console.log('[MovieScraper] Resolving V-Cloud/HubCloud link:', url);
 
@@ -461,8 +588,8 @@ async function resolveVcloudLink(url, preferredServer = null) {
 
         // 1. Handle Filebee links directly
         if (url.includes('filebee.xyz')) {
-            const res = await axios.get(url, { headers: HEADERS, timeout: 15000 });
-            const $ = cheerio.load(res.data);
+            const html = await fetchHtmlWithRetry(url, parentUrl);
+            const $ = cheerio.load(html);
             const dlLink = $('a[href*="cdn-cgi/content"], a[href*="filepress"]').attr('href');
             if (dlLink) {
                 console.log('[MovieScraper] Resolved direct Filebee link:', dlLink);
@@ -472,8 +599,7 @@ async function resolveVcloudLink(url, preferredServer = null) {
 
         // 2. Handle Fastdl direct link redirection
         if (url.includes('fastdl.zip')) {
-            const res = await axios.get(url, { headers: HEADERS, timeout: 15000 });
-            const scriptContent = res.data;
+            const scriptContent = await fetchHtmlWithRetry(url, parentUrl);
             const reurlRegex = /reurl\s*=\s*['"]([^'"]+)['"]/i;
             const match = reurlRegex.exec(scriptContent);
             if (match && match[1]) {
@@ -491,8 +617,8 @@ async function resolveVcloudLink(url, preferredServer = null) {
             }
         }
 
-        const res = await axios.get(url, { headers: HEADERS, timeout: 15000 });
-        const $ = cheerio.load(res.data);
+        const html = await fetchHtmlWithRetry(url, parentUrl);
+        const $ = cheerio.load(html);
 
         // 3. Look for inline JavaScript double base64 atob encoding or var url = '...'
         const scriptContent = $('script').text() || '';
@@ -533,8 +659,8 @@ async function resolveVcloudLink(url, preferredServer = null) {
             }
 
             console.log('[MovieScraper] Fetching final download landing page:', decodedLink);
-            const dlRes = await axios.get(decodedLink, { headers: HEADERS, timeout: 15000 });
-            const dl$ = cheerio.load(dlRes.data);
+            const dlHtml = await fetchHtmlWithRetry(decodedLink, url);
+            const dl$ = cheerio.load(dlHtml);
 
             const finalLinks = [];
             dl$('h2 a.btn, div.card-body a.btn, a.btn, a[href]').each((_, el) => {
@@ -603,6 +729,7 @@ async function resolveVcloudLink(url, preferredServer = null) {
                     try {
                         const buzzRes = await axios.get(`${directUrl}/download`, {
                             headers: { ...HEADERS, 'Referer': directUrl },
+                            httpsAgent: browserHttpsAgent,
                             maxRedirects: 0,
                             timeout: 15000,
                             validateStatus: (status) => status >= 200 && status < 400
@@ -648,8 +775,8 @@ async function resolveVcloudLink(url, preferredServer = null) {
  */
 async function scrapeAllPostLinks(url) {
     try {
-        const response = await axios.get(url, { headers: HEADERS, timeout: 15000 });
-        const $ = cheerio.load(response.data);
+        const html = await fetchHtmlWithRetry(url);
+        const $ = cheerio.load(html);
         const pageTitle = $('title').text() || $('h1').text() || '';
         const isSeries = /season|episode|series|vol/i.test(pageTitle);
 
@@ -695,7 +822,6 @@ async function scrapeAllPostLinks(url) {
             }
 
             // Filter out Pack/Zip links for TV Series per user requirement
-            // Check linkText and lowerHref ONLY (do NOT check combinedContext to avoid sibling link false positives)
             const isPack = /\bpack\b|\bbatch\b|\bzip\b|\ball\s+episodes\b/i.test(linkText) || /\bpack\b|\bzip\b|\bbatch\b/i.test(lowerHref);
             if (isSeries && isPack) {
                 return;
@@ -873,11 +999,11 @@ function findEpisodeText($, el, pageTitle) {
 /**
  * Follow redirects and extract all available direct download buttons/links (FSL, GDrive, PixelDrain, Mega, etc.) from the landing page
  */
-async function extractDirectDownloadLinks(url) {
+async function extractDirectDownloadLinks(url, parentUrl = null) {
     try {
         console.log('[MovieScraper] Fetching landing page to extract hosts:', url);
-        const res = await axios.get(url, { headers: HEADERS, timeout: 15000 });
-        const $ = cheerio.load(res.data);
+        const html = await fetchHtmlWithRetry(url, parentUrl);
+        const $ = cheerio.load(html);
         
         const pageTitle = $('title').text() || $('h1').text() || '';
         
@@ -932,7 +1058,7 @@ async function extractDirectDownloadLinks(url) {
         }
         
         // Fallback to resolving the first landing link if we didn't find any direct links
-        let landingUrl = await resolveLandingLink(url);
+        let landingUrl = await resolveLandingLink(url, parentUrl);
         return [{ text: 'Default Download Link', href: landingUrl }];
     } catch (err) {
         console.error('[MovieScraper] extractDirectDownloadLinks failed:', err.message);
@@ -944,14 +1070,14 @@ async function extractDirectDownloadLinks(url) {
  * Scrapes a landing/redirect page (vcloud.zip, gdflix, fastdl, filebee, hubcloud)
  * and extracts all sub-options (like FSL Server, FSLv2, GDrive, PixelDrain, etc.)
  */
-async function extractSubOptions(url) {
+async function extractSubOptions(url, parentUrl = null) {
     try {
         console.log('[MovieScraper] Extracting sub-options from:', url);
 
         // 1. Handle Filebee links directly
         if (url.includes('filebee.xyz')) {
-            const res = await axios.get(url, { headers: HEADERS, timeout: 30000 });
-            const $ = cheerio.load(res.data);
+            const html = await fetchHtmlWithRetry(url, parentUrl);
+            const $ = cheerio.load(html);
             const finalLinks = [];
             $('a[href*="cdn-cgi/content"], a[href*="filepress"]').each((_, el) => {
                 const href = $(el).attr('href');
@@ -961,8 +1087,7 @@ async function extractSubOptions(url) {
             if (finalLinks.length > 0) return finalLinks;
         }
 
-        const res = await axios.get(url, { headers: HEADERS, timeout: 30000 });
-        const html = res.data || '';
+        const html = await fetchHtmlWithRetry(url, parentUrl);
         const $ = cheerio.load(html);
 
         // 2. Check for `var reurl = "..."` (used by hubcdn.sbs, fastdl, gadgetsweb)
@@ -1013,7 +1138,7 @@ async function extractSubOptions(url) {
             console.log(`[MovieScraper] Found ${hubcloudLinks.length} HubCloud link(s) on intermediate page.`);
             const allSubServers = [];
             for (const hcLink of hubcloudLinks) {
-                const subOpts = await extractSubOptions(hcLink.href);
+                const subOpts = await extractSubOptions(hcLink.href, url);
                 allSubServers.push(...subOpts);
             }
             if (allSubServers.length > 0) return allSubServers;
@@ -1056,8 +1181,8 @@ async function extractSubOptions(url) {
             }
 
             console.log('[MovieScraper] Fetching final download landing page to extract options:', decodedLink);
-            const dlRes = await axios.get(decodedLink, { headers: HEADERS, timeout: 30000 });
-            const dl$ = cheerio.load(dlRes.data);
+            const dlHtml = await fetchHtmlWithRetry(decodedLink, url);
+            const dl$ = cheerio.load(dlHtml);
 
             const finalLinks = [];
             dl$('h2 a.btn, div.card-body a.btn, a.btn, a[href]').each((_, el) => {
@@ -1356,6 +1481,8 @@ async function searchHdhub4u(query) {
 }
 
 module.exports = {
+    browserHttpsAgent,
+    fetchHtmlWithRetry,
     fetchTmdbMetadata,
     fetchTmdbById,
     fetchTmdbTrailerUrl,

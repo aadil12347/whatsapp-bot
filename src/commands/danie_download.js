@@ -3,7 +3,7 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const fileType = require('file-type');
-const { fetchTmdbMetadata, fetchTmdbById, downloadYoutubeVideoUrl, scrapePostPage, resolveLandingLink, resolveVcloudLink, resolveFinalUrl, scrapeAllPostLinks, extractDirectDownloadLinks, extractSubOptions, searchHdhub4u } = require('../Utils/movie_scraper');
+const { browserHttpsAgent, fetchHtmlWithRetry, fetchTmdbMetadata, fetchTmdbById, downloadYoutubeVideoUrl, scrapePostPage, resolveLandingLink, resolveVcloudLink, resolveFinalUrl, scrapeAllPostLinks, extractDirectDownloadLinks, extractSubOptions, searchHdhub4u } = require('../Utils/movie_scraper');
 const { searchStreamImdb, getMediaDetails, getEpisodeEmbedUrl, resolveStreamOptions, downloadStreamWithFFmpeg, verifyMediaFile } = require('../Utils/streamimdb_scraper');
 
 // Global handlers to prevent background network disconnect errors from crashing the Node process
@@ -372,9 +372,16 @@ function getActiveTargetsAndPrimary(settings, senderJid) {
 async function downloadFileWithResume(url, tempFilePath, customHeaders = {}, abortSignal = null) {
     const parsedUrl = new URL(url);
     const defaultHeaders = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': '*/*',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.9',
+        'Sec-Ch-Ua': '"Not(A:Brand";v="99", "Google Chrome";v="133", "Chromium";v="133"',
+        'Sec-Ch-Ua-Mobile': '?0',
+        'Sec-Ch-Ua-Platform': '"Windows"',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'cross-site',
+        'Upgrade-Insecure-Requests': '1',
         'Referer': parsedUrl.origin + '/',
         'Origin': parsedUrl.origin
     };
@@ -407,6 +414,7 @@ async function downloadFileWithResume(url, tempFilePath, customHeaders = {}, abo
                 url: url,
                 responseType: 'stream',
                 headers: requestHeaders,
+                httpsAgent: browserHttpsAgent,
                 timeout: 300000 // 5 minutes timeout per connection attempt
             });
 
@@ -498,6 +506,8 @@ function isLandingUrl(url) {
            lower.includes('gdflix') || 
            lower.includes('fastdl') || 
            lower.includes('filebee') || 
+           lower.includes('nexdrive') ||
+           lower.includes('vgmlink') ||
            lower.includes('latent.click');
 }
 
@@ -1381,13 +1391,24 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
             if (isLandingUrl(url)) {
                 try {
                     const resolved = await resolveVcloudLink(url, preferredServer);
-                    if (resolved && resolved !== url) {
+                    if (resolved && resolved !== url && !isLandingUrl(resolved)) {
                         url = resolved;
                         console.log('[DanieDownload] Resolved redirect URL:', url);
+                    } else {
+                        // Sub-options fallback if direct resolution returned same landing link
+                        const subOpts = await extractSubOptions(url);
+                        if (subOpts && subOpts.length > 0 && subOpts[0].href && !isLandingUrl(subOpts[0].href)) {
+                            url = subOpts[0].href;
+                            console.log('[DanieDownload] Resolved via sub-options fallback:', url);
+                        }
                     }
                 } catch (e) {
                     console.error('[DanieDownload] Failed to resolve redirect link:', e.message);
                 }
+            }
+
+            if (isLandingUrl(url)) {
+                throw new Error(`The hoster site (${url}) Cloudflare protection blocked link resolution. Please try choosing another server link or mirror.`);
             }
 
             if (activeDownloadRef) {
