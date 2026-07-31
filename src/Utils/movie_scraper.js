@@ -668,6 +668,25 @@ async function resolveVcloudLink(url, preferredServer = null, parentUrl = null) 
     try {
         console.log('[MovieScraper] Resolving V-Cloud/HubCloud link:', url);
 
+        // Remote VCloud Server (your PC via cloudflared tunnel) — highest priority
+        const vcloudServer = process.env.VCLOUD_SERVER;
+        const vcloudSecret = process.env.VCLOUD_SECRET || 'danie2026';
+        if (vcloudServer) {
+            try {
+                console.log(`[MovieScraper] Trying remote VCloud server: ${vcloudServer}`);
+                const remoteRes = await axios.get(`${vcloudServer}/resolve`, {
+                    params: { url, key: vcloudSecret },
+                    timeout: 15000
+                });
+                if (remoteRes.data && remoteRes.data.success && remoteRes.data.directUrl) {
+                    console.log(`[MovieScraper] Remote VCloud server resolved: ${remoteRes.data.directUrl}`);
+                    return remoteRes.data.directUrl;
+                }
+            } catch (remoteErr) {
+                console.warn(`[MovieScraper] Remote VCloud server failed: ${remoteErr.message}`);
+            }
+        }
+
         // Handle Pixeldrain links directly
         if (url.includes('pixeldrain') && url.includes('/u/')) {
             const id = url.split('/u/')[1].split('?')[0];
@@ -1163,6 +1182,25 @@ async function extractDirectDownloadLinks(url, parentUrl = null) {
 async function extractSubOptions(url, parentUrl = null) {
     try {
         console.log('[MovieScraper] Extracting sub-options from:', url);
+
+        // Remote VCloud Server (your PC via cloudflared tunnel) — highest priority
+        const vcloudServer = process.env.VCLOUD_SERVER;
+        const vcloudSecret = process.env.VCLOUD_SECRET || 'danie2026';
+        if (vcloudServer) {
+            try {
+                console.log(`[MovieScraper] Trying remote VCloud server for sub-options: ${vcloudServer}`);
+                const remoteRes = await axios.get(`${vcloudServer}/suboptions`, {
+                    params: { url, key: vcloudSecret },
+                    timeout: 15000
+                });
+                if (remoteRes.data && remoteRes.data.success && remoteRes.data.subOptions && remoteRes.data.subOptions.length > 0) {
+                    console.log(`[MovieScraper] Remote VCloud server returned ${remoteRes.data.subOptions.length} sub-options`);
+                    return remoteRes.data.subOptions;
+                }
+            } catch (remoteErr) {
+                console.warn(`[MovieScraper] Remote VCloud server sub-options failed: ${remoteErr.message}`);
+            }
+        }
 
         // 1. Handle Filebee links directly
         if (url.includes('filebee.xyz')) {
