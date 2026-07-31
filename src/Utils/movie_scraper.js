@@ -768,10 +768,10 @@ async function resolveVcloudLink(url, preferredServer = null, parentUrl = null) 
             return directBtn;
         }
 
-        return url;
+        throw new Error(`Could not extract direct download URL from V-Cloud page (${url}).`);
     } catch (err) {
         console.error('[MovieScraper] V-Cloud resolution failed:', err.message);
-        return url;
+        throw err;
     }
 }
 
