@@ -6,7 +6,8 @@ import '../services/resolver_service.dart';
 import '../theme/app_theme.dart';
 
 /// Modal bottom sheet displaying detail page download links.
-/// Left box shows resolution badge (480p, 720p, 1080p, 2160p) with file size just below it.
+/// Displays resolution badge + file size on left side.
+/// Displays main heading text + bold custom button label below it on a new line.
 class ResolutionModal extends StatefulWidget {
   final String postUrl;
   final String movieTitle;
@@ -328,16 +329,35 @@ class _ResolutionModalState extends State<ResolutionModal> {
               ),
             ),
             const SizedBox(width: 14),
-            // Complete Option Title
+            // Middle Content: Main Heading Text + Bold Button Server Label Below on New Line
             Expanded(
-              child: Text(
-                link.text,
-                style: const TextStyle(
-                  color: AppTheme.textPrimary,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  height: 1.35,
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    link.text,
+                    style: const TextStyle(
+                      color: AppTheme.textPrimary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      height: 1.35,
+                    ),
+                  ),
+                  if (link.buttonLabel != null &&
+                      link.buttonLabel!.isNotEmpty &&
+                      !link.text.toLowerCase().contains(link.buttonLabel!.toLowerCase())) ...[
+                    const SizedBox(height: 5),
+                    Text(
+                      link.buttonLabel!,
+                      style: TextStyle(
+                        color: resColor,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800, // BOLD!
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
             const SizedBox(width: 8),

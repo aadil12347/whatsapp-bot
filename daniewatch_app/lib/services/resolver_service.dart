@@ -1,7 +1,17 @@
 import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:html/parser.dart' as html_parser;
-import '../models/download_link.dart';
+
+/// Data model for a resolved download server link
+class ResolvedLink {
+  final String serverName;
+  final String directUrl;
+
+  ResolvedLink({
+    required this.serverName,
+    required this.directUrl,
+  });
+}
 
 /// Resolver service — resolves VCloud/HubCloud/Fastdl landing pages
 /// to direct download URLs.
@@ -91,7 +101,6 @@ class ResolverService {
       // Check script tags for double atob or var url
       String? decodedLink;
 
-      // Extract all script content
       final scripts = doc.querySelectorAll('script');
       final combinedScript = scripts.map((s) => s.text).join('\n');
 

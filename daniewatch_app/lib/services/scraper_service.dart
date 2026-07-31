@@ -241,7 +241,7 @@ class ScraperService {
     return clean.trim();
   }
 
-  /// Scrape a post page to extract ONLY actual download landing links (nexdrive, vgmlink, gdflix, fastdl, filebee, hubcloud, etc.)
+  /// Scrape a post page to extract download links along with heading and button label
   static Future<List<DownloadLink>> scrapePostLinks(String url) async {
     final htmlStr = await fetchHtml(url);
     final doc = html_parser.parse(htmlStr);
@@ -267,7 +267,14 @@ class ScraperService {
           href.contains('comment') ||
           href.contains('#respond')) continue;
 
-      var linkText = el.text.trim();
+      var rawAnchorText = el.text
+          .replaceAll('&amp;', '&')
+          .replaceAll('&lt;', '<')
+          .replaceAll('&gt;', '>')
+          .replaceAll('&quot;', '"')
+          .replaceAll('&#039;', "'")
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim();
 
       // Find preceding heading (h1-h6 or p/div containing resolution / title)
       var headingText = '';
@@ -284,7 +291,14 @@ class ScraperService {
                   txt.contains('4K') ||
                   txt.contains('Download') ||
                   RegExp(r'^h[1-6]$', caseSensitive: false).hasMatch(sib.localName ?? ''))) {
-            headingText = txt;
+            headingText = txt
+                .replaceAll('&amp;', '&')
+                .replaceAll('&lt;', '<')
+                .replaceAll('&gt;', '>')
+                .replaceAll('&quot;', '"')
+                .replaceAll('&#039;', "'")
+                .replaceAll(RegExp(r'\s+'), ' ')
+                .trim();
             break;
           }
           sib = sib.previousElementSibling;
@@ -294,7 +308,7 @@ class ScraperService {
 
       // Detect resolution badge
       final combinedText =
-          '$linkText $headingText'.toLowerCase();
+          '$rawAnchorText $headingText'.toLowerCase();
       var resolution = 'LINK';
       if (combinedText.contains('2160p') || combinedText.contains('4k')) {
         resolution = '2160p';
@@ -306,26 +320,23 @@ class ScraperService {
         resolution = '480p';
       }
 
-      // Display heading or link text
-      var displayText = headingText.isNotEmpty ? headingText : linkText;
-      displayText = displayText
-          .replaceAll('&amp;', '&')
-          .replaceAll('&lt;', '<')
-          .replaceAll('&gt;', '>')
-          .replaceAll('&quot;', '"')
-          .replaceAll('&#039;', "'")
-          .replaceAll(RegExp(r'\s+'), ' ')
-          .trim();
-
-      if (displayText.isEmpty) {
-        displayText = 'Download Server';
+      // Extract custom button label if available (e.g., "V-Cloud [Resumable]", "G-Direct [10Gbps]")
+      var buttonLabel = rawAnchorText;
+      if (buttonLabel.toLowerCase() == 'download now' ||
+          buttonLabel.toLowerCase() == 'download' ||
+          buttonLabel.toLowerCase() == 'click here' ||
+          buttonLabel.isEmpty) {
+        buttonLabel = '';
       }
 
+      var mainText = headingText.isNotEmpty ? headingText : (buttonLabel.isNotEmpty ? buttonLabel : 'Download Server');
+
       links.add(DownloadLink(
-        text: displayText,
+        text: mainText,
         href: href,
         resolution: resolution,
         heading: headingText.isNotEmpty ? headingText : null,
+        buttonLabel: buttonLabel.isNotEmpty ? buttonLabel : null,
       ));
     }
 

@@ -1,31 +1,34 @@
-/// Represents a download link extracted from a post page
+/// Model representing a download link option extracted from a detail post page.
 class DownloadLink {
   final String text;
   final String href;
-  final String resolution;
-  final String? episode;
+  final String resolution; // 480p, 720p, 1080p, 2160p, or LINK
   final String? heading;
+  final String? buttonLabel;
 
-  const DownloadLink({
+  DownloadLink({
     required this.text,
     required this.href,
     required this.resolution,
-    this.episode,
     this.heading,
+    this.buttonLabel,
   });
 
-  @override
-  String toString() =>
-      'DownloadLink(text: $text, resolution: $resolution, href: $href)';
-}
+  factory DownloadLink.fromJson(Map<String, dynamic> json) {
+    return DownloadLink(
+      text: json['text'] as String? ?? '',
+      href: json['href'] as String? ?? '',
+      resolution: json['resolution'] as String? ?? 'LINK',
+      heading: json['heading'] as String?,
+      buttonLabel: json['buttonLabel'] as String?,
+    );
+  }
 
-/// Represents a resolved direct download link (from VCloud/HubCloud)
-class ResolvedLink {
-  final String serverName;
-  final String directUrl;
-
-  const ResolvedLink({
-    required this.serverName,
-    required this.directUrl,
-  });
+  Map<String, dynamic> toJson() => {
+        'text': text,
+        'href': href,
+        'resolution': resolution,
+        'heading': heading,
+        'buttonLabel': buttonLabel,
+      };
 }
