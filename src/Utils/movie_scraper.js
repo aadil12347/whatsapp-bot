@@ -42,11 +42,63 @@ const HEADERS = {
     'Upgrade-Insecure-Requests': '1'
 };
 
+// User-provided proxy list for round-robin rotation
+const PROXY_POOL_RAW = [
+    "198.105.121.200:6462:nsdjrpwt:odeh1yu3tv50",
+    "45.38.107.97:6014:kboirlds:mluj3qcar4fp",
+    "198.105.121.200:6462:kboirlds:mluj3qcar4fp",
+    "38.154.185.97:6370:kboirlds:mluj3qcar4fp",
+    "191.96.254.138:6185:kboirlds:mluj3qcar4fp",
+    "45.38.107.97:6014:uscqaqmr:jm8g4dse9g8p",
+    "38.154.185.97:6370:uscqaqmr:jm8g4dse9g8p",
+    "191.96.254.138:6185:uscqaqmr:jm8g4dse9g8p"
+];
+
+function parseProxy(proxyStr) {
+    if (!proxyStr || typeof proxyStr !== 'string') return null;
+    try {
+        const parts = proxyStr.trim().split(':');
+        if (parts.length === 4) {
+            const [ip, port, user, pass] = parts;
+            return {
+                protocol: 'http',
+                host: ip,
+                port: parseInt(port, 10),
+                auth: { username: user, password: pass }
+            };
+        }
+        const u = new URL(proxyStr.startsWith('http') ? proxyStr : `http://${proxyStr}`);
+        const config = {
+            protocol: u.protocol.replace(':', ''),
+            host: u.hostname,
+            port: parseInt(u.port, 10) || 80
+        };
+        if (u.username) {
+            config.auth = {
+                username: decodeURIComponent(u.username),
+                password: decodeURIComponent(u.password || '')
+            };
+        }
+        return config;
+    } catch (e) {
+        return null;
+    }
+}
+
+let proxyIndex = 0;
+
+function getNextRotatingProxy() {
+    if (PROXY_POOL_RAW.length === 0) return null;
+    const raw = PROXY_POOL_RAW[proxyIndex % PROXY_POOL_RAW.length];
+    proxyIndex++;
+    return parseProxy(raw);
+}
+
 /**
  * Fetch HTML content from URL with TLS fingerprinting bypass, dynamic headers,
- * domain mirror substitution, and web proxy fallbacks to bypass Cloudflare 403 blocks.
+ * rotating proxy support, domain mirror substitution, and web proxy fallbacks.
  */
-async function fetchHtmlWithRetry(url, parentUrl = null) {
+async function fetchHtmlWithRetry(url, parentUrl = null, customProxy = null) {
     if (!url || typeof url !== 'string') throw new Error('Invalid URL provided to fetchHtmlWithRetry');
     let currentUrl = url;
 
@@ -76,6 +128,39 @@ async function fetchHtmlWithRetry(url, parentUrl = null) {
             ...(referer ? { 'Referer': referer, 'Origin': refOrigin || targetOrigin } : { 'Referer': targetOrigin + '/' })
         };
     };
+
+    // Strategy 0: Rotating Working Proxies (1 Proxy Per Attempt/Step)
+    const activeProxies = [];
+    if (customProxy) activeProxies.push(parseProxy(customProxy));
+    if (process.env.PROXY_URL) activeProxies.push(...process.env.PROXY_URL.split(',').map(parseProxy));
+    
+    // Add rotating proxies from filtered working pool
+    for (let i = 0; i < 3; i++) {
+        const rot = getNextRotatingProxy();
+        if (rot) activeProxies.push(rot);
+    }
+
+    const validProxies = activeProxies.filter(Boolean);
+    for (const pConfig of validProxies) {
+        console.log(`[MovieScraper] Trying proxy: ${pConfig.host}:${pConfig.port} (user=${pConfig.auth?.username})`);
+        try {
+            const reqHeaders = buildHeaders(currentUrl, parentUrl, 0);
+            const res = await axios.get(currentUrl, {
+                headers: reqHeaders,
+                proxy: pConfig,
+                httpsAgent: browserHttpsAgent,
+                timeout: 8000,
+                validateStatus: (status) => status >= 200 && status < 400
+            });
+            const body = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
+            if (body && body.length > 200 && !body.includes('Access Denied')) {
+                console.log(`[MovieScraper] Proxy fetch succeeded: ${pConfig.host}:${pConfig.port}`);
+                return body;
+            }
+        } catch (err) {
+            console.warn(`[MovieScraper] Proxy fetch failed for ${pConfig.host}:${pConfig.port}: ${err.message}`);
+        }
+    }
 
     // Strategy 1: Direct request with browser TLS agent and dynamic headers
     const maxAttempts = 3;

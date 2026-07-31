@@ -1,8 +1,14 @@
 const { extractSubOptions, resolveVcloudLink, extractDirectDownloadLinks } = require('./src/Utils/movie_scraper');
 
 async function testVcloudExtraction() {
-    // Custom URL passed from terminal or default Odyssey test URL
     const customUrl = process.argv[2];
+    const customProxy = process.argv[3];
+
+    if (customProxy) {
+        process.env.PROXY_URL = customProxy;
+        console.log(`🌐 Using Proxy: ${customProxy}`);
+    }
+
     const defaultLandingUrl = 'https://nexdrive.fit/genxfm784776497172/';
     const defaultVcloudUrl = 'https://vcloud.zip/mrg9sjg5ec1nuze';
 
