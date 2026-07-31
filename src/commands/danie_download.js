@@ -2688,20 +2688,13 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
         from,
         executeFn: async (signal, ref) => {
             let candidates = [];
-            
-            // Prefer VCloud hosts (vcloud.zip, hubcloud) over other landing pages (fastdl, filebee)
-            const vcloudHosts = hostsList.filter(h => {
-                const lh = (h.href || '').toLowerCase();
-                return lh.includes('vcloud') || lh.includes('hubcloud');
-            });
-            const hostsToProcess = vcloudHosts.length > 0 ? vcloudHosts : hostsList;
-            
             const candidates10g = [];
             const candidatesFslv2 = [];
             const candidatesFsl = [];
             const candidatesOther = [];
 
-            for (const host of hostsToProcess) {
+            // Process ALL available hosts (vcloud, filebee, fastdl, gofile, megaup, etc.)
+            for (const host of hostsList) {
                 if (isLandingUrl(host.href)) {
                     console.log(`[DanieSearch] Resolving sub-options for landing url: ${host.href}`);
                     
@@ -2709,9 +2702,9 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
                     for (let attempt = 1; attempt <= 2; attempt++) {
                         try {
                             subOpts = await extractSubOptions(host.href);
-                            const hasRealServers = subOpts.some(opt => {
+                            const hasRealServers = subOpts && subOpts.some(opt => {
                                 const t = opt.text.toLowerCase();
-                                return t.includes('fsl') || t.includes('10gbps') || t.includes('server');
+                                return t.includes('fsl') || t.includes('10gbps') || t.includes('server') || t.includes('file') || t.includes('download') || t.includes('cdn');
                             });
                             if (hasRealServers || attempt >= 2) break;
                             console.log(`[DanieSearch] Sub-options attempt ${attempt} returned no servers, retrying in 3s...`);
@@ -2726,38 +2719,43 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
                     }
                     
                     if (subOpts && subOpts.length > 0) {
-                        const opt10gbps = subOpts.find(opt => opt.text.toLowerCase().includes('10gbps'));
-                        const optFslv2 = subOpts.find(opt => opt.text.toLowerCase().includes('fslv2'));
-                        const optFsl = subOpts.find(opt => opt.text.toLowerCase().includes('fsl') && !opt.text.toLowerCase().includes('fslv2'));
-                        
-                        if (opt10gbps) candidates10g.push({ name: '10Gbps Server', href: opt10gbps.href });
-                        if (optFslv2) candidatesFslv2.push({ name: 'FSLv2 Server', href: optFslv2.href });
-                        if (optFsl) candidatesFsl.push({ name: 'FSL Server', href: optFsl.href });
-                        
                         subOpts.forEach(opt => {
                             const txt = opt.text.toLowerCase();
-                            if (!txt.includes('10gbps') && !txt.includes('fsl') && !txt.includes('fslv2') && !txt.includes('login') && !txt.includes('admin')) {
-                                candidatesOther.push({ name: opt.text, href: opt.href });
+                            if (txt.includes('10gbps')) {
+                                candidates10g.push({ name: '10Gbps Server', href: opt.href });
+                            } else if (txt.includes('fslv2')) {
+                                candidatesFslv2.push({ name: 'FSLv2 Server', href: opt.href });
+                            } else if (txt.includes('fsl')) {
+                                candidatesFsl.push({ name: 'FSL Server', href: opt.href });
+                            } else if (!txt.includes('login') && !txt.includes('admin')) {
+                                candidatesOther.push({ name: opt.text || host.text || 'Direct Link', href: opt.href });
                             }
                         });
+                    } else {
+                        // If extractSubOptions returned no sub-options or failed, add the host URL as a candidate
+                        candidatesOther.push({ name: host.text || 'Download Host', href: host.href });
                     }
                 } else {
                     candidatesOther.push({ name: host.text || 'Direct Link', href: host.href });
                 }
             }
 
-            // If VCloud servers exist (FSLv2, FSL, 10Gbps), use ONLY those — skip unreliable hosts
-            const hasVcloudServers = candidatesFslv2.length > 0 || candidatesFsl.length > 0 || candidates10g.length > 0;
-            if (hasVcloudServers) {
-                candidates = [
-                    ...candidatesFslv2,
-                    ...candidatesFsl,
-                    ...candidates10g
-                ];
-            } else {
-                candidates = [...candidatesOther];
-            }
-            
+            // Order candidates: Prioritize FSLv2, FSL, 10Gbps, then all other extracted hosts (Filebee, Fastdl, Gofile, etc.)
+            candidates = [
+                ...candidatesFslv2,
+                ...candidatesFsl,
+                ...candidates10g,
+                ...candidatesOther
+            ];
+
+            // Deduplicate candidates by href
+            const seenHref = new Set();
+            candidates = candidates.filter(c => {
+                if (!c.href || seenHref.has(c.href)) return false;
+                seenHref.add(c.href);
+                return true;
+            });
+
             if (candidates.length === 0) {
                 for (const host of hostsList) {
                     candidates.push({ name: host.text || 'Direct Link', href: host.href });

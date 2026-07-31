@@ -125,9 +125,14 @@ async function fetchHtmlWithRetry(url, parentUrl = null) {
                     timeout: 10000,
                     validateStatus: (status) => status >= 200 && status < 400
                 });
-                if (res.data) {
+                const body = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
+                // Ensure mirror response is valid page content (contains atob/var url/reurl/download) and not a shopify dummy or error page
+                const isValidContent = (body.includes('atob(') || body.includes('var url') || body.includes('reurl') || body.includes('download')) && !body.includes('shopify');
+                if (isValidContent) {
                     console.log(`[MovieScraper] Mirror fetch succeeded: ${mirrorUrl}`);
-                    return typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
+                    return body;
+                } else {
+                    console.warn(`[MovieScraper] Mirror returned invalid or parked content: ${mirrorUrl}`);
                 }
             } catch (err) {
                 console.warn(`[MovieScraper] Mirror fetch failed for ${mirrorUrl}: ${err.message}`);
