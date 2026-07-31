@@ -1,33 +1,41 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 
-const HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-};
-
-async function test() {
-    const url = 'https://nexdrive.fit/genxfm784776495918/';
-    console.log('Fetching:', url);
+async function testNexdrive(url) {
+    console.log(`\n=== Testing Nexdrive Link Resolution: ${url} ===`);
     try {
-        const res = await axios.get(url, { headers: HEADERS, timeout: 10000 });
-        console.log('Status:', res.status);
+        const res = await axios.get(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            },
+            timeout: 15000
+        });
         const $ = cheerio.load(res.data);
-        console.log('Page Title:', $('title').text());
-        
-        console.log('All links containing vcloud or hubcloud or gdflix:');
-        $('a').each((i, el) => {
-            const href = $(el).attr('href');
-            const text = $(el).text().trim();
-            if (href) {
-                console.log(`Link text: "${text}", href: "${href}"`);
+
+        console.log('Nexdrive Page Title:', $('title').text().trim());
+
+        const links = [];
+        $('a[href]').each((i, el) => {
+            links.push({
+                text: $(el).text().trim(),
+                href: $(el).attr('href')
+            });
+        });
+
+        console.log('Found Links on Nexdrive:', links);
+
+        // Check for scripts / atob / redirect
+        $('script').each((i, el) => {
+            const txt = $(el).html();
+            if (txt && (txt.includes('atob') || txt.includes('url') || txt.includes('location'))) {
+                console.log(`\nScript ${i+1}:`, txt.substring(0, 300));
             }
         });
-        
-        console.log('Page scripts count:', $('script').length);
+
     } catch (e) {
-        console.error('Error fetching:', e.message);
+        console.error('Nexdrive test failed:', e.message);
     }
 }
 
-test();
+testNexdrive('https://nexdrive.fit/genxfm784776499361/');

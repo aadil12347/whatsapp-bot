@@ -6,8 +6,8 @@ import '../services/resolver_service.dart';
 import '../theme/app_theme.dart';
 
 /// Modal bottom sheet displaying detail page download links.
-/// Displays resolution badge + file size on left side.
-/// Displays main heading text + bold custom button label below it on a new line.
+/// Resolves VCloud landing links to direct download links (single movie or series episode list).
+/// Displays a floating WhatsApp green notification prompt when user copies command.
 class ResolutionModal extends StatefulWidget {
   final String postUrl;
   final String movieTitle;
@@ -31,7 +31,7 @@ class _ResolutionModalState extends State<ResolutionModal> {
 
   // Resolving state
   bool _resolving = false;
-  String? _resolvedUrl;
+  List<String> _resolvedUrls = [];
   String? _resolvedServerName;
   String? _selectedText;
 
@@ -73,31 +73,31 @@ class _ResolutionModalState extends State<ResolutionModal> {
   Future<void> _resolveLink(DownloadLink link) async {
     setState(() {
       _resolving = true;
-      _resolvedUrl = null;
+      _resolvedUrls = [];
       _resolvedServerName = null;
       _selectedText = link.text;
     });
 
     try {
-      final resolved = await ResolverService.resolveWithFallback(link.href);
+      final result = await ResolverService.resolveAllEpisodes(link.href);
       setState(() {
         _resolving = false;
-        _resolvedUrl = resolved.directUrl;
-        _resolvedServerName = resolved.serverName;
+        _resolvedUrls = result.directUrls;
+        _resolvedServerName = result.serverName;
       });
     } catch (e) {
       setState(() {
         _resolving = false;
-        _resolvedUrl = link.href;
+        _resolvedUrls = [link.href];
         _resolvedServerName = 'Direct Link';
       });
     }
   }
 
-  /// Generate the WhatsApp .d command message
+  /// Generate the WhatsApp .d command message: .d link1, link2, ...
   String _generateWhatsAppMessage() {
-    if (_resolvedUrl != null) {
-      return '.d $_resolvedUrl';
+    if (_resolvedUrls.isNotEmpty) {
+      return '.d ${_resolvedUrls.join(', ')}';
     }
     return '';
   }
@@ -106,11 +106,24 @@ class _ResolutionModalState extends State<ResolutionModal> {
     Clipboard.setData(ClipboardData(text: text));
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: const Text('Copied to clipboard!'),
-        backgroundColor: AppTheme.accent,
+        content: Row(
+          children: const [
+            Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
+            SizedBox(width: 10),
+            Text(
+              'WhatsApp Command Copied to Clipboard!',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: const Color(0xFF25D366), // WhatsApp Green!
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        duration: const Duration(seconds: 2),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        duration: const Duration(seconds: 3),
       ),
     );
   }
@@ -217,7 +230,7 @@ class _ResolutionModalState extends State<ResolutionModal> {
     }
 
     // Show resolved direct link result
-    if (_resolvedUrl != null) {
+    if (_resolvedUrls.isNotEmpty) {
       return _buildResolvedResult(scrollController);
     }
 
@@ -378,7 +391,7 @@ class _ResolutionModalState extends State<ResolutionModal> {
             const CircularProgressIndicator(color: AppTheme.accent),
             const SizedBox(height: 20),
             const Text(
-              'Fetching & resolving download link...',
+              'Fetching & resolving VCloud links...',
               style: TextStyle(
                   color: AppTheme.textPrimary,
                   fontSize: 15,
@@ -402,7 +415,7 @@ class _ResolutionModalState extends State<ResolutionModal> {
             ],
             const SizedBox(height: 16),
             const Text(
-              'Extracting VCloud / direct server...',
+              'Extracting direct links (movies / episode links)...',
               style: TextStyle(color: AppTheme.accent, fontSize: 12),
             ),
           ],
@@ -421,7 +434,7 @@ class _ResolutionModalState extends State<ResolutionModal> {
         // Back button
         GestureDetector(
           onTap: () => setState(() {
-            _resolvedUrl = null;
+            _resolvedUrls = [];
             _resolvedServerName = null;
           }),
           child: const Row(
@@ -452,7 +465,7 @@ class _ResolutionModalState extends State<ResolutionModal> {
                       color: AppTheme.success, size: 18),
                   const SizedBox(width: 8),
                   Text(
-                    'Resolved via ${_resolvedServerName ?? "Direct Server"}',
+                    'Resolved ${_resolvedUrls.length} Link(s) via ${_resolvedServerName ?? "VCloud"}',
                     style: const TextStyle(
                         color: AppTheme.success,
                         fontSize: 13,
@@ -462,10 +475,10 @@ class _ResolutionModalState extends State<ResolutionModal> {
               ),
               const SizedBox(height: 8),
               Text(
-                _resolvedUrl!,
+                _resolvedUrls.join('\n'),
                 style: const TextStyle(
                     color: AppTheme.textSecondary, fontSize: 11),
-                maxLines: 4,
+                maxLines: 6,
                 overflow: TextOverflow.ellipsis,
               ),
             ],
@@ -495,7 +508,7 @@ class _ResolutionModalState extends State<ResolutionModal> {
                   color: AppTheme.textPrimary,
                   fontSize: 12,
                   fontFamily: 'monospace'),
-              maxLines: 8,
+              maxLines: 10,
               overflow: TextOverflow.ellipsis,
             ),
           ),

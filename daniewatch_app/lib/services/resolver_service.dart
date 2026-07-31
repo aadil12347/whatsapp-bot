@@ -13,15 +13,32 @@ class ResolvedLink {
   });
 }
 
+/// Data model for single or multi-episode resolve results
+class MultiResolveResult {
+  final String serverName;
+  final List<String> directUrls;
+
+  MultiResolveResult({
+    required this.serverName,
+    required this.directUrls,
+  });
+
+  /// Format as WhatsApp .d command
+  String toWhatsAppCommand() {
+    if (directUrls.isEmpty) return '';
+    return '.d ${directUrls.join(', ')}';
+  }
+}
+
 /// Resolver service — resolves VCloud/HubCloud/Fastdl landing pages
-/// to direct download URLs.
+/// to direct download URLs (supporting both movies and multi-episode series).
 class ResolverService {
   static final Dio _dio = Dio(
     BaseOptions(
       connectTimeout: const Duration(seconds: 15),
       receiveTimeout: const Duration(seconds: 15),
       followRedirects: true,
-      maxRedirects: 5,
+      maxRedirects: 8,
       headers: {
         'User-Agent':
             'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Mobile Safari/537.36',
@@ -34,6 +51,106 @@ class ResolverService {
       },
     ),
   );
+
+  /// Resolve all links (single movie link or multi-episode series links)
+  static Future<MultiResolveResult> resolveAllEpisodes(String landingUrl) async {
+    try {
+      final html = await _fetchHtml(landingUrl);
+      final doc = html_parser.parse(html);
+
+      // Check if page contains intermediate VCloud / G-Direct links (e.g. nexdrive.fit landing page)
+      final vcloudAnchors = <String>[];
+      for (final el in doc.querySelectorAll('a[href]')) {
+        final href = el.attributes['href'] ?? '';
+        final lh = href.toLowerCase();
+        if ((lh.contains('vcloud') ||
+                lh.contains('fastdl') ||
+                lh.contains('hubcloud') ||
+                lh.contains('filebee') ||
+                lh.contains('vikingfile')) &&
+            !lh.contains('telegram') &&
+            !lh.contains('category')) {
+          vcloudAnchors.add(href);
+        }
+      }
+
+      // If nexdrive/vgmlink contains VCloud link, navigate into VCloud link first
+      if (vcloudAnchors.isNotEmpty) {
+        final vcloudUrl = vcloudAnchors.firstWhere(
+          (l) => l.toLowerCase().contains('vcloud'),
+          orElse: () => vcloudAnchors.first,
+        );
+        return resolveAllEpisodes(vcloudUrl);
+      }
+
+      // Look for multiple episode or server download links inside VCloud
+      final epLinks = <String>[];
+      final seen = <String>{};
+
+      for (final el in doc.querySelectorAll('a[href]')) {
+        final href = el.attributes['href'] ?? '';
+        final text = el.text.toLowerCase();
+        final lh = href.toLowerCase();
+
+        if (lh.contains('telegram') ||
+            lh.contains('facebook') ||
+            lh.contains('twitter') ||
+            href.startsWith('#')) continue;
+
+        if ((text.contains('episode') ||
+                text.contains('ep ') ||
+                text.contains('ep.') ||
+                text.contains('vcloud') ||
+                text.contains('download') ||
+                text.contains('drive') ||
+                text.contains('server')) &&
+            (lh.contains('http') || lh.startsWith('/'))) {
+          var fullUrl = href;
+          if (!fullUrl.startsWith('http')) {
+            final p = Uri.parse(landingUrl);
+            fullUrl =
+                '${p.scheme}://${p.host}${fullUrl.startsWith('/') ? '' : '/'}$fullUrl';
+          }
+          if (!seen.contains(fullUrl)) {
+            seen.add(fullUrl);
+            epLinks.add(fullUrl);
+          }
+        }
+      }
+
+      // If multiple episode links detected (> 1)
+      if (epLinks.length > 1) {
+        final resolvedDirectUrls = <String>[];
+        for (final epUrl in epLinks) {
+          try {
+            final resolved = await resolveWithFallback(epUrl);
+            if (resolved.directUrl.isNotEmpty &&
+                !resolvedDirectUrls.contains(resolved.directUrl)) {
+              resolvedDirectUrls.add(resolved.directUrl);
+            }
+          } catch (_) {}
+        }
+        if (resolvedDirectUrls.isNotEmpty) {
+          return MultiResolveResult(
+            serverName: 'VCloud Series (${resolvedDirectUrls.length} Episodes)',
+            directUrls: resolvedDirectUrls,
+          );
+        }
+      }
+
+      // Single movie link fallback
+      final singleResolved = await resolveWithFallback(landingUrl);
+      return MultiResolveResult(
+        serverName: singleResolved.serverName,
+        directUrls: [singleResolved.directUrl],
+      );
+    } catch (e) {
+      return MultiResolveResult(
+        serverName: 'Direct Landing Link',
+        directUrls: [landingUrl],
+      );
+    }
+  }
 
   /// Extract all sub-option download server links from a landing page.
   static Future<List<ResolvedLink>> extractAllServers(String url) async {
@@ -51,6 +168,30 @@ class ResolverService {
 
       final html = await _fetchHtml(url);
       final doc = html_parser.parse(html);
+
+      // If url is nexdrive/vgmlink landing page, find V-Cloud / G-Direct links first
+      final innerLandingLinks = <String>[];
+      for (final el in doc.querySelectorAll('a[href]')) {
+        final href = el.attributes['href'] ?? '';
+        final lh = href.toLowerCase();
+        if ((lh.contains('vcloud') ||
+                lh.contains('fastdl') ||
+                lh.contains('hubcloud') ||
+                lh.contains('filebee') ||
+                lh.contains('vikingfile')) &&
+            !lh.contains('telegram') &&
+            !lh.contains('category')) {
+          innerLandingLinks.add(href);
+        }
+      }
+
+      if (innerLandingLinks.isNotEmpty) {
+        final vcloudLink = innerLandingLinks.firstWhere(
+          (l) => l.toLowerCase().contains('vcloud'),
+          orElse: () => innerLandingLinks.first,
+        );
+        return extractAllServers(vcloudLink);
+      }
 
       // Check var reurl
       final reurlMatch =
@@ -182,19 +323,20 @@ class ResolverService {
         }
       }
 
-      // Fallback: return the initial landing URL
+      // Fallback: return initial landing URL
       return [ResolvedLink(serverName: 'Landing Link', directUrl: url)];
     } catch (e) {
       return [ResolvedLink(serverName: 'Landing Link', directUrl: url)];
     }
   }
 
-  /// Resolve a download link using priority selection:
+  /// Resolve a download link using priority selection and redirect unwrapping:
   /// 10Gbps → FSLv2 → FSL → GDrive → Pixeldrain → any
   static Future<ResolvedLink> resolveWithFallback(String landingUrl) async {
     final servers = await extractAllServers(landingUrl);
     if (servers.isEmpty) {
-      return ResolvedLink(serverName: 'Landing Link', directUrl: landingUrl);
+      final unwrapped = await _resolveFinalUrl(landingUrl);
+      return ResolvedLink(serverName: 'Landing Link', directUrl: unwrapped);
     }
 
     final sorted = _sortByPriority(servers);
@@ -202,14 +344,8 @@ class ResolverService {
     for (final server in sorted) {
       try {
         var url = server.directUrl;
-        final lt = server.serverName.toLowerCase();
-
-        if (lt.contains('10gbps') || lt.contains('10 gbps')) {
-          url = await _resolveFinalUrl(url);
-          if (url.contains('link=')) {
-            url = Uri.decodeFull(url.split('link=')[1].split('&')[0]);
-          }
-        }
+        // Unwrap HTTP redirects & link= / r= parameters to obtain pure video download URL
+        url = await _resolveFinalUrl(url);
 
         return ResolvedLink(serverName: server.serverName, directUrl: url);
       } catch (_) {
@@ -217,7 +353,8 @@ class ResolverService {
       }
     }
 
-    return sorted.first;
+    final finalFallback = await _resolveFinalUrl(sorted.first.directUrl);
+    return ResolvedLink(serverName: sorted.first.serverName, directUrl: finalFallback);
   }
 
   /// Sort servers by download priority
@@ -238,31 +375,51 @@ class ResolverService {
     return sorted;
   }
 
-  /// Follow redirect chain to resolve final URL (for 10Gbps servers)
+  /// Follow redirect chain to resolve final URL and extract link=/r= video parameters
   static Future<String> _resolveFinalUrl(String startUrl) async {
     var currentUrl = startUrl;
 
-    for (var i = 0; i < 7; i++) {
-      try {
-        final response = await _dio.head(
-          currentUrl,
-          options: Options(
-            followRedirects: false,
-            validateStatus: (status) => status != null && status < 400,
-          ),
-        );
-        final location = response.headers.value('location');
-        if (location == null) break;
-        currentUrl = location;
-      } on DioException catch (e) {
-        final location = e.response?.headers.value('location');
-        if (location != null) {
-          currentUrl = location;
-        } else {
-          break;
+    try {
+      final response = await _dio.get<dynamic>(
+        startUrl,
+        options: Options(
+          followRedirects: true,
+          maxRedirects: 8,
+          validateStatus: (status) => status != null && status < 500,
+        ),
+      );
+
+      final finalRedirect = response.realUri.toString();
+      if (finalRedirect.isNotEmpty && finalRedirect.startsWith('http')) {
+        currentUrl = finalRedirect;
+      }
+
+      // Check if URL contains query parameter link= (e.g. gamerxyt.com/dl.php?link=https://video-downloads.googleusercontent...)
+      if (currentUrl.contains('link=')) {
+        final parsed = Uri.parse(currentUrl);
+        final linkParam = parsed.queryParameters['link'];
+        if (linkParam != null && linkParam.isNotEmpty) {
+          return Uri.decodeFull(linkParam);
         }
       }
-    }
+
+      // Check if URL contains query parameter r= (base64 encoded)
+      if (currentUrl.contains('r=')) {
+        final parsed = Uri.parse(currentUrl);
+        final rParam = parsed.queryParameters['r'];
+        if (rParam != null && rParam.isNotEmpty) {
+          try {
+            final decoded = utf8.decode(base64.decode(rParam));
+            if (decoded.contains('link=')) {
+              final subLink = Uri.parse(decoded).queryParameters['link'];
+              return subLink != null ? Uri.decodeFull(subLink) : decoded;
+            }
+            return decoded;
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+
     return currentUrl;
   }
 

@@ -1,19 +1,20 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 
-async function testVCloud(url) {
-    console.log(`\n=== Testing VCloud Resolution: ${url} ===`);
+async function testVCloudToken(url) {
+    console.log(`\n=== Testing VCloud Token Page: ${url} ===`);
     try {
         const res = await axios.get(url, {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Referer': 'https://vcloud.zip/bpsn7p1botth7dv'
             },
             timeout: 15000
         });
         const $ = cheerio.load(res.data);
 
-        console.log('VCloud Page Title:', $('title').text().trim());
+        console.log('VCloud Token Page Title:', $('title').text().trim());
 
         const links = [];
         $('a[href]').each((i, el) => {
@@ -23,19 +24,11 @@ async function testVCloud(url) {
             });
         });
 
-        console.log('Found Links on VCloud:', links);
-
-        // Check for scripts / var url / reurl
-        $('script').each((i, el) => {
-            const txt = $(el).html();
-            if (txt && (txt.includes('atob') || txt.includes('url') || txt.includes('reurl') || txt.includes('location'))) {
-                console.log(`\nScript ${i+1}:`, txt);
-            }
-        });
+        console.log('Found Server Download Links on VCloud Token Page:', links);
 
     } catch (e) {
-        console.error('VCloud test failed:', e.message);
+        console.error('VCloud Token test failed:', e.message);
     }
 }
 
-testVCloud('https://vcloud.zip/bpsn7p1botth7dv');
+testVCloudToken('https://vcloud.zip/bpsn7p1botth7dv?token=Zmp2NEMwRnF5SDZSTGNVdFN1UStwNFpkUzAyb1dNUlNnSlpXSFcrY0Y2Zz0=');
