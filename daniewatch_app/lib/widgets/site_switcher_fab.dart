@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../models/site_config.dart';
+import '../providers/app_state.dart';
 import '../theme/app_theme.dart';
 
 /// Compact floating chip switcher styled strictly with 3 lines icon & clean text.
@@ -295,7 +297,9 @@ class _SiteSwitcherFabState extends State<SiteSwitcherFab> {
               if (newUrl.isNotEmpty) {
                 Navigator.pop(dialogCtx);
                 await SiteDomainManager.setCustomDomain(site, newUrl);
-                widget.onSiteChanged(site);
+                if (context.mounted) {
+                  Provider.of<AppState>(context, listen: false).switchSite(site, forceReload: true);
+                }
 
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(

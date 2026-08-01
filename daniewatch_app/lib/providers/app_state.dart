@@ -30,13 +30,15 @@ class AppState extends ChangeNotifier {
   String get searchQuery => _searchQuery;
   bool get isSearchMode => _isSearchMode;
 
-  /// Switch to a different site and reload
-  Future<void> switchSite(MovieSite site) async {
-    if (_currentSite == site) return;
+  /// Switch to a different site (or force reload if domain changed)
+  Future<void> switchSite(MovieSite site, {bool forceReload = false}) async {
+    if (_currentSite == site && !forceReload) return;
     _currentSite = site;
     _isSearchMode = false;
     _searchQuery = '';
     _searchResults = [];
+    _movies = [];
+    _error = null;
     notifyListeners();
     await loadHomepage(refresh: true);
   }
