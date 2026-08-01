@@ -311,7 +311,7 @@ class _ResolutionModalState extends State<ResolutionModal> {
               child: Text(
                 widget.movieTitle,
                 style: const TextStyle(
-                  color: AppTheme.porcelain,
+                  color: AppTheme.champagne,
                   fontSize: 16,
                   fontWeight: FontWeight.w800,
                   letterSpacing: 0.1,
@@ -912,16 +912,16 @@ class _ResolutionModalState extends State<ResolutionModal> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const CircularProgressIndicator(color: AppTheme.accent),
+            const CircularProgressIndicator(color: AppTheme.champagne),
             const SizedBox(height: 20),
             Text(
               _resolvingTotal > 1
                   ? 'Extracting Series Episodes ($_resolvingCurrent / $_resolvingTotal)'
                   : 'Fetching & resolving VCloud links...',
               style: const TextStyle(
-                  color: AppTheme.textPrimary,
+                  color: AppTheme.champagne,
                   fontSize: 15,
-                  fontWeight: FontWeight.w600),
+                  fontWeight: FontWeight.w700),
               textAlign: TextAlign.center,
             ),
             if (_selectedText != null) ...[
@@ -931,10 +931,11 @@ class _ResolutionModalState extends State<ResolutionModal> {
                 decoration: BoxDecoration(
                   color: AppTheme.bgDark,
                   borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppTheme.champagne.withOpacity(0.2)),
                 ),
                 child: Text(
                   _selectedText!,
-                  style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+                  style: const TextStyle(color: AppTheme.offWhite, fontSize: 13),
                   textAlign: TextAlign.center,
                 ),
               ),
@@ -946,19 +947,19 @@ class _ResolutionModalState extends State<ResolutionModal> {
                 child: LinearProgressIndicator(
                   value: _resolvingTotal > 0 ? _resolvingCurrent / _resolvingTotal : null,
                   backgroundColor: AppTheme.bgDark,
-                  color: AppTheme.accent,
+                  color: AppTheme.champagne,
                   minHeight: 6,
                 ),
               ),
               const SizedBox(height: 12),
               Text(
                 'Extracting Episode $_resolvingCurrent of $_resolvingTotal...',
-                style: const TextStyle(color: AppTheme.accent, fontSize: 13, fontWeight: FontWeight.w600),
+                style: const TextStyle(color: AppTheme.champagne, fontSize: 13, fontWeight: FontWeight.w700),
               ),
             ] else ...[
               const Text(
                 'Extracting direct links in sequence...',
-                style: TextStyle(color: AppTheme.accent, fontSize: 12),
+                style: TextStyle(color: AppTheme.champagne, fontSize: 12, fontWeight: FontWeight.w600),
               ),
             ],
           ],
@@ -984,35 +985,42 @@ class _ResolutionModalState extends State<ResolutionModal> {
           child: const Row(
             children: [
               Icon(Icons.arrow_back_ios_rounded,
-                  color: AppTheme.accent, size: 16),
+                  color: AppTheme.champagne, size: 16),
               SizedBox(width: 4),
               Text('Back to options',
-                  style: TextStyle(color: AppTheme.accent, fontSize: 13)),
+                  style: TextStyle(color: AppTheme.champagne, fontSize: 13, fontWeight: FontWeight.w700)),
             ],
           ),
         ),
         const SizedBox(height: 14),
 
-        // Resolved Status Header Container
+        // Resolved Status Header Container - High contrast Emerald Ink background with Champagne text!
         Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: AppTheme.success.withOpacity(0.12),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppTheme.success.withOpacity(0.35)),
+            color: AppTheme.emeraldInk,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: AppTheme.champagne.withOpacity(0.4)),
+            boxShadow: [
+              BoxShadow(
+                color: AppTheme.offBlack.withOpacity(0.3),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
+            ],
           ),
           child: Row(
             children: [
               const Icon(Icons.check_circle_rounded,
-                  color: AppTheme.success, size: 20),
+                  color: AppTheme.champagne, size: 20),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
                   'Resolved ${_resolvedUrls.length} Direct Link(s) via ${_resolvedServerName ?? "VCloud"}',
                   style: const TextStyle(
-                      color: AppTheme.success,
+                      color: AppTheme.champagne,
                       fontSize: 13,
-                      fontWeight: FontWeight.w700),
+                      fontWeight: FontWeight.w800),
                 ),
               ),
             ],
@@ -1022,14 +1030,14 @@ class _ResolutionModalState extends State<ResolutionModal> {
         const SizedBox(height: 16),
 
         if (whatsappMsg.isNotEmpty) ...[
-          // ACTION BUTTONS (Copy Command & Share) — PLACED ABOVE THE LINK BOX!
+          // ACTION BUTTONS (Copy Command & Share) — Strictly 4-color palette!
           Row(
             children: [
               Expanded(
                 child: _actionButton(
                   icon: _isCopied ? Icons.check_circle_rounded : Icons.copy_rounded,
                   label: _isCopied ? 'Command Copied!' : 'Copy Command',
-                  color: _isCopied ? const Color(0xFF25D366) : AppTheme.accent,
+                  color: AppTheme.emeraldInk,
                   onTap: () => _copyToClipboard(whatsappMsg),
                 ),
               ),
@@ -1038,7 +1046,7 @@ class _ResolutionModalState extends State<ResolutionModal> {
                 child: _actionButton(
                   icon: Icons.share_rounded,
                   label: 'Share',
-                  color: const Color(0xFF25D366),
+                  color: AppTheme.emeraldInk,
                   onTap: _shareToWhatsApp,
                 ),
               ),
@@ -1047,20 +1055,20 @@ class _ResolutionModalState extends State<ResolutionModal> {
 
           const SizedBox(height: 16),
 
-          // WHATSAPP BOT COMMAND PREVIEW BOX — PLACED BELOW THE BUTTONS!
+          // WHATSAPP BOT COMMAND PREVIEW BOX — High contrast & Crystal Clear Readability!
           const Text('WhatsApp Bot Command:',
               style: TextStyle(
-                  color: AppTheme.textSecondary,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600)),
+                  color: AppTheme.champagne,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700)),
           const SizedBox(height: 8),
           Container(
             constraints: const BoxConstraints(minHeight: 100, maxHeight: 350),
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: AppTheme.bgDark,
+              color: AppTheme.offBlack,
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: AppTheme.accent.withOpacity(0.35)),
+              border: Border.all(color: AppTheme.champagne.withOpacity(0.4), width: 1.2),
             ),
             child: Scrollbar(
               thumbVisibility: true,
@@ -1071,9 +1079,10 @@ class _ResolutionModalState extends State<ResolutionModal> {
                   child: SelectableText(
                     _generateDisplayMessage(),
                     style: const TextStyle(
-                      color: AppTheme.textPrimary,
-                      fontSize: 12,
+                      color: AppTheme.champagne,
+                      fontSize: 13,
                       fontFamily: 'monospace',
+                      fontWeight: FontWeight.w600,
                       height: 1.6,
                     ),
                   ),
@@ -1098,23 +1107,30 @@ class _ResolutionModalState extends State<ResolutionModal> {
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.18),
+          color: AppTheme.emeraldInk,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withOpacity(0.4)),
+          border: Border.all(color: AppTheme.champagne.withOpacity(0.4)),
+          boxShadow: [
+            BoxShadow(
+              color: AppTheme.offBlack.withOpacity(0.3),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: color, size: 18),
+            Icon(icon, color: AppTheme.champagne, size: 18),
             const SizedBox(width: 6),
             Flexible(
               child: FittedBox(
                 fit: BoxFit.scaleDown,
                 child: Text(
                   label,
-                  style: TextStyle(
-                    color: color,
-                    fontWeight: FontWeight.w700,
+                  style: const TextStyle(
+                    color: AppTheme.champagne,
+                    fontWeight: FontWeight.w800,
                     fontSize: 13,
                   ),
                   maxLines: 1,

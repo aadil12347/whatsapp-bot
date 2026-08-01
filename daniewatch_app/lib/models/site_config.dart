@@ -42,11 +42,11 @@ extension MovieSiteExtension on MovieSite {
   String get accentColorHex {
     switch (this) {
       case MovieSite.vegamovies:
-        return '#4CAF50';
+        return '#064E3B';
       case MovieSite.rogmovies:
-        return '#FF9800';
+        return '#F8E7C9';
       case MovieSite.hdhub4u:
-        return '#2196F3';
+        return '#064E3B';
     }
   }
 }

@@ -168,7 +168,7 @@ class _HomeScreenState extends State<HomeScreen> {
               const Text(
                 'DanieWatch',
                 style: TextStyle(
-                  color: AppTheme.porcelain,
+                  color: AppTheme.champagne,
                   fontSize: 22,
                   fontWeight: FontWeight.w900,
                   letterSpacing: -0.5,
