@@ -234,4 +234,57 @@ class TmdbService {
     }
     return null;
   }
+
+  /// Formats raw post title to show ONLY title up to Year or Season + languages (e.g. "Spider-Man: Brand New Day (2026) {Hindi-English}")
+  static String formatDisplayTitle(String rawTitle) {
+    var title = rawTitle.trim();
+
+    // 1. Strip leading "Download "
+    if (title.toLowerCase().startsWith('download ')) {
+      title = title.substring(9).trim();
+    }
+
+    // 2. Strip site domain watermarks at end
+    title = title.replaceAll(RegExp(r'\s*\|\s*[A-Za-z0-9\.\-]+\s*$', caseSensitive: false), '').trim();
+
+    // 3. Extract ONLY Language Info (e.g. "{Hindi-English}", "{Hindi-Eng}", "[Hindi-English]", "Hindi-English")
+    String languageInfo = '';
+    final braceLangMatch = RegExp(r'\{[^\}]*(?:Hindi|English|Tamil|Telugu|Kannada|Malayalam|Bengali|Marathi|Punjabi|Gujarati|Urdu|Eng)[^\}]*\}', caseSensitive: false).firstMatch(title) ??
+        RegExp(r'\[[^\]]*(?:Hindi|English|Tamil|Telugu|Kannada|Malayalam|Bengali|Marathi|Punjabi|Gujarati|Urdu|Eng)[^\]]*\]', caseSensitive: false).firstMatch(title);
+
+    if (braceLangMatch != null) {
+      languageInfo = braceLangMatch.group(0)!.trim();
+    } else {
+      final plainLangMatch = RegExp(r'\b(?:Hindi|English|Tamil|Telugu|Kannada|Malayalam|Bengali|Marathi|Punjabi|Gujarati|Urdu|Eng)(?:[\-\+\s]+(?:Hindi|English|Tamil|Telugu|Kannada|Malayalam|Bengali|Marathi|Punjabi|Gujarati|Urdu|Eng))*\b', caseSensitive: false).firstMatch(title);
+      if (plainLangMatch != null) {
+        languageInfo = '{${plainLangMatch.group(0)!.trim()}}';
+      }
+    }
+
+    // 4. Extract Core Title up to Year (2026) or Season (Season 1 / S01)
+    String coreTitle = '';
+
+    final seasonMatch = RegExp(r'^(.*?\b(?:Season\s*\d+|S\d+)\b\)?|\(.*?\b(?:Season\s*\d+|S\d+)\b\))', caseSensitive: false).firstMatch(title);
+    final yearMatch = RegExp(r'^(.*?\b(?:19|20)\d{2}\b\)?|\(.*?\b(?:19|20)\d{2}\b\))', caseSensitive: false).firstMatch(title);
+
+    if (seasonMatch != null) {
+      coreTitle = seasonMatch.group(0)!.trim();
+    } else if (yearMatch != null) {
+      coreTitle = yearMatch.group(0)!.trim();
+    } else {
+      // Fallback: strip qualities, sizes, audio tags
+      coreTitle = title
+          .replaceAll(RegExp(r'\b(Dual Audio|Multi Audio|Hindi Audio|English Audio|480p|720p|1080p|2160p|4K|x264|x265|HEVC|10bit|PREHD|WEB-DL|HDRip|PROPER|CAMRip)\b', caseSensitive: false), '')
+          .replaceAll(RegExp(r'\[\s*\d+(?:\.\d+)?\s*(?:MB|GB)\s*\]', caseSensitive: false), '')
+          .replaceAll(RegExp(r'\{[^\}]*\}|\[[^\}]*\]'), '')
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim();
+    }
+
+    if (languageInfo.isNotEmpty && !coreTitle.toLowerCase().contains(languageInfo.toLowerCase())) {
+      return '$coreTitle $languageInfo'.trim();
+    }
+
+    return coreTitle.isNotEmpty ? coreTitle : title;
+  }
 }

@@ -309,7 +309,7 @@ class _ResolutionModalState extends State<ResolutionModal> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Text(
-                widget.movieTitle,
+                TmdbService.formatDisplayTitle(widget.movieTitle),
                 style: const TextStyle(
                   color: AppTheme.champagne,
                   fontSize: 16,

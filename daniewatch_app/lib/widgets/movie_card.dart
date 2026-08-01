@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/movie_item.dart';
+import '../services/tmdb_service.dart';
 import '../theme/app_theme.dart';
 
 /// Movie Card styled strictly with Emerald Ink (#064E3B) & Champagne (#F8E7C9).
@@ -125,7 +126,7 @@ class _MovieCardState extends State<MovieCard> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Text(
-                          widget.movie.title,
+                          TmdbService.formatDisplayTitle(widget.movie.title),
                           style: const TextStyle(
                             color: AppTheme.champagne,
                             fontSize: 14,
@@ -133,43 +134,8 @@ class _MovieCardState extends State<MovieCard> {
                             height: 1.35,
                             letterSpacing: 0.1,
                           ),
-                          maxLines: 3,
+                          maxLines: 4,
                           overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: AppTheme.emeraldInk,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                    color: AppTheme.champagne.withOpacity(0.3)),
-                              ),
-                              child: const Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.play_arrow_rounded,
-                                      color: AppTheme.champagne, size: 14),
-                                  SizedBox(width: 2),
-                                  Text(
-                                    'VIEW LINKS',
-                                    style: TextStyle(
-                                      color: AppTheme.champagne,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w800,
-                                      letterSpacing: 0.5,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const Spacer(),
-                            const Icon(Icons.arrow_forward_ios_rounded,
-                                color: AppTheme.champagne, size: 14),
-                          ],
                         ),
                       ],
                     ),
