@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/site_config.dart';
 import '../theme/app_theme.dart';
 
-/// Source switcher FAB styled strictly with Emerald Ink & Champagne.
+/// Compact floating chip switcher styled strictly with 3 lines icon & clean text.
 class SiteSwitcherFab extends StatefulWidget {
   final MovieSite currentSite;
   final Function(MovieSite) onSiteChanged;
@@ -20,36 +20,88 @@ class SiteSwitcherFab extends StatefulWidget {
 class _SiteSwitcherFabState extends State<SiteSwitcherFab> {
   bool _isPressed = false;
 
+  Widget _buildThreeLinesIcon() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 8,
+          height: 2,
+          decoration: BoxDecoration(
+            color: AppTheme.champagne,
+            borderRadius: BorderRadius.circular(1),
+          ),
+        ),
+        const SizedBox(height: 2.5),
+        Container(
+          width: 12,
+          height: 2,
+          decoration: BoxDecoration(
+            color: AppTheme.champagne,
+            borderRadius: BorderRadius.circular(1),
+          ),
+        ),
+        const SizedBox(height: 2.5),
+        Container(
+          width: 16,
+          height: 2,
+          decoration: BoxDecoration(
+            color: AppTheme.champagne,
+            borderRadius: BorderRadius.circular(1),
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       onTapDown: (_) => setState(() => _isPressed = true),
       onTapUp: (_) => setState(() => _isPressed = false),
       onTapCancel: () => setState(() => _isPressed = false),
+      onTap: () => _showSitePicker(context),
       child: AnimatedScale(
-        scale: _isPressed ? 0.90 : 1.0,
+        scale: _isPressed ? 0.92 : 1.0,
         duration: const Duration(milliseconds: 140),
-        child: FloatingActionButton.extended(
-          elevation: 6,
-          highlightElevation: 10,
-          backgroundColor: AppTheme.emeraldInk,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-            side: BorderSide(color: AppTheme.champagne.withOpacity(0.4)),
-          ),
-          onPressed: () => _showSitePicker(context),
-          icon: Text(
-            widget.currentSite.emoji,
-            style: const TextStyle(fontSize: 20),
-          ),
-          label: Text(
-            widget.currentSite.displayName,
-            style: const TextStyle(
-              color: AppTheme.champagne,
-              fontSize: 13,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.3,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          decoration: BoxDecoration(
+            color: AppTheme.emeraldInk,
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(
+              color: AppTheme.champagne.withOpacity(0.5),
+              width: 1.2,
             ),
+            boxShadow: [
+              BoxShadow(
+                color: AppTheme.offBlack.withOpacity(0.6),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+              BoxShadow(
+                color: AppTheme.emeraldInk.withOpacity(0.4),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildThreeLinesIcon(),
+              const SizedBox(width: 8),
+              Text(
+                widget.currentSite.displayName,
+                style: const TextStyle(
+                  color: AppTheme.champagne,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.3,
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -109,7 +161,7 @@ class _SiteSwitcherFabState extends State<SiteSwitcherFab> {
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
         decoration: BoxDecoration(
-          color: isSelected ? AppTheme.emeraldInk.withOpacity(0.3) : AppTheme.bgSurface,
+          color: isSelected ? AppTheme.emeraldInk.withOpacity(0.35) : AppTheme.bgSurface,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
             color: isSelected ? AppTheme.champagne : AppTheme.emeraldInk.withOpacity(0.4),
@@ -118,8 +170,6 @@ class _SiteSwitcherFabState extends State<SiteSwitcherFab> {
         ),
         child: Row(
           children: [
-            Text(site.emoji, style: const TextStyle(fontSize: 24)),
-            const SizedBox(width: 14),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -142,7 +192,7 @@ class _SiteSwitcherFabState extends State<SiteSwitcherFab> {
               ),
             ),
             if (isSelected)
-              const Icon(Icons.check_circle_rounded, color: AppTheme.champagne, size: 24),
+              const Icon(Icons.check_circle_rounded, color: AppTheme.champagne, size: 22),
           ],
         ),
       ),
