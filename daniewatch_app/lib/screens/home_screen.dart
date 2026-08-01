@@ -45,6 +45,14 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _handleBackPress() {
+    FocusScope.of(context).unfocus();
+
+    final state = context.read<AppState>();
+    if (state.isSearchMode || state.searchQuery.isNotEmpty) {
+      state.exitSearch();
+      return;
+    }
+
     final now = DateTime.now();
     if (_lastBackPressTime == null ||
         now.difference(_lastBackPressTime!) > const Duration(milliseconds: 1500)) {
@@ -54,21 +62,21 @@ class _HomeScreenState extends State<HomeScreen> {
         SnackBar(
           content: const Row(
             children: [
-              Icon(Icons.info_outline_rounded, color: Colors.white, size: 18),
+              Icon(Icons.info_outline_rounded, color: AppTheme.champagne, size: 18),
               SizedBox(width: 10),
               Text(
                 'Press back again to exit',
                 style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
+                  color: AppTheme.champagne,
+                  fontWeight: FontWeight.w700,
                   fontSize: 13,
                 ),
               ),
             ],
           ),
-          backgroundColor: AppTheme.bgSurface,
+          backgroundColor: AppTheme.emeraldInk,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           duration: const Duration(milliseconds: 1500),
         ),
       );
@@ -89,7 +97,12 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _openResolutionModal(String postUrl, String title) {
-    final site = context.read<AppState>().currentSite;
+    FocusScope.of(context).unfocus();
+    final state = context.read<AppState>();
+    if (state.isSearchMode) {
+      state.exitSearch();
+    }
+    final site = state.currentSite;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -114,28 +127,35 @@ class _HomeScreenState extends State<HomeScreen> {
             if (didPop) return;
             _handleBackPress();
           },
-          child: Scaffold(
-            backgroundColor: AppTheme.bgDark,
-            body: SafeArea(
-              child: Column(
-                children: [
-                  // App header
-                  _buildHeader(state, accent),
-                  // Search bar
-                  SearchBarWidget(
-                    onSearch: (q) => state.search(q),
-                    onClear: () => state.exitSearch(),
-                    isSearchMode: state.isSearchMode,
-                    currentQuery: state.searchQuery,
-                  ),
-                  // Content
-                  Expanded(child: _buildContent(state, accent)),
-                ],
+          child: GestureDetector(
+            onTap: () {
+              FocusScope.of(context).unfocus();
+              if (state.isSearchMode && state.searchQuery.isEmpty) {
+                state.exitSearch();
+              }
+            },
+            behavior: HitTestBehavior.translucent,
+            child: Scaffold(
+              backgroundColor: AppTheme.bgDark,
+              body: SafeArea(
+                child: Column(
+                  children: [
+                    // Floating 3D Search Bar at the very top
+                    SearchBarWidget(
+                      onSearch: (q) => state.search(q),
+                      onClear: () => state.exitSearch(),
+                      isSearchMode: state.isSearchMode,
+                      currentQuery: state.searchQuery,
+                    ),
+                    // Content
+                    Expanded(child: _buildContent(state, accent)),
+                  ],
+                ),
               ),
-            ),
-            floatingActionButton: SiteSwitcherFab(
-              currentSite: state.currentSite,
-              onSiteChanged: (site) => state.switchSite(site),
+              floatingActionButton: SiteSwitcherFab(
+                currentSite: state.currentSite,
+                onSiteChanged: (site) => state.switchSite(site),
+              ),
             ),
           ),
         );

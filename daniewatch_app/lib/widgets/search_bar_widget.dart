@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 
-/// Search Bar styled strictly with Emerald Ink & Champagne.
+/// Search Bar styled with fully rounded pill shape and 3D top floating effect.
 class SearchBarWidget extends StatefulWidget {
   final Function(String) onSearch;
   final VoidCallback onClear;
@@ -30,9 +30,11 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
     super.initState();
     _controller.text = widget.currentQuery;
     _focusNode.addListener(() {
-      setState(() {
-        _isFocused = _focusNode.hasFocus;
-      });
+      if (mounted) {
+        setState(() {
+          _isFocused = _focusNode.hasFocus;
+        });
+      }
     });
   }
 
@@ -41,6 +43,8 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
     super.didUpdateWidget(oldWidget);
     if (!widget.isSearchMode && oldWidget.isSearchMode) {
       _controller.clear();
+    } else if (widget.currentQuery != oldWidget.currentQuery) {
+      _controller.text = widget.currentQuery;
     }
   }
 
@@ -49,6 +53,12 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
     _controller.dispose();
     _focusNode.dispose();
     super.dispose();
+  }
+
+  void _clearSearch() {
+    _controller.clear();
+    _focusNode.unfocus();
+    widget.onClear();
   }
 
   void _submit() {
@@ -61,24 +71,35 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
 
   @override
   Widget build(BuildContext context) {
+    final bool isActive = _isFocused;
+
     return AnimatedContainer(
       duration: const Duration(milliseconds: 220),
       curve: Curves.easeOutCubic,
-      margin: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+      margin: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
       decoration: BoxDecoration(
         color: AppTheme.bgSurface,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(35),
         border: Border.all(
-          color: _isFocused
+          color: isActive
               ? AppTheme.champagne
               : AppTheme.emeraldInk.withOpacity(0.5),
-          width: _isFocused ? 1.8 : 1.0,
+          width: isActive ? 1.8 : 1.2,
         ),
         boxShadow: [
+          // Deep 3D elevation shadow
           BoxShadow(
-            color: AppTheme.offBlack.withOpacity(0.3),
-            blurRadius: _isFocused ? 12 : 6,
-            offset: const Offset(0, 3),
+            color: AppTheme.offBlack.withOpacity(0.65),
+            blurRadius: isActive ? 20 : 12,
+            offset: const Offset(0, 6),
+            spreadRadius: 1,
+          ),
+          // Accent glow shadow
+          BoxShadow(
+            color: AppTheme.emeraldInk.withOpacity(isActive ? 0.5 : 0.22),
+            blurRadius: isActive ? 14 : 8,
+            offset: const Offset(0, 2),
           ),
         ],
       ),
@@ -86,11 +107,11 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
         children: [
           const SizedBox(width: 14),
           AnimatedScale(
-            scale: _isFocused ? 1.1 : 1.0,
+            scale: isActive ? 1.15 : 1.0,
             duration: const Duration(milliseconds: 180),
             child: Icon(
               Icons.search_rounded,
-              color: _isFocused ? AppTheme.champagne : AppTheme.textMuted,
+              color: isActive ? AppTheme.champagne : AppTheme.textMuted,
               size: 22,
             ),
           ),
@@ -109,7 +130,7 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
                 hintStyle: TextStyle(color: AppTheme.textMuted, fontSize: 14),
                 border: InputBorder.none,
                 isDense: true,
-                contentPadding: EdgeInsets.symmetric(vertical: 14),
+                contentPadding: EdgeInsets.symmetric(vertical: 12),
               ),
               textInputAction: TextInputAction.search,
               onSubmitted: (_) => _submit(),
@@ -117,27 +138,36 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
           ),
           if (widget.isSearchMode || _controller.text.isNotEmpty)
             GestureDetector(
-              onTap: () {
-                _controller.clear();
-                widget.onClear();
-              },
-              child: const Padding(
-                padding: EdgeInsets.all(12),
-                child: Icon(Icons.close_rounded,
-                    color: AppTheme.textMuted, size: 20),
+              onTap: _clearSearch,
+              child: Container(
+                margin: const EdgeInsets.only(right: 4),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppTheme.emeraldInk.withOpacity(0.25),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.close_rounded,
+                    color: AppTheme.champagne, size: 18),
               ),
             )
           else
             GestureDetector(
               onTap: _submit,
               child: Container(
-                margin: const EdgeInsets.only(right: 6),
+                margin: const EdgeInsets.only(right: 4),
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 decoration: BoxDecoration(
                   color: AppTheme.emeraldInk,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppTheme.champagne.withOpacity(0.3)),
+                  borderRadius: BorderRadius.circular(28),
+                  border: Border.all(color: AppTheme.champagne.withOpacity(0.35)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppTheme.offBlack.withOpacity(0.3),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
                 ),
                 child: const Icon(Icons.search_rounded,
                     color: AppTheme.champagne, size: 20),

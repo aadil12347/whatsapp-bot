@@ -29,7 +29,10 @@ class _MovieCardState extends State<MovieCard> {
       onTapDown: (_) => setState(() => _isPressed = true),
       onTapUp: (_) => setState(() => _isPressed = false),
       onTapCancel: () => setState(() => _isPressed = false),
-      onTap: widget.onTap,
+      onTap: () {
+        FocusManager.instance.primaryFocus?.unfocus();
+        widget.onTap();
+      },
       child: AnimatedScale(
         scale: _isPressed ? 0.97 : 1.0,
         duration: const Duration(milliseconds: 140),
