@@ -101,7 +101,7 @@ async function startPairing(cleanStart = true) {
         }
         
         if (connection === 'close') {
-            const statusCode = lastDisconnect?.error?.output?.statusCode;
+            const statusCode = (lastDisconnect && lastDisconnect.error && lastDisconnect.error.output) ? lastDisconnect.error.output.statusCode : undefined;
             console.log(`🔄 Connection closed. Code: ${statusCode || '?'}`);
             
             if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
