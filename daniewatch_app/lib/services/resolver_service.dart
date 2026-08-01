@@ -68,7 +68,13 @@ class ResolverService {
       final fallbackLinks = <String>[];
 
       for (final el in doc.querySelectorAll('a[href]')) {
-        final href = el.attributes['href'] ?? '';
+        var href = el.attributes['href'] ?? '';
+        if (href.isEmpty || href.startsWith('#')) continue;
+
+        try {
+          href = Uri.parse(landingUrl).resolve(href).toString();
+        } catch (_) {}
+
         final lh = href.toLowerCase();
 
         if (lh.contains('telegram') ||
@@ -76,7 +82,6 @@ class ResolverService {
             lh.contains('twitter') ||
             lh.contains('category') ||
             lh.contains('.fans') ||
-            href.startsWith('#') ||
             href == landingUrl) continue;
 
         if (lh.contains('vcloud') ||
@@ -99,7 +104,7 @@ class ResolverService {
         }
       }
 
-      // 1. Multiple vcloud episode links detected on page (> 1) -> SERIES!
+      // 1. Multiple vcloud episode links detected on initial landing page (> 1) -> SERIES!
       if (vcloudLinks.length > 1) {
         final total = vcloudLinks.length;
         int completed = 0;
@@ -109,9 +114,9 @@ class ResolverService {
           final idx = entry.key;
           final epUrl = entry.value;
 
-          // Stagger requests slightly (400ms per index) to prevent VCloud anti-bot rate limiting
+          // Stagger requests by 1200ms to prevent Cloudflare/VCloud rate limiting
           if (idx > 0) {
-            await Future.delayed(Duration(milliseconds: 400 * idx));
+            await Future.delayed(Duration(milliseconds: 1200 * idx));
           }
 
           print('[Resolver] Starting Ep ${idx + 1}/$total: $epUrl');
@@ -140,9 +145,18 @@ class ResolverService {
         }
       }
 
-      // 2. Single vcloud link found -> recurse into it
+      // 2. Single vcloud link found -> MOVIE! Returns EXACTLY 1 best direct video link
       if (vcloudLinks.length == 1) {
-        return resolveAllEpisodes(vcloudLinks.first, onProgress: onProgress);
+        onProgress?.call(1, 1, false);
+        final resolved = await resolveWithFallback(vcloudLinks.first, referer: landingUrl);
+        onProgress?.call(1, 1, true);
+
+        if (resolved.directUrl.isNotEmpty && !resolved.directUrl.contains('.fans')) {
+          return MultiResolveResult(
+            serverName: resolved.serverName,
+            directUrls: [resolved.directUrl],
+          );
+        }
       }
 
       // 3. Multiple fallback links detected (> 1) -> fallback series
@@ -184,12 +198,21 @@ class ResolverService {
         }
       }
 
-      // 4. Single fallback link -> recurse into it
+      // 4. Single fallback link -> MOVIE fallback! Returns EXACTLY 1 direct video link
       if (fallbackLinks.length == 1) {
-        return resolveAllEpisodes(fallbackLinks.first, onProgress: onProgress);
+        onProgress?.call(1, 1, false);
+        final resolved = await resolveWithFallback(fallbackLinks.first, referer: landingUrl);
+        onProgress?.call(1, 1, true);
+
+        if (resolved.directUrl.isNotEmpty && !resolved.directUrl.contains('.fans')) {
+          return MultiResolveResult(
+            serverName: resolved.serverName,
+            directUrls: [resolved.directUrl],
+          );
+        }
       }
 
-      // 5. Single Movie Fallback — returns EXACTLY 1 direct link
+      // 5. Single Landing Fallback — returns EXACTLY 1 direct link
       onProgress?.call(1, 1, false);
       final singleDirect = await _resolveSingleEpisodeWithRetry(landingUrl, referer: landingUrl);
       onProgress?.call(1, 1, true);
@@ -218,33 +241,36 @@ class ResolverService {
   static Future<String?> _resolveSingleEpisodeWithRetry(String epUrl, {String? referer}) async {
     for (int attempt = 1; attempt <= 3; attempt++) {
       try {
-        final resolved = await resolveWithFallback(epUrl, referer: referer).timeout(const Duration(seconds: 20));
+        final resolved = await resolveWithFallback(epUrl, referer: referer).timeout(const Duration(seconds: 12));
         final url = resolved.directUrl;
 
-        // Check if the link was successfully extracted beyond the raw input URL
-        final isRawLanding = url == epUrl || url.trim().isEmpty;
+        // Verify if the URL is a real direct download/CDN link (NOT a raw vcloud landing page)
+        final isRawLanding = url == epUrl ||
+            url.trim().isEmpty ||
+            (url.contains('vcloud.zip/') && !url.contains('/drive/'));
 
         if (!isRawLanding && url.startsWith('http') && !url.contains('.fans')) {
           return url;
         }
 
-        print('[Resolver] Attempt $attempt for $epUrl returned same URL. Retrying in ${500 * attempt}ms...');
-        await Future.delayed(Duration(milliseconds: 500 * attempt));
+        print('[Resolver] Attempt $attempt for $epUrl returned landing page ($url). Retrying in ${400 * attempt}ms...');
+        await Future.delayed(Duration(milliseconds: 400 * attempt));
       } catch (e) {
-        print('[Resolver] Attempt $attempt for $epUrl error: $e. Retrying in ${500 * attempt}ms...');
-        await Future.delayed(Duration(milliseconds: 500 * attempt));
+        print('[Resolver] Attempt $attempt for $epUrl error: $e. Retrying in ${400 * attempt}ms...');
+        await Future.delayed(Duration(milliseconds: 400 * attempt));
       }
     }
 
     // Try unwrapping raw redirects one final time
     try {
-      final finalUrl = await _resolveFinalUrl(epUrl, referer: referer).timeout(const Duration(seconds: 15));
-      if (finalUrl.startsWith('http') && !finalUrl.contains('.fans')) {
+      final finalUrl = await _resolveFinalUrl(epUrl, referer: referer).timeout(const Duration(seconds: 10));
+      final isRawLanding = finalUrl == epUrl || (finalUrl.contains('vcloud.zip/') && !finalUrl.contains('/drive/'));
+      if (!isRawLanding && finalUrl.startsWith('http') && !finalUrl.contains('.fans')) {
         return finalUrl;
       }
     } catch (_) {}
 
-    return epUrl;
+    return null;
   }
 
   /// Extract all sub-option download server links from a landing page.
@@ -263,21 +289,49 @@ class ResolverService {
 
       final html = await _fetchHtml(url, referer: referer);
       final doc = html_parser.parse(html);
-      final doc = html_parser.parse(html);
 
-      // STEP A: Check script tags for double atob token URL FIRST (VCloud token page resolution)
+      // STEP A: Check script tags for token URL (double atob, single atob, location.href, or var url)
       String? decodedTokenUrl;
       final scripts = doc.querySelectorAll('script');
       final combinedScript = scripts.map((s) => s.text).join('\n');
 
-      final atobMatch =
+      // 1. Double atob: atob(atob('...'))
+      final doubleAtobMatch =
           RegExp(r'''atob\(\s*atob\(\s*['"]([^'"]+)['"]\s*\)\s*\)''')
               .firstMatch(combinedScript);
-      if (atobMatch != null) {
+      if (doubleAtobMatch != null) {
         try {
-          final s1 = utf8.decode(base64.decode(atobMatch.group(1)!));
+          final s1 = utf8.decode(base64.decode(doubleAtobMatch.group(1)!));
           decodedTokenUrl = utf8.decode(base64.decode(s1));
         } catch (_) {}
+      }
+
+      // 2. Single atob: atob('...')
+      if (decodedTokenUrl == null) {
+        final singleAtobMatch =
+            RegExp(r'''atob\(\s*['"]([^'"]+)['"]\s*\)''').firstMatch(combinedScript);
+        if (singleAtobMatch != null) {
+          try {
+            final s1 = utf8.decode(base64.decode(singleAtobMatch.group(1)!));
+            if (s1.contains('/') || s1.startsWith('http')) {
+              decodedTokenUrl = s1;
+            }
+          } catch (_) {}
+        }
+      }
+
+      // 3. Location href assignment: location.href = "..." or window.location = "..."
+      if (decodedTokenUrl == null) {
+        final hrefMatch = RegExp(
+                r'''(?:location\.href|window\.location|url)\s*=\s*['"]([^'"]+)['"]''',
+                caseSensitive: false)
+            .firstMatch(combinedScript);
+        if (hrefMatch != null) {
+          final target = hrefMatch.group(1)!;
+          if (target.contains('/') || target.startsWith('http')) {
+            decodedTokenUrl = target;
+          }
+        }
       }
 
       if (decodedTokenUrl != null) {
@@ -287,7 +341,7 @@ class ResolverService {
               '${p.scheme}://${p.host}${decodedTokenUrl.startsWith('/') ? '' : '/'}$decodedTokenUrl';
         }
 
-        final dlHtml = await _fetchHtml(decodedTokenUrl, referer: url);
+        final dlHtml = await _fetchHtml(decodedTokenUrl, referer: referer ?? url);
         final dlDoc = html_parser.parse(dlHtml);
 
         final servers = <ResolvedLink>[];
@@ -393,8 +447,8 @@ class ResolverService {
 
   /// Resolve a download link using priority selection and comprehensive redirect unwrapping:
   /// 10Gbps → FSLv2 → FSL → GDrive → Pixeldrain → any
-  static Future<ResolvedLink> resolveWithFallback(String landingUrl) async {
-    final servers = await extractAllServers(landingUrl);
+  static Future<ResolvedLink> resolveWithFallback(String landingUrl, {String? referer}) async {
+    final servers = await extractAllServers(landingUrl, referer: referer);
     if (servers.isEmpty) {
       final unwrapped = await _resolveFinalUrl(landingUrl);
       return ResolvedLink(serverName: 'Landing Link', directUrl: unwrapped);
@@ -420,16 +474,17 @@ class ResolverService {
     return ResolvedLink(serverName: sorted.first.serverName, directUrl: finalFallback);
   }
 
-  /// Sort servers by download priority
+  /// Sort servers by download priority:
+  /// 10Gbps (G-Direct / gpdl) → FSLv2 → FSL → GDrive → Pixeldrain → Gofile → any
   static List<ResolvedLink> _sortByPriority(List<ResolvedLink> servers) {
     int priority(ResolvedLink s) {
-      final t = s.serverName.toLowerCase();
-      if (t.contains('10gbps') || t.contains('10 gbps')) return 0;
+      final t = '${s.serverName} ${s.directUrl}'.toLowerCase();
+      if (t.contains('10gbps') || t.contains('10 gbps') || t.contains('g-direct') || t.contains('gdirect') || t.contains('gpdl')) return 0;
       if (t.contains('fslv2')) return 1;
       if (t.contains('fsl') && !t.contains('fslv2')) return 2;
-      if (t.contains('gdrive') || t.contains('drive')) return 3;
+      if (t.contains('gdrive') || t.contains('googleusercontent')) return 3;
       if (t.contains('pixeldrain')) return 4;
-      if (t.contains('download file')) return 5;
+      if (t.contains('gofile')) return 5;
       return 6;
     }
 
@@ -443,12 +498,27 @@ class ResolverService {
     var currentUrl = startUrl;
 
     try {
+      // Instant return for known direct CDN URLs (Pixeldrain API, Google Drive CDN, direct media files)
+      if (currentUrl.contains('pixeldrain.com/api/file/') ||
+          currentUrl.contains('googleusercontent.com') ||
+          currentUrl.endsWith('.mp4') ||
+          currentUrl.endsWith('.mkv') ||
+          currentUrl.endsWith('.avi')) {
+        return currentUrl;
+      }
+
       // 1. Check if input URL itself contains link= or r=
       final directMatch = _extractLinkFromUrl(currentUrl);
       if (directMatch != null) return directMatch;
 
       // 2. Perform GET request with HTTP redirect tracking and Referer header
-      final headers = <String, String>{};
+      final headers = <String, String>{
+        'User-Agent':
+            'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Mobile Safari/537.36',
+        'Accept':
+            'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+      };
       if (referer != null) {
         headers['Referer'] = referer;
       }
@@ -531,9 +601,18 @@ class ResolverService {
     return null;
   }
 
-  /// Fetch HTML with proper referer
+  /// Fetch HTML with proper referer and complete browser headers
   static Future<String> _fetchHtml(String url, {String? referer}) async {
-    final headers = <String, String>{};
+    final headers = <String, String>{
+      'User-Agent':
+          'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Mobile Safari/537.36',
+      'Accept':
+          'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Sec-Fetch-Dest': 'document',
+      'Sec-Fetch-Mode': 'navigate',
+      'Upgrade-Insecure-Requests': '1',
+    };
     if (referer != null) {
       headers['Referer'] = referer;
       try {
@@ -545,6 +624,8 @@ class ResolverService {
       options: Options(
         headers: headers,
         responseType: ResponseType.plain,
+        sendTimeout: const Duration(seconds: 8),
+        receiveTimeout: const Duration(seconds: 8),
         validateStatus: (status) => status != null && status < 400,
       ),
     );

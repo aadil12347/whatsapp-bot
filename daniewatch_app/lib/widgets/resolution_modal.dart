@@ -626,7 +626,7 @@ class _ResolutionModalState extends State<ResolutionModal> {
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(vertical: 14),
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
         decoration: BoxDecoration(
           color: color.withOpacity(0.18),
           borderRadius: BorderRadius.circular(12),
@@ -636,10 +636,21 @@ class _ResolutionModalState extends State<ResolutionModal> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(icon, color: color, size: 18),
-            const SizedBox(width: 8),
-            Text(label,
-                style: TextStyle(
-                    color: color, fontWeight: FontWeight.w700, fontSize: 13)),
+            const SizedBox(width: 6),
+            Flexible(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    color: color,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                  ),
+                  maxLines: 1,
+                ),
+              ),
+            ),
           ],
         ),
       ),
