@@ -1,8 +1,57 @@
+import 'package:shared_preferences/shared_preferences.dart';
+
 /// Site configuration for supported movie websites
 enum MovieSite {
   vegamovies,
   rogmovies,
   hdhub4u,
+}
+
+class SiteDomainManager {
+  static final Map<MovieSite, String> _customDomains = {};
+
+  static const Map<MovieSite, String> defaultDomains = {
+    MovieSite.vegamovies: 'https://vegamovies.catering/',
+    MovieSite.rogmovies: 'https://new1.rogmovies.click/',
+    MovieSite.hdhub4u: 'https://new3.hdhub4u.cl/',
+  };
+
+  static Future<void> loadCustomDomains() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      for (final site in MovieSite.values) {
+        final saved = prefs.getString('custom_domain_${site.name}');
+        if (saved != null && saved.trim().isNotEmpty) {
+          _customDomains[site] = _ensureTrailingSlash(saved.trim());
+        }
+      }
+    } catch (_) {}
+  }
+
+  static Future<void> setCustomDomain(MovieSite site, String url) async {
+    final formatted = _ensureTrailingSlash(url.trim());
+    _customDomains[site] = formatted;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('custom_domain_${site.name}', formatted);
+    } catch (_) {}
+  }
+
+  static String getDomain(MovieSite site) {
+    final d = _customDomains[site] ?? defaultDomains[site]!;
+    return d.endsWith('/') ? d.substring(0, d.length - 1) : d;
+  }
+
+  static String _ensureTrailingSlash(String url) {
+    var result = url;
+    if (!result.startsWith('http://') && !result.startsWith('https://')) {
+      result = 'https://$result';
+    }
+    if (!result.endsWith('/')) {
+      result = '$result/';
+    }
+    return result;
+  }
 }
 
 extension MovieSiteExtension on MovieSite {
@@ -18,25 +67,7 @@ extension MovieSiteExtension on MovieSite {
   }
 
   String get domain {
-    switch (this) {
-      case MovieSite.vegamovies:
-        return 'https://vegamovies.navy';
-      case MovieSite.rogmovies:
-        return 'https://rogmovies.rest';
-      case MovieSite.hdhub4u:
-        return 'https://new3.hdhub4u.cl';
-    }
-  }
-
-  String get emoji {
-    switch (this) {
-      case MovieSite.vegamovies:
-        return '🎬';
-      case MovieSite.rogmovies:
-        return '🎥';
-      case MovieSite.hdhub4u:
-        return '📺';
-    }
+    return SiteDomainManager.getDomain(this);
   }
 
   String get accentColorHex {
