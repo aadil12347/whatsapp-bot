@@ -596,13 +596,16 @@ class _ResolutionModalState extends State<ResolutionModal> {
               thumbVisibility: true,
               child: SingleChildScrollView(
                 scrollDirection: Axis.vertical,
-                child: SelectableText(
-                  _generateDisplayMessage(),
-                  style: const TextStyle(
-                    color: AppTheme.textPrimary,
-                    fontSize: 12,
-                    fontFamily: 'monospace',
-                    height: 1.6,
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: SelectableText(
+                    _generateDisplayMessage(),
+                    style: const TextStyle(
+                      color: AppTheme.textPrimary,
+                      fontSize: 12,
+                      fontFamily: 'monospace',
+                      height: 1.6,
+                    ),
                   ),
                 ),
               ),

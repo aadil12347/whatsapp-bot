@@ -64,125 +64,63 @@ class ResolverService {
       final html = await _fetchHtml(landingUrl);
       final doc = html_parser.parse(html);
 
-      // Check if landingUrl is nexdrive/vgmlink landing page (not vcloud itself)
-      if (!landingUrl.toLowerCase().contains('vcloud')) {
-        // Collect ALL vcloud/hubcloud links from the page
-        final vcloudLinks = <String>[];
-        final fallbackLinks = <String>[]; // fastdl, filebee, etc.
+      final vcloudLinks = <String>[];
+      final fallbackLinks = <String>[];
 
-        for (final el in doc.querySelectorAll('a[href]')) {
-          final href = el.attributes['href'] ?? '';
-          final lh = href.toLowerCase();
-
-          if (lh.contains('telegram') || lh.contains('category') || lh.contains('.fans')) continue;
-
-          if (lh.contains('vcloud') || lh.contains('hubcloud') || lh.contains('hubdrive') || lh.contains('hubcdn')) {
-            if (!vcloudLinks.contains(href)) {
-              vcloudLinks.add(href);
-            }
-          } else if (lh.contains('fastdl') || lh.contains('filebee') || lh.contains('vikingfile')) {
-            if (!fallbackLinks.contains(href)) {
-              fallbackLinks.add(href);
-            }
-          }
-        }
-
-        // Multiple vcloud links = Series (each link is an episode)
-        if (vcloudLinks.length > 1) {
-          final total = vcloudLinks.length;
-          int completed = 0;
-          onProgress?.call(0, total, false);
-
-          final tasks = vcloudLinks.asMap().entries.map((entry) async {
-            final idx = entry.key;
-            final epUrl = entry.value;
-            print('[Resolver] Starting Ep ${idx + 1}/$total: $epUrl');
-            try {
-              final resolved = await resolveWithFallback(epUrl).timeout(const Duration(seconds: 20));
-              completed++;
-              onProgress?.call(completed, total, completed == total);
-              print('[Resolver] Ep ${idx + 1}/$total completed -> ${resolved.directUrl}');
-              return MapEntry(idx, resolved.directUrl);
-            } catch (e) {
-              completed++;
-              onProgress?.call(completed, total, completed == total);
-              print('[Resolver] Ep ${idx + 1}/$total error: $e');
-              return MapEntry(idx, epUrl);
-            }
-          });
-
-          final results = await Future.wait(tasks);
-          results.sort((a, b) => a.key.compareTo(b.key));
-
-          final resolvedDirectUrls = results
-              .map((r) => r.value)
-              .where((url) => url.isNotEmpty && !url.contains('.fans'))
-              .toList();
-
-          if (resolvedDirectUrls.isNotEmpty) {
-            return MultiResolveResult(
-              serverName: 'VCloud Series (${resolvedDirectUrls.length} Episodes)',
-              directUrls: resolvedDirectUrls,
-            );
-          }
-        }
-
-        // Single vcloud link = Movie — recurse into it
-        if (vcloudLinks.isNotEmpty) {
-          return resolveAllEpisodes(vcloudLinks.first, onProgress: onProgress);
-        }
-
-        // No vcloud links — fallback to fastdl/others
-        if (fallbackLinks.isNotEmpty) {
-          return resolveAllEpisodes(fallbackLinks.first, onProgress: onProgress);
-        }
-      }
-
-      // Inside VCloud page: Check for multiple episode-like links
-      final epAnchors = <String>[];
       for (final el in doc.querySelectorAll('a[href]')) {
         final href = el.attributes['href'] ?? '';
         final lh = href.toLowerCase();
 
-        if (lh.contains('telegram') || lh.contains('facebook') ||
-            lh.contains('twitter') || lh.contains('.fans') ||
-            href.startsWith('#')) continue;
+        if (lh.contains('telegram') ||
+            lh.contains('facebook') ||
+            lh.contains('twitter') ||
+            lh.contains('category') ||
+            lh.contains('.fans') ||
+            href.startsWith('#') ||
+            href == landingUrl) continue;
 
-        // Check if link goes to a vcloud-like page (episode sub-links inside vcloud)
-        if (lh.contains('vcloud') || lh.contains('hubcloud') || lh.contains('hubdrive')) {
-          var fullUrl = href;
-          if (!fullUrl.startsWith('http')) {
-            final p = Uri.parse(landingUrl);
-            fullUrl = '${p.scheme}://${p.host}${fullUrl.startsWith('/') ? '' : '/'}$fullUrl';
+        if (lh.contains('vcloud') ||
+            lh.contains('hubcloud') ||
+            lh.contains('hubdrive') ||
+            lh.contains('hubcdn')) {
+          if (!vcloudLinks.contains(href)) {
+            vcloudLinks.add(href);
           }
-          if (fullUrl != landingUrl && !epAnchors.contains(fullUrl)) {
-            epAnchors.add(fullUrl);
+        } else if (lh.contains('fastdl') ||
+            lh.contains('filebee') ||
+            lh.contains('vikingfile') ||
+            lh.contains('pixeldrain') ||
+            lh.contains('gofile') ||
+            lh.contains('nexdrive') ||
+            lh.contains('vgmlink')) {
+          if (!fallbackLinks.contains(href)) {
+            fallbackLinks.add(href);
           }
         }
       }
 
-      // If multiple sub-links detected inside VCloud (> 1) — series
-      if (epAnchors.length > 1) {
-        final total = epAnchors.length;
+      // 1. Multiple vcloud episode links detected on page (> 1) -> SERIES!
+      if (vcloudLinks.length > 1) {
+        final total = vcloudLinks.length;
         int completed = 0;
         onProgress?.call(0, total, false);
 
-        final tasks = epAnchors.asMap().entries.map((entry) async {
+        final tasks = vcloudLinks.asMap().entries.map((entry) async {
           final idx = entry.key;
           final epUrl = entry.value;
-          print('[Resolver] Starting Ep ${idx + 1}/$total: $epUrl');
-          try {
-            final resolved = await resolveWithFallback(epUrl).timeout(const Duration(seconds: 20));
-            completed++;
-            onProgress?.call(completed, total, completed == total);
-            print('[Resolver] Ep ${idx + 1}/$total completed -> ${resolved.directUrl}');
-            return MapEntry(idx, resolved.directUrl);
-          } catch (e) {
-            completed++;
-            onProgress?.call(completed, total, completed == total);
-            print('[Resolver] Ep ${idx + 1}/$total error: $e');
-            return MapEntry(idx, epUrl);
+
+          // Stagger requests slightly (400ms per index) to prevent VCloud anti-bot rate limiting
+          if (idx > 0) {
+            await Future.delayed(Duration(milliseconds: 400 * idx));
           }
+
+          print('[Resolver] Starting Ep ${idx + 1}/$total: $epUrl');
+          final directUrl = await _resolveSingleEpisodeWithRetry(epUrl, referer: landingUrl);
+
+          completed++;
+          onProgress?.call(completed, total, completed == total);
+          print('[Resolver] Ep ${idx + 1}/$total completed -> ${directUrl ?? "Failed"}');
+          return MapEntry(idx, directUrl);
         });
 
         final results = await Future.wait(tasks);
@@ -190,6 +128,7 @@ class ResolverService {
 
         final resolvedDirectUrls = results
             .map((r) => r.value)
+            .whereType<String>()
             .where((url) => url.isNotEmpty && !url.contains('.fans'))
             .toList();
 
@@ -201,13 +140,70 @@ class ResolverService {
         }
       }
 
-      // Single Movie Fallback — returns EXACTLY 1 direct link using priority fallback
+      // 2. Single vcloud link found -> recurse into it
+      if (vcloudLinks.length == 1) {
+        return resolveAllEpisodes(vcloudLinks.first, onProgress: onProgress);
+      }
+
+      // 3. Multiple fallback links detected (> 1) -> fallback series
+      if (fallbackLinks.length > 1) {
+        final total = fallbackLinks.length;
+        int completed = 0;
+        onProgress?.call(0, total, false);
+
+        final tasks = fallbackLinks.asMap().entries.map((entry) async {
+          final idx = entry.key;
+          final epUrl = entry.value;
+
+          if (idx > 0) {
+            await Future.delayed(Duration(milliseconds: 400 * idx));
+          }
+
+          print('[Resolver] Starting Ep ${idx + 1}/$total: $epUrl');
+          final directUrl = await _resolveSingleEpisodeWithRetry(epUrl, referer: landingUrl);
+
+          completed++;
+          onProgress?.call(completed, total, completed == total);
+          return MapEntry(idx, directUrl);
+        });
+
+        final results = await Future.wait(tasks);
+        results.sort((a, b) => a.key.compareTo(b.key));
+
+        final resolvedDirectUrls = results
+            .map((r) => r.value)
+            .whereType<String>()
+            .where((url) => url.isNotEmpty && !url.contains('.fans'))
+            .toList();
+
+        if (resolvedDirectUrls.isNotEmpty) {
+          return MultiResolveResult(
+            serverName: 'Series (${resolvedDirectUrls.length} Episodes)',
+            directUrls: resolvedDirectUrls,
+          );
+        }
+      }
+
+      // 4. Single fallback link -> recurse into it
+      if (fallbackLinks.length == 1) {
+        return resolveAllEpisodes(fallbackLinks.first, onProgress: onProgress);
+      }
+
+      // 5. Single Movie Fallback — returns EXACTLY 1 direct link
       onProgress?.call(1, 1, false);
-      final singleResolved = await resolveWithFallback(landingUrl).timeout(const Duration(seconds: 20));
+      final singleDirect = await _resolveSingleEpisodeWithRetry(landingUrl, referer: landingUrl);
       onProgress?.call(1, 1, true);
+
+      if (singleDirect != null) {
+        return MultiResolveResult(
+          serverName: 'Direct CDN Link',
+          directUrls: [singleDirect],
+        );
+      }
+
       return MultiResolveResult(
-        serverName: singleResolved.serverName,
-        directUrls: [singleResolved.directUrl],
+        serverName: 'Direct Landing Link',
+        directUrls: [landingUrl],
       );
     } catch (e) {
       return MultiResolveResult(
@@ -217,8 +213,42 @@ class ResolverService {
     }
   }
 
+  /// Resolve a single episode URL to a direct CDN download URL.
+  /// Retries up to 3 times if it returns a raw vcloud/landing page URL.
+  static Future<String?> _resolveSingleEpisodeWithRetry(String epUrl, {String? referer}) async {
+    for (int attempt = 1; attempt <= 3; attempt++) {
+      try {
+        final resolved = await resolveWithFallback(epUrl, referer: referer).timeout(const Duration(seconds: 20));
+        final url = resolved.directUrl;
+
+        // Check if the link was successfully extracted beyond the raw input URL
+        final isRawLanding = url == epUrl || url.trim().isEmpty;
+
+        if (!isRawLanding && url.startsWith('http') && !url.contains('.fans')) {
+          return url;
+        }
+
+        print('[Resolver] Attempt $attempt for $epUrl returned same URL. Retrying in ${500 * attempt}ms...');
+        await Future.delayed(Duration(milliseconds: 500 * attempt));
+      } catch (e) {
+        print('[Resolver] Attempt $attempt for $epUrl error: $e. Retrying in ${500 * attempt}ms...');
+        await Future.delayed(Duration(milliseconds: 500 * attempt));
+      }
+    }
+
+    // Try unwrapping raw redirects one final time
+    try {
+      final finalUrl = await _resolveFinalUrl(epUrl, referer: referer).timeout(const Duration(seconds: 15));
+      if (finalUrl.startsWith('http') && !finalUrl.contains('.fans')) {
+        return finalUrl;
+      }
+    } catch (_) {}
+
+    return epUrl;
+  }
+
   /// Extract all sub-option download server links from a landing page.
-  static Future<List<ResolvedLink>> extractAllServers(String url) async {
+  static Future<List<ResolvedLink>> extractAllServers(String url, {String? referer}) async {
     try {
       // Pixeldrain direct
       if (url.contains('pixeldrain') && url.contains('/u/')) {
@@ -231,7 +261,8 @@ class ResolverService {
         ];
       }
 
-      final html = await _fetchHtml(url);
+      final html = await _fetchHtml(url, referer: referer);
+      final doc = html_parser.parse(html);
       final doc = html_parser.parse(html);
 
       // STEP A: Check script tags for double atob token URL FIRST (VCloud token page resolution)
