@@ -138,17 +138,23 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Scaffold(
               backgroundColor: AppTheme.bgDark,
               body: SafeArea(
-                child: Column(
+                child: Stack(
                   children: [
-                    // Floating 3D Search Bar at the very top
-                    SearchBarWidget(
-                      onSearch: (q) => state.search(q),
-                      onClear: () => state.exitSearch(),
-                      isSearchMode: state.isSearchMode,
-                      currentQuery: state.searchQuery,
+                    // Content sliding underneath search bar on scroll
+                    _buildContent(state, accent),
+
+                    // Floating 3D Glassmorphism Search Bar at the very top
+                    Positioned(
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      child: SearchBarWidget(
+                        onSearch: (q) => state.search(q),
+                        onClear: () => state.exitSearch(),
+                        isSearchMode: state.isSearchMode,
+                        currentQuery: state.searchQuery,
+                      ),
                     ),
-                    // Content
-                    Expanded(child: _buildContent(state, accent)),
                   ],
                 ),
               ),
@@ -311,7 +317,7 @@ class _HomeScreenState extends State<HomeScreen> {
         controller: _scrollController,
         physics: const AlwaysScrollableScrollPhysics(),
         itemCount: state.movies.length + (state.isLoadingMore ? 1 : 0),
-        padding: const EdgeInsets.only(bottom: 100),
+        padding: const EdgeInsets.only(top: 72, bottom: 100),
         itemBuilder: (ctx, index) {
           // Loading indicator at bottom
           if (index == state.movies.length) {
