@@ -35,8 +35,8 @@ class MultiResolveResult {
 class ResolverService {
   static final Dio _dio = Dio(
     BaseOptions(
-      connectTimeout: const Duration(seconds: 15),
-      receiveTimeout: const Duration(seconds: 15),
+      connectTimeout: const Duration(seconds: 20),
+      receiveTimeout: const Duration(seconds: 20),
       followRedirects: true,
       maxRedirects: 8,
       headers: {
@@ -52,69 +52,73 @@ class ResolverService {
     ),
   );
 
-  /// Resolve download links:
+  /// Resolve download links with progress reporting:
   /// - For a single movie: returns EXACTLY 1 direct video link using priority fallback.
-  /// - For a series: returns EXACTLY 1 direct video link per episode in sequence using priority fallback.
-  static Future<MultiResolveResult> resolveAllEpisodes(String landingUrl) async {
+  /// - For a series: returns ALL episode direct links with per-episode progress callbacks.
+  /// [onProgress] fires (current, total, isDone) for each episode being resolved.
+  static Future<MultiResolveResult> resolveAllEpisodes(
+    String landingUrl, {
+    void Function(int current, int total, bool isDone)? onProgress,
+  }) async {
     try {
       final html = await _fetchHtml(landingUrl);
       final doc = html_parser.parse(html);
 
-      // Check if landingUrl is nexdrive/vgmlink landing page
+      // Check if landingUrl is nexdrive/vgmlink landing page (not vcloud itself)
       if (!landingUrl.toLowerCase().contains('vcloud')) {
-        final episodeAnchors = <Map<String, String>>[];
-        final preferredAnchors = <String>[]; // vcloud, hubcloud
-        final fallbackAnchors = <String>[]; // fastdl, filebee, etc.
+        // Collect ALL vcloud/hubcloud links from the page
+        final vcloudLinks = <String>[];
+        final fallbackLinks = <String>[]; // fastdl, filebee, etc.
 
         for (final el in doc.querySelectorAll('a[href]')) {
           final href = el.attributes['href'] ?? '';
-          final text = el.text.trim();
-          final lt = text.toLowerCase();
           final lh = href.toLowerCase();
 
-          if ((lh.contains('vcloud') ||
-                  lh.contains('fastdl') ||
-                  lh.contains('filebee') ||
-                  lh.contains('hubcloud') ||
-                  lh.contains('hubdrive') ||
-                  lh.contains('hubcdn') ||
-                  lh.contains('vikingfile')) &&
-              !lh.contains('telegram') &&
-              !lh.contains('category') &&
-              !lh.contains('.fans')) {
-            
-            // Check if explicitly marked as an episode link (Ep 1, Episode 2, Ep03, etc.)
-            if (RegExp(r'\b(?:ep|episode)\.?\s*\d+\b', caseSensitive: false).hasMatch(lt) ||
-                RegExp(r'\bep\d+\b', caseSensitive: false).hasMatch(lt)) {
-              episodeAnchors.add({'text': text, 'href': href});
-            } else {
-              // Separate preferred (vcloud) from fallback (fastdl) links
-              if (lh.contains('vcloud') || lh.contains('hubcloud') || lh.contains('hubdrive') || lh.contains('hubcdn')) {
-                if (!preferredAnchors.contains(href)) {
-                  preferredAnchors.add(href);
-                }
-              } else {
-                if (!fallbackAnchors.contains(href)) {
-                  fallbackAnchors.add(href);
-                }
-              }
+          if (lh.contains('telegram') || lh.contains('category') || lh.contains('.fans')) continue;
+
+          if (lh.contains('vcloud') || lh.contains('hubcloud') || lh.contains('hubdrive') || lh.contains('hubcdn')) {
+            if (!vcloudLinks.contains(href)) {
+              vcloudLinks.add(href);
+            }
+          } else if (lh.contains('fastdl') || lh.contains('filebee') || lh.contains('vikingfile')) {
+            if (!fallbackLinks.contains(href)) {
+              fallbackLinks.add(href);
             }
           }
         }
 
-        // 1. If explicit EPISODE links found on nexdrive page (Series)
-        if (episodeAnchors.length > 1) {
-          final resolvedDirectUrls = <String>[];
-          for (final ep in episodeAnchors) {
+        // Multiple vcloud links = Series (each link is an episode)
+        if (vcloudLinks.length > 1) {
+          final total = vcloudLinks.length;
+          int completed = 0;
+          onProgress?.call(0, total, false);
+
+          final tasks = vcloudLinks.asMap().entries.map((entry) async {
+            final idx = entry.key;
+            final epUrl = entry.value;
+            print('[Resolver] Starting Ep ${idx + 1}/$total: $epUrl');
             try {
-              final resolved = await resolveWithFallback(ep['href']!);
-              if (resolved.directUrl.isNotEmpty &&
-                  !resolved.directUrl.contains('.fans') &&
-                  !resolvedDirectUrls.contains(resolved.directUrl)) {
-                resolvedDirectUrls.add(resolved.directUrl);
-              }
-            } catch (_) {}
-          }
+              final resolved = await resolveWithFallback(epUrl).timeout(const Duration(seconds: 20));
+              completed++;
+              onProgress?.call(completed, total, completed == total);
+              print('[Resolver] Ep ${idx + 1}/$total completed -> ${resolved.directUrl}');
+              return MapEntry(idx, resolved.directUrl);
+            } catch (e) {
+              completed++;
+              onProgress?.call(completed, total, completed == total);
+              print('[Resolver] Ep ${idx + 1}/$total error: $e');
+              return MapEntry(idx, epUrl);
+            }
+          });
+
+          final results = await Future.wait(tasks);
+          results.sort((a, b) => a.key.compareTo(b.key));
+
+          final resolvedDirectUrls = results
+              .map((r) => r.value)
+              .where((url) => url.isNotEmpty && !url.contains('.fans'))
+              .toList();
+
           if (resolvedDirectUrls.isNotEmpty) {
             return MultiResolveResult(
               serverName: 'VCloud Series (${resolvedDirectUrls.length} Episodes)',
@@ -123,56 +127,72 @@ class ResolverService {
           }
         }
 
-        // 2. Single Movie: prefer vcloud links, fall back to fastdl/others only if no vcloud exists
-        final generalVcloudAnchors = preferredAnchors.isNotEmpty ? preferredAnchors : fallbackAnchors;
-        final vcloudUrl = generalVcloudAnchors.isNotEmpty
-            ? generalVcloudAnchors.first
-            : (episodeAnchors.isNotEmpty ? episodeAnchors.first['href']! : landingUrl);
+        // Single vcloud link = Movie — recurse into it
+        if (vcloudLinks.isNotEmpty) {
+          return resolveAllEpisodes(vcloudLinks.first, onProgress: onProgress);
+        }
 
-        if (vcloudUrl != landingUrl) {
-          return resolveAllEpisodes(vcloudUrl);
+        // No vcloud links — fallback to fastdl/others
+        if (fallbackLinks.isNotEmpty) {
+          return resolveAllEpisodes(fallbackLinks.first, onProgress: onProgress);
         }
       }
 
-      // Inside VCloud page: Check for episode links inside VCloud
+      // Inside VCloud page: Check for multiple episode-like links
       final epAnchors = <String>[];
       for (final el in doc.querySelectorAll('a[href]')) {
         final href = el.attributes['href'] ?? '';
-        final text = el.text.toLowerCase();
         final lh = href.toLowerCase();
 
-        if (lh.contains('telegram') ||
-            lh.contains('facebook') ||
-            lh.contains('twitter') ||
-            lh.contains('.fans') ||
+        if (lh.contains('telegram') || lh.contains('facebook') ||
+            lh.contains('twitter') || lh.contains('.fans') ||
             href.startsWith('#')) continue;
 
-        if (RegExp(r'\b(?:ep|episode)\.?\s*\d+\b', caseSensitive: false).hasMatch(text)) {
+        // Check if link goes to a vcloud-like page (episode sub-links inside vcloud)
+        if (lh.contains('vcloud') || lh.contains('hubcloud') || lh.contains('hubdrive')) {
           var fullUrl = href;
           if (!fullUrl.startsWith('http')) {
             final p = Uri.parse(landingUrl);
-            fullUrl =
-                '${p.scheme}://${p.host}${fullUrl.startsWith('/') ? '' : '/'}$fullUrl';
+            fullUrl = '${p.scheme}://${p.host}${fullUrl.startsWith('/') ? '' : '/'}$fullUrl';
           }
-          if (!epAnchors.contains(fullUrl)) {
+          if (fullUrl != landingUrl && !epAnchors.contains(fullUrl)) {
             epAnchors.add(fullUrl);
           }
         }
       }
 
-      // If multiple episode links detected inside VCloud (> 1)
+      // If multiple sub-links detected inside VCloud (> 1) — series
       if (epAnchors.length > 1) {
-        final resolvedDirectUrls = <String>[];
-        for (final epUrl in epAnchors) {
+        final total = epAnchors.length;
+        int completed = 0;
+        onProgress?.call(0, total, false);
+
+        final tasks = epAnchors.asMap().entries.map((entry) async {
+          final idx = entry.key;
+          final epUrl = entry.value;
+          print('[Resolver] Starting Ep ${idx + 1}/$total: $epUrl');
           try {
-            final resolved = await resolveWithFallback(epUrl);
-            if (resolved.directUrl.isNotEmpty &&
-                !resolved.directUrl.contains('.fans') &&
-                !resolvedDirectUrls.contains(resolved.directUrl)) {
-              resolvedDirectUrls.add(resolved.directUrl);
-            }
-          } catch (_) {}
-        }
+            final resolved = await resolveWithFallback(epUrl).timeout(const Duration(seconds: 20));
+            completed++;
+            onProgress?.call(completed, total, completed == total);
+            print('[Resolver] Ep ${idx + 1}/$total completed -> ${resolved.directUrl}');
+            return MapEntry(idx, resolved.directUrl);
+          } catch (e) {
+            completed++;
+            onProgress?.call(completed, total, completed == total);
+            print('[Resolver] Ep ${idx + 1}/$total error: $e');
+            return MapEntry(idx, epUrl);
+          }
+        });
+
+        final results = await Future.wait(tasks);
+        results.sort((a, b) => a.key.compareTo(b.key));
+
+        final resolvedDirectUrls = results
+            .map((r) => r.value)
+            .where((url) => url.isNotEmpty && !url.contains('.fans'))
+            .toList();
+
         if (resolvedDirectUrls.isNotEmpty) {
           return MultiResolveResult(
             serverName: 'VCloud Series (${resolvedDirectUrls.length} Episodes)',
@@ -181,8 +201,10 @@ class ResolverService {
         }
       }
 
-      // Single Movie Fallback — ALWAYS returns EXACTLY 1 direct link using priority fallback!
-      final singleResolved = await resolveWithFallback(landingUrl);
+      // Single Movie Fallback — returns EXACTLY 1 direct link using priority fallback
+      onProgress?.call(1, 1, false);
+      final singleResolved = await resolveWithFallback(landingUrl).timeout(const Duration(seconds: 20));
+      onProgress?.call(1, 1, true);
       return MultiResolveResult(
         serverName: singleResolved.serverName,
         directUrls: [singleResolved.directUrl],

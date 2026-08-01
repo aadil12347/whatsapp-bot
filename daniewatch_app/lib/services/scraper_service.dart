@@ -362,38 +362,18 @@ class ScraperService {
     return fallback.any((d) => lowerUrl.contains(d));
   }
 
-  /// Prioritize vcloud links per resolution group with fallback
+  /// Only show vcloud links. If ANY vcloud link exists, drop all non-vcloud links.
+  /// Fallback to fastdl/others ONLY when zero vcloud links exist across entire result set.
   static List<DownloadLink> _prioritizeVCloudLinks(List<DownloadLink> links) {
     if (links.isEmpty) return links;
 
-    // Group links by resolution
-    final Map<String, List<DownloadLink>> groups = {};
-    for (final link in links) {
-      groups.putIfAbsent(link.resolution, () => []).add(link);
-    }
+    final vcloudLinks = links.where((l) => _isPreferredDomain(l.href.toLowerCase())).toList();
 
-    final result = <DownloadLink>[];
-    // Maintain original resolution order
-    final seenResolutions = <String>{};
-    for (final link in links) {
-      if (seenResolutions.contains(link.resolution)) continue;
-      seenResolutions.add(link.resolution);
+    // If ANY vcloud links exist, return ONLY those
+    if (vcloudLinks.isNotEmpty) return vcloudLinks;
 
-      final group = groups[link.resolution]!;
-      final preferred = group.where((l) => _isPreferredDomain(l.href.toLowerCase())).toList();
-      final fallback = group.where((l) => !_isPreferredDomain(l.href.toLowerCase())).toList();
-
-      if (preferred.isNotEmpty) {
-        // Use preferred vcloud links, add fallbacks after them
-        result.addAll(preferred);
-        result.addAll(fallback);
-      } else {
-        // No vcloud links for this resolution — use fallback links
-        result.addAll(fallback);
-      }
-    }
-
-    return result;
+    // No vcloud links at all — fallback to whatever is available
+    return links;
   }
 
   /// Check if a URL belongs strictly to a download landing domain

@@ -31,6 +31,8 @@ class _ResolutionModalState extends State<ResolutionModal> {
 
   // Resolving state
   bool _resolving = false;
+  int _resolvingCurrent = 0;
+  int _resolvingTotal = 0;
   List<String> _resolvedUrls = [];
   String? _resolvedServerName;
   String? _selectedText;
@@ -78,6 +80,8 @@ class _ResolutionModalState extends State<ResolutionModal> {
   Future<void> _resolveLink(DownloadLink link) async {
     setState(() {
       _resolving = true;
+      _resolvingCurrent = 0;
+      _resolvingTotal = 0;
       _resolvedUrls = [];
       _resolvedServerName = null;
       _selectedText = link.text;
@@ -85,7 +89,16 @@ class _ResolutionModalState extends State<ResolutionModal> {
     });
 
     try {
-      final result = await ResolverService.resolveAllEpisodes(link.href);
+      final result = await ResolverService.resolveAllEpisodes(
+        link.href,
+        onProgress: (current, total, isDone) {
+          if (!mounted) return;
+          setState(() {
+            _resolvingCurrent = current;
+            _resolvingTotal = total;
+          });
+        },
+      );
       if (!mounted) return;
       setState(() {
         _resolving = false;
@@ -106,6 +119,25 @@ class _ResolutionModalState extends State<ResolutionModal> {
   String _generateWhatsAppMessage() {
     if (_resolvedUrls.isNotEmpty) {
       return '.d ${_resolvedUrls.join(', ')}';
+    }
+    return '';
+  }
+
+  /// Format command for display in preview box (wrapped, readable)
+  String _generateDisplayMessage() {
+    if (_resolvedUrls.isNotEmpty) {
+      if (_resolvedUrls.length == 1) {
+        return '.d ${_resolvedUrls.first}';
+      }
+      // Multi-episode: show each link on a new line for readability
+      final buffer = StringBuffer('.d ');
+      for (int i = 0; i < _resolvedUrls.length; i++) {
+        buffer.write(_resolvedUrls[i]);
+        if (i < _resolvedUrls.length - 1) {
+          buffer.write(',\n');
+        }
+      }
+      return buffer.toString();
     }
     return '';
   }
@@ -412,9 +444,11 @@ class _ResolutionModalState extends State<ResolutionModal> {
           children: [
             const CircularProgressIndicator(color: AppTheme.accent),
             const SizedBox(height: 20),
-            const Text(
-              'Fetching & resolving VCloud links...',
-              style: TextStyle(
+            Text(
+              _resolvingTotal > 1
+                  ? 'Extracting Series Episodes ($_resolvingCurrent / $_resolvingTotal)'
+                  : 'Fetching & resolving VCloud links...',
+              style: const TextStyle(
                   color: AppTheme.textPrimary,
                   fontSize: 15,
                   fontWeight: FontWeight.w600),
@@ -436,10 +470,27 @@ class _ResolutionModalState extends State<ResolutionModal> {
               ),
             ],
             const SizedBox(height: 16),
-            const Text(
-              'Extracting direct links in sequence...',
-              style: TextStyle(color: AppTheme.accent, fontSize: 12),
-            ),
+            if (_resolvingTotal > 1) ...[
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: LinearProgressIndicator(
+                  value: _resolvingTotal > 0 ? _resolvingCurrent / _resolvingTotal : null,
+                  backgroundColor: AppTheme.bgDark,
+                  color: AppTheme.accent,
+                  minHeight: 6,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Extracting Episode $_resolvingCurrent of $_resolvingTotal...',
+                style: const TextStyle(color: AppTheme.accent, fontSize: 13, fontWeight: FontWeight.w600),
+              ),
+            ] else ...[
+              const Text(
+                'Extracting direct links in sequence...',
+                style: TextStyle(color: AppTheme.accent, fontSize: 12),
+              ),
+            ],
           ],
         ),
       ),
@@ -545,16 +596,13 @@ class _ResolutionModalState extends State<ResolutionModal> {
               thumbVisibility: true,
               child: SingleChildScrollView(
                 scrollDirection: Axis.vertical,
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: SelectableText(
-                    whatsappMsg,
-                    style: const TextStyle(
-                      color: AppTheme.textPrimary,
-                      fontSize: 12,
-                      fontFamily: 'monospace',
-                      height: 1.45,
-                    ),
+                child: SelectableText(
+                  _generateDisplayMessage(),
+                  style: const TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontSize: 12,
+                    fontFamily: 'monospace',
+                    height: 1.6,
                   ),
                 ),
               ),
