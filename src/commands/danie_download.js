@@ -3,7 +3,7 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const fileType = require('file-type');
-const { browserHttpsAgent, fetchHtmlWithRetry, fetchTmdbMetadata, fetchTmdbById, downloadYoutubeVideoUrl, scrapePostPage, resolveLandingLink, resolveVcloudLink, resolveFinalUrl, scrapeAllPostLinks, extractDirectDownloadLinks, extractSubOptions, searchHdhub4u } = require('../Utils/movie_scraper');
+const { browserHttpsAgent, fetchHtmlWithRetry, fetchTmdbMetadata, fetchTmdbById, downloadYoutubeVideoUrl, scrapePostPage, resolveLandingLink, resolveVcloudLink, resolveFinalUrl, scrapeAllPostLinks, extractDirectDownloadLinks, extractSubOptions, searchHdhub4u, extractSeriesVcloudLinks } = require('../Utils/movie_scraper');
 const { searchStreamImdb, getMediaDetails, getEpisodeEmbedUrl, resolveStreamOptions, downloadStreamWithFFmpeg, verifyMediaFile } = require('../Utils/streamimdb_scraper');
 
 // Global handlers to prevent background network disconnect errors from crashing the Node process
@@ -3449,6 +3449,43 @@ cmd({
     };
     const senderJid = m.sender || mek.sender || from;
     await searchCommandHandler(conn, mek, from, senderJid, q, reply, 'rogmovies');
+});
+
+cmd({
+    pattern: 'se',
+    alias: ['serieslinks', 'nexdrive', 'vcloudlinks'],
+    react: '📺',
+    desc: 'Extracts all episode direct download links (10Gbps > FSLv2 > FSL) from a Nextdrive series page and returns a WhatsApp copyable message.',
+    category: 'download',
+    use: '.se <nextdrive_url>',
+    filename: __filename
+}, async (conn, mek, m, { from, quoted, q }) => {
+    const reply = async (textMsg) => {
+        return conn.sendMessage(from, { text: textMsg }, { quoted: mek });
+    };
+
+    if (!q || !q.trim()) {
+        return reply('❌ Please provide a Nextdrive landing page URL!\n\n*Example:* `.se https://nexdrive.fit/genxfm784776495266/`');
+    }
+
+    const nextdriveUrl = q.trim();
+    if (!nextdriveUrl.startsWith('http')) {
+        return reply('❌ Invalid URL! Please provide a valid HTTP/HTTPS Nextdrive URL.');
+    }
+
+    await reply(`⏳ *Extracting episode links from Nextdrive...*\n⚡ *Concurrency:* 2 links simultaneously | ⏱️ *Timeout:* 20s per link`);
+
+    try {
+        const result = await extractSeriesVcloudLinks(nextdriveUrl, {
+            concurrency: 2,
+            timeoutMs: 20000
+        });
+
+        await reply(result.whatsappMessage);
+    } catch (err) {
+        console.error('[SeriesExtractor] Command failed:', err);
+        reply(`❌ Failed to extract series episode links: ${err.message}`);
+    }
 });
 
 cmd({

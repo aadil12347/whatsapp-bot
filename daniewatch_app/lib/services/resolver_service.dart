@@ -2,6 +2,19 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:html/parser.dart' as html_parser;
 
+/// Data model for an episode link found on landing page
+class EpisodeItem {
+  final String label;
+  final String url;
+  final int index;
+
+  EpisodeItem({
+    required this.label,
+    required this.url,
+    required this.index,
+  });
+}
+
 /// Data model for a resolved download server link
 class ResolvedLink {
   final String serverName;
@@ -51,6 +64,132 @@ class ResolverService {
       },
     ),
   );
+
+  /// Extract VCloud episode links from a landing page without resolving direct video links yet
+  static Future<List<EpisodeItem>> extractEpisodeLinks(String landingUrl) async {
+    try {
+      final html = await _fetchHtml(landingUrl);
+      final doc = html_parser.parse(html);
+
+      final vcloudLinks = <String>[];
+      final fallbackLinks = <String>[];
+
+      for (final el in doc.querySelectorAll('a[href]')) {
+        var href = el.attributes['href'] ?? '';
+        if (href.isEmpty || href.startsWith('#')) continue;
+
+        try {
+          href = Uri.parse(landingUrl).resolve(href).toString();
+        } catch (_) {}
+
+        final lh = href.toLowerCase();
+
+        if (lh.contains('telegram') ||
+            lh.contains('facebook') ||
+            lh.contains('twitter') ||
+            lh.contains('category') ||
+            lh.contains('.fans') ||
+            href == landingUrl) continue;
+
+        if (lh.contains('vcloud') ||
+            lh.contains('hubcloud') ||
+            lh.contains('hubdrive') ||
+            lh.contains('hubcdn')) {
+          if (!vcloudLinks.contains(href)) {
+            vcloudLinks.add(href);
+          }
+        } else if (lh.contains('fastdl') ||
+            lh.contains('filebee') ||
+            lh.contains('vikingfile') ||
+            lh.contains('pixeldrain') ||
+            lh.contains('gofile') ||
+            lh.contains('nexdrive') ||
+            lh.contains('vgmlink')) {
+          if (!fallbackLinks.contains(href)) {
+            fallbackLinks.add(href);
+          }
+        }
+      }
+
+      final targetLinks = vcloudLinks.isNotEmpty ? vcloudLinks : fallbackLinks;
+      final episodes = <EpisodeItem>[];
+
+      for (int i = 0; i < targetLinks.length; i++) {
+        final epNum = i + 1;
+        final epStr = epNum < 10 ? '0$epNum' : '$epNum';
+        episodes.add(EpisodeItem(
+          label: 'Episode $epStr',
+          url: targetLinks[i],
+          index: epNum,
+        ));
+      }
+
+      return episodes;
+    } catch (e) {
+      return [EpisodeItem(label: 'Movie / Direct Link', url: landingUrl, index: 1)];
+    }
+  }
+
+  /// Resolve a list of selected EpisodeItems to direct download URLs
+  static Future<MultiResolveResult> resolveEpisodesList(
+    List<EpisodeItem> episodes, {
+    String? referer,
+    void Function(int current, int total, bool isDone)? onProgress,
+  }) async {
+    if (episodes.isEmpty) {
+      return MultiResolveResult(serverName: 'Direct Link', directUrls: []);
+    }
+
+    if (episodes.length == 1) {
+      onProgress?.call(1, 1, false);
+      final resolved = await _resolveSingleEpisodeWithRetry(episodes.first.url, referer: referer);
+      onProgress?.call(1, 1, true);
+
+      if (resolved != null && resolved.isNotEmpty) {
+        return MultiResolveResult(
+          serverName: '${episodes.first.label} (VCloud)',
+          directUrls: [resolved],
+        );
+      } else {
+        return MultiResolveResult(
+          serverName: '${episodes.first.label} (Direct)',
+          directUrls: [episodes.first.url],
+        );
+      }
+    }
+
+    final total = episodes.length;
+    int completed = 0;
+    onProgress?.call(0, total, false);
+
+    final tasks = episodes.asMap().entries.map((entry) async {
+      final idx = entry.key;
+      final ep = entry.value;
+
+      if (idx > 0) {
+        await Future.delayed(Duration(milliseconds: 1000 * idx));
+      }
+
+      final directUrl = await _resolveSingleEpisodeWithRetry(ep.url, referer: referer);
+      completed++;
+      onProgress?.call(completed, total, completed == total);
+      return MapEntry(idx, directUrl);
+    });
+
+    final results = await Future.wait(tasks);
+    results.sort((a, b) => a.key.compareTo(b.key));
+
+    final resolvedDirectUrls = results
+        .map((r) => r.value)
+        .whereType<String>()
+        .where((url) => url.isNotEmpty && !url.contains('.fans'))
+        .toList();
+
+    return MultiResolveResult(
+      serverName: 'VCloud Series (${resolvedDirectUrls.length} Episodes)',
+      directUrls: resolvedDirectUrls,
+    );
+  }
 
   /// Resolve download links with progress reporting:
   /// - For a single movie: returns EXACTLY 1 direct video link using priority fallback.
@@ -498,12 +637,16 @@ class ResolverService {
     var currentUrl = startUrl;
 
     try {
-      // Instant return for known direct CDN URLs (Pixeldrain API, Google Drive CDN, direct media files)
-      if (currentUrl.contains('pixeldrain.com/api/file/') ||
-          currentUrl.contains('googleusercontent.com') ||
-          currentUrl.endsWith('.mp4') ||
-          currentUrl.endsWith('.mkv') ||
-          currentUrl.endsWith('.avi')) {
+      // Instant return for known direct CDN URLs (Pixeldrain API, Google Drive CDN, Cloudflare R2, direct media files)
+      final lower = currentUrl.toLowerCase();
+      if (lower.contains('pixeldrain.com/api/file/') ||
+          lower.contains('googleusercontent.com') ||
+          lower.contains('cloudflarestorage.com') ||
+          lower.contains('r2.dev') ||
+          lower.contains('.mp4') ||
+          lower.contains('.mkv') ||
+          lower.contains('.avi') ||
+          lower.contains('.zip')) {
         return currentUrl;
       }
 

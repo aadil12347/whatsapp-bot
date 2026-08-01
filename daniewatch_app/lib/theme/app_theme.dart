@@ -2,25 +2,33 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class AppTheme {
-  // Core palette
-  static const Color bgDark = Color(0xFF0D0D0D);
-  static const Color bgCard = Color(0xFF1A1A2E);
-  static const Color bgSurface = Color(0xFF16213E);
-  static const Color bgModal = Color(0xFF1A1A2E);
-  static const Color accent = Color(0xFF00D4AA);
-  static const Color accentSecondary = Color(0xFF6C63FF);
-  static const Color textPrimary = Color(0xFFEEEEEE);
-  static const Color textSecondary = Color(0xFF9E9E9E);
-  static const Color textMuted = Color(0xFF666666);
-  static const Color divider = Color(0xFF2A2A3E);
-  static const Color success = Color(0xFF4CAF50);
-  static const Color error = Color(0xFFEF5350);
-  static const Color warning = Color(0xFFFF9800);
+  // STRICT 4-COLOR PALETTE ONLY (No pure #FFFFFF, no pure #000000)
+  static const Color emeraldInk = Color(0xFF064E3B);  // Primary Rich Emerald (#064E3B)
+  static const Color champagne  = Color(0xFFF8E7C9);  // Golden Warm Champagne (#F8E7C9)
+  static const Color offBlack   = Color(0xFF0B1210);  // Dark Soft Emerald Black (#0B1210)
+  static const Color offWhite   = Color(0xFFF4F4F0);  // Soft Warm Off-White (#F4F4F0)
 
-  // Site accent colors
-  static const Color vegaGreen = Color(0xFF4CAF50);
-  static const Color rogOrange = Color(0xFFFF9800);
-  static const Color hdhubBlue = Color(0xFF2196F3);
+  // Surface Tones derived from Off-Black & Emerald Ink
+  static const Color bgDark    = offBlack;
+  static const Color bgCard    = Color(0xFF101B17); // Dark Emerald Ink Tint
+  static const Color bgSurface = Color(0xFF14241F); // Elevated Dark Emerald Surface
+  static const Color bgModal   = Color(0xFF0D1714); // Modal Dark Background
+
+  // Text Colors
+  static const Color textPrimary   = champagne; // Warm Champagne for main text
+  static const Color textSecondary = offWhite;  // Soft Off-White for body text
+  static const Color textMuted     = Color(0xFF8A9C93); // Muted tint
+
+  // Divider & Accents
+  static const Color divider   = Color(0xFF1D322A);
+  static const Color accent    = emeraldInk;
+  static const Color success   = emeraldInk;
+  static const Color error     = emeraldInk;
+
+  // Site accent colors (All mapped to Emerald Ink & Champagne)
+  static const Color vegaGreen = emeraldInk;
+  static const Color rogOrange = champagne;
+  static const Color hdhubBlue = emeraldInk;
 
   static ThemeData get darkTheme {
     return ThemeData(
@@ -28,21 +36,21 @@ class AppTheme {
       brightness: Brightness.dark,
       scaffoldBackgroundColor: bgDark,
       colorScheme: const ColorScheme.dark(
-        primary: accent,
-        secondary: accentSecondary,
+        primary: emeraldInk,
+        secondary: champagne,
         surface: bgSurface,
-        error: error,
+        error: emeraldInk,
       ),
       textTheme: GoogleFonts.interTextTheme(
         const TextTheme(
-          displayLarge: TextStyle(color: textPrimary, fontWeight: FontWeight.w700),
-          displayMedium: TextStyle(color: textPrimary, fontWeight: FontWeight.w600),
-          titleLarge: TextStyle(color: textPrimary, fontWeight: FontWeight.w600, fontSize: 20),
-          titleMedium: TextStyle(color: textPrimary, fontWeight: FontWeight.w500, fontSize: 16),
-          bodyLarge: TextStyle(color: textPrimary, fontSize: 15),
-          bodyMedium: TextStyle(color: textSecondary, fontSize: 14),
+          displayLarge: TextStyle(color: champagne, fontWeight: FontWeight.w800),
+          displayMedium: TextStyle(color: champagne, fontWeight: FontWeight.w700),
+          titleLarge: TextStyle(color: champagne, fontWeight: FontWeight.w700, fontSize: 20),
+          titleMedium: TextStyle(color: champagne, fontWeight: FontWeight.w600, fontSize: 16),
+          bodyLarge: TextStyle(color: champagne, fontSize: 15),
+          bodyMedium: TextStyle(color: offWhite, fontSize: 14),
           bodySmall: TextStyle(color: textMuted, fontSize: 12),
-          labelLarge: TextStyle(color: textPrimary, fontWeight: FontWeight.w600),
+          labelLarge: TextStyle(color: champagne, fontWeight: FontWeight.w700),
         ),
       ),
       appBarTheme: AppBarTheme(
@@ -50,17 +58,17 @@ class AppTheme {
         elevation: 0,
         scrolledUnderElevation: 0,
         titleTextStyle: GoogleFonts.inter(
-          color: textPrimary,
+          color: champagne,
           fontSize: 22,
-          fontWeight: FontWeight.w700,
+          fontWeight: FontWeight.w800,
         ),
-        iconTheme: const IconThemeData(color: accent),
+        iconTheme: const IconThemeData(color: emeraldInk),
       ),
       cardTheme: CardThemeData(
         color: bgCard,
         elevation: 0,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(16),
         ),
         margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       ),
@@ -72,28 +80,27 @@ class AppTheme {
       ),
       dividerColor: divider,
       progressIndicatorTheme: const ProgressIndicatorThemeData(
-        color: accent,
+        color: champagne,
       ),
     );
   }
 
-  // Gradient for the app bar / headers
-  static const LinearGradient headerGradient = LinearGradient(
-    colors: [Color(0xFF1A1A2E), Color(0xFF0D0D0D)],
-    begin: Alignment.topCenter,
-    end: Alignment.bottomCenter,
-  );
-
-  // Gradient for buttons
-  static const LinearGradient buttonGradient = LinearGradient(
-    colors: [accent, Color(0xFF00B894)],
+  // Gradients strictly built from Emerald Ink & Champagne & Off-Black
+  static const LinearGradient emeraldGradient = LinearGradient(
+    colors: [emeraldInk, Color(0xFF04382A)],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );
 
-  static BoxDecoration get glassDecoration => BoxDecoration(
-        color: bgCard.withOpacity(0.7),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: divider.withOpacity(0.3)),
-      );
+  static const LinearGradient champagneGradient = LinearGradient(
+    colors: [champagne, Color(0xFFE8D4B0)],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
+
+  static const LinearGradient cardGradient = LinearGradient(
+    colors: [Color(0xFF14241F), Color(0xFF0D1714)],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
 }

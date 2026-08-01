@@ -1608,6 +1608,265 @@ async function searchHdhub4u(query) {
     return [];
 }
 
+/**
+ * Concurrency runner helper (executes at most limit functions concurrently)
+ */
+async function runWithConcurrency(items, limit, workerFn) {
+    const results = new Array(items.length);
+    let index = 0;
+
+    const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+        while (index < items.length) {
+            const currentIndex = index++;
+            try {
+                results[currentIndex] = await workerFn(items[currentIndex], currentIndex);
+            } catch (err) {
+                console.error(`[ConcurrencyRunner] Item ${currentIndex} failed:`, err.message);
+                results[currentIndex] = null;
+            }
+        }
+    });
+
+    await Promise.all(workers);
+    return results;
+}
+
+/**
+ * Resolves a single VCloud episode link with a 20s timeout and strict server prioritization (10gbps > fslv2 > fsl)
+ */
+async function resolveSingleVcloudEpisode(vUrl, referer = null, timeoutMs = 20000) {
+    const cancelTokenSource = axios.CancelToken.source();
+    const timer = setTimeout(() => {
+        cancelTokenSource.cancel(`Extraction timed out after ${timeoutMs / 1000} seconds`);
+    }, timeoutMs);
+
+    try {
+        const HEADERS = {
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Mobile Safari/537.36',
+            'Referer': referer || 'https://vegamovies.im/'
+        };
+
+        // Step 1: Fetch the VCloud episode page
+        const vRes = await axios.get(vUrl, {
+            headers: HEADERS,
+            cancelToken: cancelTokenSource.token,
+            timeout: timeoutMs,
+            httpsAgent: browserHttpsAgent
+        });
+
+        // Parse response for double atob or var url
+        let tokenUrl = null;
+        const atobMatch = (vRes.data || '').match(/atob\(\s*atob\(\s*['"]([^'"]+)['"]\s*\)\s*\)/);
+        if (atobMatch) {
+            const s1 = Buffer.from(atobMatch[1], 'base64').toString('utf8');
+            tokenUrl = Buffer.from(s1, 'base64').toString('utf8');
+        } else {
+            const varUrlRegex = /var\s+url\s*=\s*['"]([^'"]+)['"]/i;
+            const matchVar = varUrlRegex.exec(vRes.data || '');
+            if (matchVar && matchVar[1]) {
+                tokenUrl = matchVar[1];
+            }
+        }
+
+        if (!tokenUrl) {
+            tokenUrl = vUrl;
+        }
+
+        let fullTokenUrl = tokenUrl;
+        if (!fullTokenUrl.startsWith('http')) {
+            const parsed = new URL(vUrl);
+            fullTokenUrl = `${parsed.protocol}//${parsed.host}${fullTokenUrl.startsWith('/') ? '' : '/'}${fullTokenUrl}`;
+        }
+
+        // Step 2: Fetch decoded server page if tokenUrl differs from vUrl
+        let serverHtml = vRes.data;
+        if (fullTokenUrl !== vUrl) {
+            const dlRes = await axios.get(fullTokenUrl, {
+                headers: { ...HEADERS, 'Referer': vUrl },
+                cancelToken: cancelTokenSource.token,
+                timeout: timeoutMs,
+                httpsAgent: browserHttpsAgent
+            });
+            serverHtml = dlRes.data;
+        }
+
+        const $ = cheerio.load(serverHtml || '');
+        const servers = [];
+
+        $('a[href]').each((_, a) => {
+            const h = $(a).attr('href');
+            const text = $(a).text().trim();
+            if (h && (h.startsWith('http') || h.startsWith('/'))) {
+                const lowerText = text.toLowerCase();
+                const lowerH = h.toLowerCase();
+                if (!lowerH.includes('telegram') && !lowerH.includes('.fans') && !lowerText.includes('login') && !lowerText.includes('admin') && text) {
+                    let fullH = h;
+                    if (!fullH.startsWith('http')) {
+                        const parsed = new URL(fullTokenUrl);
+                        fullH = `${parsed.protocol}//${parsed.host}${fullH.startsWith('/') ? '' : '/'}${fullH}`;
+                    }
+                    servers.push({ text, href: fullH });
+                }
+            }
+        });
+
+        // Step 3: Server selection (10gbps > fslv2 > fsl ONLY)
+        const match10g = servers.find(s => {
+            const t = `${s.text} ${s.href}`.toLowerCase();
+            return t.includes('10gbps') || t.includes('10 gbps') || t.includes('g-direct') || t.includes('gdirect');
+        });
+
+        const matchFslv2 = servers.find(s => {
+            const t = `${s.text} ${s.href}`.toLowerCase();
+            return t.includes('fslv2') || t.includes('fsl v2') || t.includes('fsl-v2');
+        });
+
+        const matchFsl = servers.find(s => {
+            const t = `${s.text} ${s.href}`.toLowerCase();
+            return (t.includes('fsl') || t.includes('fsl server')) && !t.includes('fslv2') && !t.includes('fsl v2') && !t.includes('fsl-v2');
+        });
+
+        let selected = null;
+        let serverType = '';
+
+        if (match10g) {
+            selected = match10g;
+            serverType = '10Gbps';
+        } else if (matchFslv2) {
+            selected = matchFslv2;
+            serverType = 'FSLv2';
+        } else if (matchFsl) {
+            selected = matchFsl;
+            serverType = 'FSL';
+        }
+
+        // Strictly reject if none of 10gbps, fslv2, or fsl exist
+        if (!selected) {
+            console.log(`[SeriesVcloudExtractor] No 10gbps, fslv2, or fsl server found for: ${vUrl}`);
+            return null;
+        }
+
+        let directUrl = selected.href;
+
+        // If 10gbps, resolve redirect chain / link= parameter if present
+        if (serverType === '10Gbps') {
+            try {
+                let redirectUrl = await resolveFinalUrl(directUrl);
+                if (redirectUrl && redirectUrl.includes('link=')) {
+                    redirectUrl = redirectUrl.split('link=')[1];
+                    if (redirectUrl.includes('&')) redirectUrl = redirectUrl.split('&')[0];
+                    redirectUrl = decodeURIComponent(redirectUrl);
+                }
+                directUrl = redirectUrl || directUrl;
+            } catch (e) {
+                console.error(`[SeriesVcloudExtractor] 10Gbps redirect chain resolution error:`, e.message);
+            }
+        }
+
+        return {
+            serverType,
+            serverText: selected.text,
+            directUrl
+        };
+    } catch (err) {
+        console.error(`[SeriesVcloudExtractor] Episode resolution failed for ${vUrl}:`, err.message);
+        return null;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+/**
+ * Extracts all series episodes from a Nextdrive page:
+ * - Collects all VCloud episode links from landing page.
+ * - Extracts 2 episode links simultaneously (concurrency = 2).
+ * - Applies a 20-second timeout per episode.
+ * - Filters servers to ONLY keep 1 link per episode in order of 10gbps > fslv2 > fsl (rejecting all others).
+ * - Returns a formatted WhatsApp copyable message.
+ */
+async function extractSeriesVcloudLinks(nextdriveUrl, options = {}) {
+    const timeoutMs = options.timeoutMs || 20000;
+    const concurrency = options.concurrency || 2;
+    const referer = options.referer || 'https://vegamovies.im/';
+
+    console.log(`[SeriesVcloudExtractor] Scraping Nextdrive landing page: ${nextdriveUrl}`);
+
+    const res = await axios.get(nextdriveUrl, {
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Mobile Safari/537.36',
+            'Referer': referer
+        },
+        timeout: timeoutMs,
+        httpsAgent: browserHttpsAgent
+    });
+
+    const $ = cheerio.load(res.data);
+    const pageTitle = $('title').text().trim() || $('h1').text().trim() || 'Series Episodes';
+
+    const rawLinks = [];
+    $('a[href]').each((i, el) => {
+        const href = $(el).attr('href');
+        if (href && href.includes('vcloud')) {
+            if (!rawLinks.some(l => l.href === href)) {
+                let epLabel = findEpisodeText($, el, pageTitle);
+                if (!epLabel || epLabel.trim() === '' || epLabel.toLowerCase().includes('download')) {
+                    epLabel = `Episode ${String(rawLinks.length + 1).padStart(2, '0')}`;
+                }
+                rawLinks.push({
+                    index: rawLinks.length + 1,
+                    epLabel,
+                    href
+                });
+            }
+        }
+    });
+
+    console.log(`[SeriesVcloudExtractor] Found ${rawLinks.length} VCloud episode link(s).`);
+
+    if (rawLinks.length === 0) {
+        return {
+            title: pageTitle,
+            episodes: [],
+            whatsappMessage: `❌ No VCloud episode links found on landing page.`
+        };
+    }
+
+    const workerFn = async (item) => {
+        console.log(`[SeriesVcloudExtractor] Processing [${item.epLabel}] (Concurrency 2): ${item.href}`);
+        const resolved = await resolveSingleVcloudEpisode(item.href, nextdriveUrl, timeoutMs);
+        if (resolved) {
+            return {
+                epLabel: item.epLabel,
+                index: item.index,
+                serverType: resolved.serverType,
+                directUrl: resolved.directUrl
+            };
+        }
+        return null;
+    };
+
+    const results = await runWithConcurrency(rawLinks, concurrency, workerFn);
+    const resolvedEpisodes = results.filter(Boolean);
+
+    let whatsappMessage = `📺 *${pageTitle}*\n\n`;
+    if (resolvedEpisodes.length === 0) {
+        whatsappMessage += `❌ No valid 10Gbps, FSLv2, or FSL links could be extracted.`;
+    } else {
+        resolvedEpisodes.forEach(ep => {
+            whatsappMessage += `*${ep.epLabel}* (${ep.serverType}):\n\`${ep.directUrl}\`\n\n`;
+        });
+        whatsappMessage += `_Extracted ${resolvedEpisodes.length}/${rawLinks.length} episode(s) (Priority: 10Gbps > FSLv2 > FSL)._`;
+    }
+
+    return {
+        title: pageTitle,
+        totalFound: rawLinks.length,
+        resolvedCount: resolvedEpisodes.length,
+        episodes: resolvedEpisodes,
+        whatsappMessage: whatsappMessage.trim()
+    };
+}
+
 module.exports = {
     browserHttpsAgent,
     fetchHtmlWithRetry,
@@ -1625,5 +1884,8 @@ module.exports = {
     extractSubOptions,
     searchHdhub4u,
     searchHdhub4uViaSitemap,
-    getHdhub4uSitemapUrls
+    getHdhub4uSitemapUrls,
+    extractSeriesVcloudLinks,
+    resolveSingleVcloudEpisode,
+    runWithConcurrency
 };

@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import '../models/site_config.dart';
 import '../theme/app_theme.dart';
 
-/// Floating action button that shows a popup to switch between sites
-class SiteSwitcherFab extends StatelessWidget {
+/// Source switcher FAB styled strictly with Emerald Ink & Champagne.
+class SiteSwitcherFab extends StatefulWidget {
   final MovieSite currentSite;
   final Function(MovieSite) onSiteChanged;
 
@@ -13,25 +13,45 @@ class SiteSwitcherFab extends StatelessWidget {
     required this.onSiteChanged,
   });
 
-  Color _siteColor(MovieSite site) {
-    switch (site) {
-      case MovieSite.vegamovies:
-        return AppTheme.vegaGreen;
-      case MovieSite.rogmovies:
-        return AppTheme.rogOrange;
-      case MovieSite.hdhub4u:
-        return AppTheme.hdhubBlue;
-    }
-  }
+  @override
+  State<SiteSwitcherFab> createState() => _SiteSwitcherFabState();
+}
+
+class _SiteSwitcherFabState extends State<SiteSwitcherFab> {
+  bool _isPressed = false;
 
   @override
   Widget build(BuildContext context) {
-    return FloatingActionButton(
-      backgroundColor: _siteColor(currentSite),
-      onPressed: () => _showSitePicker(context),
-      child: Text(
-        currentSite.emoji,
-        style: const TextStyle(fontSize: 22),
+    return GestureDetector(
+      onTapDown: (_) => setState(() => _isPressed = true),
+      onTapUp: (_) => setState(() => _isPressed = false),
+      onTapCancel: () => setState(() => _isPressed = false),
+      child: AnimatedScale(
+        scale: _isPressed ? 0.90 : 1.0,
+        duration: const Duration(milliseconds: 140),
+        child: FloatingActionButton.extended(
+          elevation: 6,
+          highlightElevation: 10,
+          backgroundColor: AppTheme.emeraldInk,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: AppTheme.champagne.withOpacity(0.4)),
+          ),
+          onPressed: () => _showSitePicker(context),
+          icon: Text(
+            widget.currentSite.emoji,
+            style: const TextStyle(fontSize: 20),
+          ),
+          label: Text(
+            widget.currentSite.displayName,
+            style: const TextStyle(
+              color: AppTheme.champagne,
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.3,
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -54,7 +74,7 @@ class SiteSwitcherFab extends StatelessWidget {
                 width: 40,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: AppTheme.textMuted,
+                  color: AppTheme.champagne.withOpacity(0.3),
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -62,9 +82,9 @@ class SiteSwitcherFab extends StatelessWidget {
               const Text(
                 'Switch Source',
                 style: TextStyle(
-                  color: AppTheme.textPrimary,
+                  color: AppTheme.champagne,
                   fontSize: 18,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w800,
                 ),
               ),
               const SizedBox(height: 16),
@@ -77,24 +97,23 @@ class SiteSwitcherFab extends StatelessWidget {
   }
 
   Widget _siteOption(BuildContext context, MovieSite site) {
-    final isSelected = site == currentSite;
-    final color = _siteColor(site);
+    final isSelected = site == widget.currentSite;
 
     return GestureDetector(
       onTap: () {
         Navigator.pop(context);
-        onSiteChanged(site);
+        widget.onSiteChanged(site);
       },
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
+        duration: const Duration(milliseconds: 180),
         margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
         decoration: BoxDecoration(
-          color: isSelected ? color.withOpacity(0.15) : AppTheme.bgSurface,
-          borderRadius: BorderRadius.circular(14),
+          color: isSelected ? AppTheme.emeraldInk.withOpacity(0.3) : AppTheme.bgSurface,
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isSelected ? color : AppTheme.divider,
-            width: isSelected ? 1.5 : 1,
+            color: isSelected ? AppTheme.champagne : AppTheme.emeraldInk.withOpacity(0.4),
+            width: isSelected ? 1.8 : 1.0,
           ),
         ),
         child: Row(
@@ -108,9 +127,9 @@ class SiteSwitcherFab extends StatelessWidget {
                   Text(
                     site.displayName,
                     style: TextStyle(
-                      color: isSelected ? color : AppTheme.textPrimary,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
+                      color: isSelected ? AppTheme.champagne : AppTheme.offWhite,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                   const SizedBox(height: 2),
@@ -123,7 +142,7 @@ class SiteSwitcherFab extends StatelessWidget {
               ),
             ),
             if (isSelected)
-              Icon(Icons.check_circle_rounded, color: color, size: 24),
+              const Icon(Icons.check_circle_rounded, color: AppTheme.champagne, size: 24),
           ],
         ),
       ),

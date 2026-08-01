@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../providers/app_state.dart';
 import '../models/site_config.dart';
@@ -18,6 +19,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final _scrollController = ScrollController();
+  DateTime? _lastBackPressTime;
 
   @override
   void initState() {
@@ -42,14 +44,47 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
+  void _handleBackPress() {
+    final now = DateTime.now();
+    if (_lastBackPressTime == null ||
+        now.difference(_lastBackPressTime!) > const Duration(milliseconds: 1500)) {
+      _lastBackPressTime = now;
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Row(
+            children: [
+              Icon(Icons.info_outline_rounded, color: Colors.white, size: 18),
+              SizedBox(width: 10),
+              Text(
+                'Press back again to exit',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: AppTheme.bgSurface,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          duration: const Duration(milliseconds: 1500),
+        ),
+      );
+    } else {
+      SystemNavigator.pop();
+    }
+  }
+
   Color _siteAccentColor(MovieSite site) {
     switch (site) {
       case MovieSite.vegamovies:
-        return AppTheme.vegaGreen;
+        return AppTheme.champagne;
       case MovieSite.rogmovies:
-        return AppTheme.rogOrange;
+        return AppTheme.emeraldInk;
       case MovieSite.hdhub4u:
-        return AppTheme.hdhubBlue;
+        return AppTheme.champagne;
     }
   }
 
@@ -73,28 +108,35 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (context, state, _) {
         final accent = _siteAccentColor(state.currentSite);
 
-        return Scaffold(
-          backgroundColor: AppTheme.bgDark,
-          body: SafeArea(
-            child: Column(
-              children: [
-                // App header
-                _buildHeader(state, accent),
-                // Search bar
-                SearchBarWidget(
-                  onSearch: (q) => state.search(q),
-                  onClear: () => state.exitSearch(),
-                  isSearchMode: state.isSearchMode,
-                  currentQuery: state.searchQuery,
-                ),
-                // Content
-                Expanded(child: _buildContent(state, accent)),
-              ],
+        return PopScope(
+          canPop: false,
+          onPopInvokedWithResult: (didPop, result) {
+            if (didPop) return;
+            _handleBackPress();
+          },
+          child: Scaffold(
+            backgroundColor: AppTheme.bgDark,
+            body: SafeArea(
+              child: Column(
+                children: [
+                  // App header
+                  _buildHeader(state, accent),
+                  // Search bar
+                  SearchBarWidget(
+                    onSearch: (q) => state.search(q),
+                    onClear: () => state.exitSearch(),
+                    isSearchMode: state.isSearchMode,
+                    currentQuery: state.searchQuery,
+                  ),
+                  // Content
+                  Expanded(child: _buildContent(state, accent)),
+                ],
+              ),
             ),
-          ),
-          floatingActionButton: SiteSwitcherFab(
-            currentSite: state.currentSite,
-            onSiteChanged: (site) => state.switchSite(site),
+            floatingActionButton: SiteSwitcherFab(
+              currentSite: state.currentSite,
+              onSiteChanged: (site) => state.switchSite(site),
+            ),
           ),
         );
       },
@@ -111,9 +153,10 @@ class _HomeScreenState extends State<HomeScreen> {
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
               gradient: LinearGradient(
-                colors: [accent.withOpacity(0.3), accent.withOpacity(0.1)],
+                colors: [accent.withOpacity(0.35), accent.withOpacity(0.12)],
               ),
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: accent.withOpacity(0.3)),
             ),
             child: Icon(Icons.play_circle_filled_rounded,
                 color: accent, size: 26),
@@ -125,20 +168,26 @@ class _HomeScreenState extends State<HomeScreen> {
               const Text(
                 'DanieWatch',
                 style: TextStyle(
-                  color: AppTheme.textPrimary,
+                  color: AppTheme.porcelain,
                   fontSize: 22,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w900,
                   letterSpacing: -0.5,
                 ),
               ),
               Row(
                 children: [
                   Container(
-                    width: 6,
-                    height: 6,
+                    width: 7,
+                    height: 7,
                     decoration: BoxDecoration(
                       color: accent,
                       shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: accent.withOpacity(0.6),
+                          blurRadius: 4,
+                        ),
+                      ],
                     ),
                   ),
                   const SizedBox(width: 6),
@@ -147,7 +196,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     style: TextStyle(
                       color: accent,
                       fontSize: 12,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                 ],
@@ -159,15 +208,16 @@ class _HomeScreenState extends State<HomeScreen> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
               decoration: BoxDecoration(
-                color: accent.withOpacity(0.15),
+                color: accent.withOpacity(0.18),
                 borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: accent.withOpacity(0.3)),
               ),
               child: Text(
                 'SEARCH',
                 style: TextStyle(
                   color: accent,
                   fontSize: 10,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w800,
                   letterSpacing: 1,
                 ),
               ),

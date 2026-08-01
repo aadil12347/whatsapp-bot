@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import '../models/download_link.dart';
 import '../services/scraper_service.dart';
 import '../services/resolver_service.dart';
+import '../services/tmdb_service.dart';
 import '../theme/app_theme.dart';
 
 /// Modal bottom sheet displaying detail page download links.
@@ -29,6 +30,18 @@ class _ResolutionModalState extends State<ResolutionModal> {
   List<DownloadLink> _links = [];
   String? _error;
 
+  // TMDB resolution state
+  bool _loadingTmdb = true;
+  TmdbResult? _tmdbResult;
+  bool _tmdbCopied = false;
+
+  // Episode selection state
+  bool _fetchingEpisodes = false;
+  bool _isEpisodeView = false;
+  List<EpisodeItem> _episodes = [];
+  final Set<int> _selectedEpisodeIndices = {};
+  DownloadLink? _selectedQualityLink;
+
   // Resolving state
   bool _resolving = false;
   int _resolvingCurrent = 0;
@@ -44,6 +57,26 @@ class _ResolutionModalState extends State<ResolutionModal> {
   void initState() {
     super.initState();
     _loadPostLinks();
+    _loadTmdbCommand();
+  }
+
+  Future<void> _loadTmdbCommand() async {
+    try {
+      final result = await TmdbService.resolveTmdbCommand(
+        widget.postUrl,
+        widget.movieTitle,
+      );
+      if (!mounted) return;
+      setState(() {
+        _tmdbResult = result;
+        _loadingTmdb = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loadingTmdb = false;
+      });
+    }
   }
 
   Future<void> _loadPostLinks() async {
@@ -77,20 +110,62 @@ class _ResolutionModalState extends State<ResolutionModal> {
     }
   }
 
-  Future<void> _resolveLink(DownloadLink link) async {
+  /// Triggered when a Quality link is tapped
+  Future<void> _onQualityLinkTapped(DownloadLink link) async {
+    setState(() {
+      _fetchingEpisodes = true;
+      _selectedQualityLink = link;
+      _selectedText = link.text;
+      _error = null;
+      _selectedEpisodeIndices.clear();
+    });
+
+    try {
+      final episodes = await ResolverService.extractEpisodeLinks(link.href);
+
+      if (!mounted) return;
+
+      if (episodes.length > 1) {
+        // Multi-episode series! Show Episode Cards list view with all episodes selected initially
+        setState(() {
+          _fetchingEpisodes = false;
+          _isEpisodeView = true;
+          _episodes = episodes;
+          _selectedEpisodeIndices.addAll(List.generate(episodes.length, (i) => i));
+        });
+      } else {
+        // Single movie link -> auto-resolve immediately
+        setState(() {
+          _fetchingEpisodes = false;
+        });
+        await _resolveEpisodeList(episodes.isNotEmpty
+            ? episodes
+            : [EpisodeItem(label: 'Movie', url: link.href, index: 1)]);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _fetchingEpisodes = false;
+      });
+      await _resolveEpisodeList([EpisodeItem(label: 'Movie', url: link.href, index: 1)]);
+    }
+  }
+
+  /// Resolves direct links on-demand for selected episode(s)
+  Future<void> _resolveEpisodeList(List<EpisodeItem> chosenEpisodes) async {
     setState(() {
       _resolving = true;
       _resolvingCurrent = 0;
-      _resolvingTotal = 0;
+      _resolvingTotal = chosenEpisodes.length;
       _resolvedUrls = [];
       _resolvedServerName = null;
-      _selectedText = link.text;
       _isCopied = false;
     });
 
     try {
-      final result = await ResolverService.resolveAllEpisodes(
-        link.href,
+      final result = await ResolverService.resolveEpisodesList(
+        chosenEpisodes,
+        referer: _selectedQualityLink?.href,
         onProgress: (current, total, isDone) {
           if (!mounted) return;
           setState(() {
@@ -109,7 +184,7 @@ class _ResolutionModalState extends State<ResolutionModal> {
       if (!mounted) return;
       setState(() {
         _resolving = false;
-        _resolvedUrls = [link.href];
+        _resolvedUrls = chosenEpisodes.map((e) => e.url).toList();
         _resolvedServerName = 'Direct Link';
       });
     }
@@ -160,21 +235,21 @@ class _ResolutionModalState extends State<ResolutionModal> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Row(
-          children: const [
-            Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
+        content: const Row(
+          children: [
+            Icon(Icons.check_circle_rounded, color: AppTheme.champagne, size: 20),
             SizedBox(width: 10),
             Text(
               'WhatsApp Command Copied to Clipboard!',
               style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
+                color: AppTheme.champagne,
+                fontWeight: FontWeight.w700,
                 fontSize: 13,
               ),
             ),
           ],
         ),
-        backgroundColor: const Color(0xFF25D366), // WhatsApp Green!
+        backgroundColor: AppTheme.emeraldInk,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         duration: const Duration(seconds: 3),
@@ -236,9 +311,10 @@ class _ResolutionModalState extends State<ResolutionModal> {
               child: Text(
                 widget.movieTitle,
                 style: const TextStyle(
-                  color: AppTheme.textPrimary,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
+                  color: AppTheme.porcelain,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.1,
                 ),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
@@ -272,6 +348,20 @@ class _ResolutionModalState extends State<ResolutionModal> {
       );
     }
 
+    if (_fetchingEpisodes) {
+      return const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(color: AppTheme.accent),
+            SizedBox(height: 16),
+            Text('Fetching VCloud episode links...',
+                style: TextStyle(color: AppTheme.textSecondary)),
+          ],
+        ),
+      );
+    }
+
     if (_error != null && _links.isEmpty) {
       return Center(
         child: Padding(
@@ -293,17 +383,397 @@ class _ResolutionModalState extends State<ResolutionModal> {
       return _buildResolvingState();
     }
 
+    // Show episode selection cards if series
+    if (_isEpisodeView) {
+      return _buildEpisodeCards(scrollController);
+    }
+
     // Show extracted download link buttons
     return _buildLinkButtons(scrollController);
+  }
+
+  Widget _buildEpisodeCards(ScrollController scrollController) {
+    final resColor = _resolutionColor(_selectedQualityLink?.resolution ?? '720p');
+    final allSelected = _selectedEpisodeIndices.length == _episodes.length;
+
+    return Column(
+      children: [
+        // TMDB Command Card
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          child: _buildTmdbCard(),
+        ),
+
+        // Top Header Controls (Back button & Select All toggle)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
+          child: Row(
+            children: [
+              GestureDetector(
+                onTap: () => setState(() {
+                  _isEpisodeView = false;
+                  _episodes = [];
+                  _selectedEpisodeIndices.clear();
+                }),
+                child: const Row(
+                  children: [
+                    Icon(Icons.arrow_back_ios_rounded, color: AppTheme.accent, size: 16),
+                    SizedBox(width: 4),
+                    Text('Back to resolutions', style: TextStyle(color: AppTheme.accent, fontSize: 13)),
+                  ],
+                ),
+              ),
+              const Spacer(),
+              GestureDetector(
+                onTap: () {
+                  setState(() {
+                    if (allSelected) {
+                      _selectedEpisodeIndices.clear();
+                    } else {
+                      _selectedEpisodeIndices.addAll(List.generate(_episodes.length, (i) => i));
+                    }
+                  });
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: AppTheme.accent.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppTheme.accent.withOpacity(0.4)),
+                  ),
+                  child: Text(
+                    allSelected ? 'Deselect All' : 'Select All (${_episodes.length})',
+                    style: const TextStyle(
+                      color: AppTheme.accent,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        // Episode List
+        Expanded(
+          child: ListView.builder(
+            controller: scrollController,
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+            itemCount: _episodes.length,
+            itemBuilder: (ctx, idx) {
+              final ep = _episodes[idx];
+              final isSelected = _selectedEpisodeIndices.contains(idx);
+
+              return GestureDetector(
+                onTap: () {
+                  setState(() {
+                    if (isSelected) {
+                      _selectedEpisodeIndices.remove(idx);
+                    } else {
+                      _selectedEpisodeIndices.add(idx);
+                    }
+                  });
+                },
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 150),
+                  margin: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: isSelected ? resColor.withOpacity(0.14) : AppTheme.bgSurface,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: isSelected ? resColor : resColor.withOpacity(0.2),
+                      width: isSelected ? 1.8 : 1.0,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.15),
+                        blurRadius: 4,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      // Checkbox
+                      Icon(
+                        isSelected ? Icons.check_box_rounded : Icons.check_box_outline_blank_rounded,
+                        color: isSelected ? resColor : AppTheme.textMuted,
+                        size: 22,
+                      ),
+                      const SizedBox(width: 12),
+                      // Badge
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: isSelected ? resColor : resColor.withOpacity(0.18),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          ep.label,
+                          style: TextStyle(
+                            color: isSelected ? Colors.black : resColor,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          isSelected ? 'Selected' : 'Tap to select',
+                          style: TextStyle(
+                            color: isSelected ? AppTheme.textPrimary : AppTheme.textMuted,
+                            fontSize: 12,
+                            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+
+        // Bottom Sticky Action Bar: Extract Selected Links
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          child: SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: ElevatedButton.icon(
+              onPressed: _selectedEpisodeIndices.isEmpty
+                  ? null
+                  : () {
+                      final selectedEpisodes = _selectedEpisodeIndices.map((i) => _episodes[i]).toList();
+                      _resolveEpisodeList(selectedEpisodes);
+                    },
+              icon: const Icon(Icons.flash_on_rounded, size: 20),
+              label: Text(
+                'Extract Selected (${_selectedEpisodeIndices.length} Episode${_selectedEpisodeIndices.length == 1 ? '' : 's'})',
+                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.accent,
+                foregroundColor: Colors.black,
+                disabledBackgroundColor: AppTheme.bgSurface,
+                disabledForegroundColor: AppTheme.textMuted,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                elevation: 4,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _copyTmdbToClipboard(String command) {
+    Clipboard.setData(ClipboardData(text: command));
+    setState(() {
+      _tmdbCopied = true;
+    });
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted) {
+        setState(() {
+          _tmdbCopied = false;
+        });
+      }
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Row(
+          children: [
+            Icon(Icons.check_circle_rounded, color: AppTheme.champagne, size: 20),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'TMDB Command Copied! (.p <tmdb_url>)',
+                style: TextStyle(
+                  color: AppTheme.champagne,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: AppTheme.emeraldInk,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
+  Widget _buildTmdbCard() {
+    if (_loadingTmdb) {
+      return Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppTheme.bgSurface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppTheme.emeraldInk.withOpacity(0.5)),
+        ),
+        child: const Row(
+          children: [
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.champagne),
+            ),
+            SizedBox(width: 12),
+            Text(
+              'Fetching TMDB command...',
+              style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_tmdbResult == null) return const SizedBox.shrink();
+
+    final command = _tmdbResult!.command;
+    final displayTitle = _tmdbResult!.title ?? widget.movieTitle;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            AppTheme.emeraldInk.withOpacity(0.95),
+            AppTheme.bgCard,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.champagne.withOpacity(0.4), width: 1.2),
+        boxShadow: [
+          BoxShadow(
+            color: AppTheme.offBlack.withOpacity(0.3),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header Badge
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppTheme.champagne,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: const Text(
+                  'TMDB POST',
+                  style: TextStyle(
+                    color: AppTheme.offBlack,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'WhatsApp Bot Poster Command',
+                  style: TextStyle(
+                    color: AppTheme.offWhite.withOpacity(0.9),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+
+          // Command Box displaying post title + Copy Button (Tapping copies .p link to clipboard)
+          GestureDetector(
+            onTap: () => _copyTmdbToClipboard(command),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: AppTheme.offBlack.withOpacity(0.6),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppTheme.champagne.withOpacity(0.2)),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      displayTitle,
+                      style: const TextStyle(
+                        color: AppTheme.champagne,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: _tmdbCopied ? AppTheme.champagne : AppTheme.emeraldInk,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: AppTheme.champagne.withOpacity(0.3)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          _tmdbCopied ? Icons.check_rounded : Icons.copy_rounded,
+                          color: _tmdbCopied ? AppTheme.offBlack : AppTheme.champagne,
+                          size: 14,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          _tmdbCopied ? 'Copied!' : 'Copy',
+                          style: TextStyle(
+                            color: _tmdbCopied ? AppTheme.offBlack : AppTheme.champagne,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildLinkButtons(ScrollController scrollController) {
     return ListView.builder(
       controller: scrollController,
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
-      itemCount: _links.length + 1,
+      itemCount: _links.length + 2,
       itemBuilder: (ctx, idx) {
         if (idx == 0) {
+          return _buildTmdbCard();
+        }
+
+        if (idx == 1) {
           return Padding(
             padding: const EdgeInsets.only(bottom: 12, left: 4),
             child: Row(
@@ -324,7 +794,7 @@ class _ResolutionModalState extends State<ResolutionModal> {
           );
         }
 
-        final link = _links[idx - 1];
+        final link = _links[idx - 2];
         return _linkButton(link);
       },
     );
@@ -336,7 +806,7 @@ class _ResolutionModalState extends State<ResolutionModal> {
     final sizeText = _extractFileSize(link.text);
 
     return GestureDetector(
-      onTap: () => _resolveLink(link),
+      onTap: () => _onQualityLinkTapped(link),
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
@@ -660,16 +1130,13 @@ class _ResolutionModalState extends State<ResolutionModal> {
   Color _resolutionColor(String res) {
     switch (res.toUpperCase()) {
       case '480P':
-        return const Color(0xFFFF9800);
       case '720P':
-        return const Color(0xFF4CAF50);
       case '1080P':
-        return const Color(0xFF2196F3);
       case '2160P':
       case '4K':
-        return const Color(0xFFE040FB);
+        return AppTheme.champagne;
       default:
-        return AppTheme.accent;
+        return AppTheme.emeraldInk;
     }
   }
 }
