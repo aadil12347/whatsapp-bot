@@ -340,7 +340,60 @@ class ScraperService {
       ));
     }
 
-    return links;
+    // ── PRIORITIZE vcloud links with fallback system ──
+    // For each resolution group, prefer vcloud/hubcloud links.
+    // Only fall back to fastdl/other links if no vcloud links exist for that resolution.
+    return _prioritizeVCloudLinks(links);
+  }
+
+  /// Preferred hosting domains (vcloud ecosystem) — these are prioritized
+  static bool _isPreferredDomain(String lowerUrl) {
+    const preferred = ['vcloud', 'hubcloud', 'hubdrive', 'hubcdn'];
+    return preferred.any((d) => lowerUrl.contains(d));
+  }
+
+  /// Fallback hosting domains (fastdl, gdflix, etc.) — only used when no preferred link exists
+  static bool _isFallbackDomain(String lowerUrl) {
+    const fallback = [
+      'fastdl', 'gdflix', 'nexdrive', 'vgmlink', 'filebee',
+      'katdrive', 'kmhd', 'gadgetsweb', 'filepress', 'gofile',
+      'pixeldrain', 'mega.nz', 'yodrive'
+    ];
+    return fallback.any((d) => lowerUrl.contains(d));
+  }
+
+  /// Prioritize vcloud links per resolution group with fallback
+  static List<DownloadLink> _prioritizeVCloudLinks(List<DownloadLink> links) {
+    if (links.isEmpty) return links;
+
+    // Group links by resolution
+    final Map<String, List<DownloadLink>> groups = {};
+    for (final link in links) {
+      groups.putIfAbsent(link.resolution, () => []).add(link);
+    }
+
+    final result = <DownloadLink>[];
+    // Maintain original resolution order
+    final seenResolutions = <String>{};
+    for (final link in links) {
+      if (seenResolutions.contains(link.resolution)) continue;
+      seenResolutions.add(link.resolution);
+
+      final group = groups[link.resolution]!;
+      final preferred = group.where((l) => _isPreferredDomain(l.href.toLowerCase())).toList();
+      final fallback = group.where((l) => !_isPreferredDomain(l.href.toLowerCase())).toList();
+
+      if (preferred.isNotEmpty) {
+        // Use preferred vcloud links, add fallbacks after them
+        result.addAll(preferred);
+        result.addAll(fallback);
+      } else {
+        // No vcloud links for this resolution — use fallback links
+        result.addAll(fallback);
+      }
+    }
+
+    return result;
   }
 
   /// Check if a URL belongs strictly to a download landing domain

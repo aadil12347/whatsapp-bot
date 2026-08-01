@@ -35,6 +35,9 @@ class _ResolutionModalState extends State<ResolutionModal> {
   String? _resolvedServerName;
   String? _selectedText;
 
+  // Copy indicator state
+  bool _isCopied = false;
+
   @override
   void initState() {
     super.initState();
@@ -55,6 +58,7 @@ class _ResolutionModalState extends State<ResolutionModal> {
         }
       }
 
+      if (!mounted) return;
       setState(() {
         _links = uniqueLinks;
         _loadingLinks = false;
@@ -63,6 +67,7 @@ class _ResolutionModalState extends State<ResolutionModal> {
         }
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _loadingLinks = false;
         _error = 'Failed to load post page: $e';
@@ -76,16 +81,19 @@ class _ResolutionModalState extends State<ResolutionModal> {
       _resolvedUrls = [];
       _resolvedServerName = null;
       _selectedText = link.text;
+      _isCopied = false;
     });
 
     try {
       final result = await ResolverService.resolveAllEpisodes(link.href);
+      if (!mounted) return;
       setState(() {
         _resolving = false;
         _resolvedUrls = result.directUrls;
         _resolvedServerName = result.serverName;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _resolving = false;
         _resolvedUrls = [link.href];
@@ -104,6 +112,20 @@ class _ResolutionModalState extends State<ResolutionModal> {
 
   void _copyToClipboard(String text) {
     Clipboard.setData(ClipboardData(text: text));
+
+    setState(() {
+      _isCopied = true;
+    });
+
+    // Reset button copied state after 3 seconds
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted) {
+        setState(() {
+          _isCopied = false;
+        });
+      }
+    });
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(
@@ -415,7 +437,7 @@ class _ResolutionModalState extends State<ResolutionModal> {
             ],
             const SizedBox(height: 16),
             const Text(
-              'Extracting direct links (movies / episode links)...',
+              'Extracting direct links in sequence...',
               style: TextStyle(color: AppTheme.accent, fontSize: 12),
             ),
           ],
@@ -436,6 +458,7 @@ class _ResolutionModalState extends State<ResolutionModal> {
           onTap: () => setState(() {
             _resolvedUrls = [];
             _resolvedServerName = null;
+            _isCopied = false;
           }),
           child: const Row(
             children: [
@@ -449,37 +472,27 @@ class _ResolutionModalState extends State<ResolutionModal> {
         ),
         const SizedBox(height: 14),
 
+        // Resolved Status Header Container
         Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: AppTheme.success.withOpacity(0.1),
+            color: AppTheme.success.withOpacity(0.12),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppTheme.success.withOpacity(0.3)),
+            border: Border.all(color: AppTheme.success.withOpacity(0.35)),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          child: Row(
             children: [
-              Row(
-                children: [
-                  const Icon(Icons.check_circle_rounded,
-                      color: AppTheme.success, size: 18),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Resolved ${_resolvedUrls.length} Link(s) via ${_resolvedServerName ?? "VCloud"}',
-                    style: const TextStyle(
-                        color: AppTheme.success,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _resolvedUrls.join('\n'),
-                style: const TextStyle(
-                    color: AppTheme.textSecondary, fontSize: 11),
-                maxLines: 6,
-                overflow: TextOverflow.ellipsis,
+              const Icon(Icons.check_circle_rounded,
+                  color: AppTheme.success, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Resolved ${_resolvedUrls.length} Direct Link(s) via ${_resolvedServerName ?? "VCloud"}',
+                  style: const TextStyle(
+                      color: AppTheme.success,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700),
+                ),
               ),
             ],
           ),
@@ -487,41 +500,15 @@ class _ResolutionModalState extends State<ResolutionModal> {
 
         const SizedBox(height: 16),
 
-        // WhatsApp command preview
         if (whatsappMsg.isNotEmpty) ...[
-          const Text('WhatsApp Bot Command:',
-              style: TextStyle(
-                  color: AppTheme.textSecondary,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500)),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: AppTheme.bgDark,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: AppTheme.divider),
-            ),
-            child: Text(
-              whatsappMsg,
-              style: const TextStyle(
-                  color: AppTheme.textPrimary,
-                  fontSize: 12,
-                  fontFamily: 'monospace'),
-              maxLines: 10,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          const SizedBox(height: 16),
-
-          // Action buttons
+          // ACTION BUTTONS (Copy Command & Share) — PLACED ABOVE THE LINK BOX!
           Row(
             children: [
               Expanded(
                 child: _actionButton(
-                  icon: Icons.copy_rounded,
-                  label: 'Copy Command',
-                  color: AppTheme.accent,
+                  icon: _isCopied ? Icons.check_circle_rounded : Icons.copy_rounded,
+                  label: _isCopied ? 'Command Copied!' : 'Copy Command',
+                  color: _isCopied ? const Color(0xFF25D366) : AppTheme.accent,
                   onTap: () => _copyToClipboard(whatsappMsg),
                 ),
               ),
@@ -536,6 +523,43 @@ class _ResolutionModalState extends State<ResolutionModal> {
               ),
             ],
           ),
+
+          const SizedBox(height: 16),
+
+          // WHATSAPP BOT COMMAND PREVIEW BOX — PLACED BELOW THE BUTTONS!
+          const Text('WhatsApp Bot Command:',
+              style: TextStyle(
+                  color: AppTheme.textSecondary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600)),
+          const SizedBox(height: 8),
+          Container(
+            constraints: const BoxConstraints(minHeight: 100, maxHeight: 350),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppTheme.bgDark,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppTheme.accent.withOpacity(0.35)),
+            ),
+            child: Scrollbar(
+              thumbVisibility: true,
+              child: SingleChildScrollView(
+                scrollDirection: Axis.vertical,
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: SelectableText(
+                    whatsappMsg,
+                    style: const TextStyle(
+                      color: AppTheme.textPrimary,
+                      fontSize: 12,
+                      fontFamily: 'monospace',
+                      height: 1.45,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
         ],
       ],
     );
@@ -549,12 +573,13 @@ class _ResolutionModalState extends State<ResolutionModal> {
   }) {
     return GestureDetector(
       onTap: onTap,
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(vertical: 14),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.15),
+          color: color.withOpacity(0.18),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withOpacity(0.3)),
+          border: Border.all(color: color.withOpacity(0.4)),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -563,7 +588,7 @@ class _ResolutionModalState extends State<ResolutionModal> {
             const SizedBox(width: 8),
             Text(label,
                 style: TextStyle(
-                    color: color, fontWeight: FontWeight.w600, fontSize: 13)),
+                    color: color, fontWeight: FontWeight.w700, fontSize: 13)),
           ],
         ),
       ),
