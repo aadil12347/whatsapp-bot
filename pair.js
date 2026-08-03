@@ -37,12 +37,32 @@ function syncSessionFiles() {
     } catch(e) {}
 }
 
+function checkAndCleanUnregisteredSession() {
+    const credsFile = path.join(SESSION_DIR, 'creds.json');
+    if (fs.existsSync(credsFile)) {
+        try {
+            const rawData = fs.readFileSync(credsFile, 'utf-8');
+            const credsData = JSON.parse(rawData);
+            if (!credsData.registered) {
+                console.log('🧹 Found incomplete/unregistered session data. Purging dirty session for fresh pairing...');
+                try { fs.rmSync(SESSION_DIR, { recursive: true, force: true }); } catch (_) {}
+                try { fs.rmSync(SESS_ALT_DIR, { recursive: true, force: true }); } catch (_) {}
+            }
+        } catch (e) {
+            console.log('🧹 Corrupted session file detected. Purging...');
+            try { fs.rmSync(SESSION_DIR, { recursive: true, force: true }); } catch (_) {}
+            try { fs.rmSync(SESS_ALT_DIR, { recursive: true, force: true }); } catch (_) {}
+        }
+    }
+}
+
+let isPairingInProgress = false;
+
 async function startPairing(cleanStart = true) {
     try { require('./src/Utils/singleInstance').killPreviousInstances(); } catch(e) {}
 
-    if (cleanStart && !fs.existsSync(path.join(SESSION_DIR, 'creds.json'))) {
-        if (fs.existsSync(SESSION_DIR)) try { fs.rmSync(SESSION_DIR, { recursive: true, force: true }); } catch (e) {}
-        if (fs.existsSync(SESS_ALT_DIR)) try { fs.rmSync(SESS_ALT_DIR, { recursive: true, force: true }); } catch (e) {}
+    if (cleanStart) {
+        checkAndCleanUnregisteredSession();
     }
 
     if (!fs.existsSync(SESSION_DIR)) fs.mkdirSync(SESSION_DIR, { recursive: true });
@@ -82,12 +102,18 @@ async function startPairing(cleanStart = true) {
     console.log(`🤖 Target Phone Number: +${botNumber}`);
     console.log('⏳ Connecting to WhatsApp servers...');
 
-    let pairingCodeRequested = false;
+    sock.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect } = update;
 
-    if (!sock.authState.creds.registered) {
-        setTimeout(async () => {
-            if (pairingCodeRequested) return;
-            pairingCodeRequested = true;
+        if (connection === 'connecting' && !sock.authState.creds.registered && !isPairingInProgress) {
+            isPairingInProgress = true;
+            console.log('⏳ Establishing secure connection for pairing code...');
+            
+            // Wait 4 seconds for WebSocket handshake to stabilize before sending requestPairingCode
+            await delay(4000);
+            
+            if (sock.authState.creds.registered) return;
+
             try {
                 console.log('⏳ Requesting pairing code from WhatsApp...');
                 let code = await sock.requestPairingCode(botNumber);
@@ -104,12 +130,9 @@ async function startPairing(cleanStart = true) {
                 console.log('⏳ Waiting for authorization...');
             } catch (err) {
                 console.error('❌ Failed to get pairing code:', err.message || err);
+                isPairingInProgress = false;
             }
-        }, 3000);
-    }
-
-    sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect } = update;
+        }
 
         if (connection === 'open') {
             console.log('\n=========================================');
@@ -132,7 +155,8 @@ async function startPairing(cleanStart = true) {
                 process.exit(1);
             } else if (statusCode === 515 || sock.authState.creds.registered) {
                 console.log(`🔄 Handshake complete (Code: ${statusCode}). Finalizing login...`);
-                await delay(3000);
+                isPairingInProgress = false;
+                await delay(2000);
                 startPairing(false);
             } else {
                 console.log(`🔄 Connection reset by WhatsApp (Code: ${statusCode || 'closed'}).`);
