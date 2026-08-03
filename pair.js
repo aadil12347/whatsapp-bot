@@ -40,7 +40,7 @@ function syncSessionFiles() {
 async function startPairing(cleanStart = true) {
     try { require('./src/Utils/singleInstance').killPreviousInstances(); } catch(e) {}
 
-    if (cleanStart && !fs.existsSync(path.join(SESSION_DIR, 'creds.json'))) {
+    if (cleanStart) {
         if (fs.existsSync(SESSION_DIR)) try { fs.rmSync(SESSION_DIR, { recursive: true, force: true }); } catch (e) {}
         if (fs.existsSync(SESS_ALT_DIR)) try { fs.rmSync(SESS_ALT_DIR, { recursive: true, force: true }); } catch (e) {}
     }
@@ -83,8 +83,12 @@ async function startPairing(cleanStart = true) {
     console.log(`🤖 Target Phone Number: +${botNumber}`);
     console.log('⏳ Connecting to WhatsApp servers...');
 
+    let pairingCodeRequested = false;
+
     if (!sock.authState.creds.registered) {
         setTimeout(async () => {
+            if (pairingCodeRequested) return;
+            pairingCodeRequested = true;
             try {
                 console.log('⏳ Requesting pairing code from WhatsApp...');
                 let code = await sock.requestPairingCode(botNumber);
@@ -102,7 +106,7 @@ async function startPairing(cleanStart = true) {
             } catch (err) {
                 console.error('❌ Failed to get pairing code:', err.message || err);
             }
-        }, 4000);
+        }, 5000);
     }
 
     sock.ev.on('connection.update', async (update) => {
@@ -127,10 +131,12 @@ async function startPairing(cleanStart = true) {
                 try { fs.rmSync(SESSION_DIR, { recursive: true, force: true }); } catch (e) {}
                 try { fs.rmSync(SESS_ALT_DIR, { recursive: true, force: true }); } catch (e) {}
                 process.exit(1);
-            } else {
-                console.log(`🔄 Connection reset (Code: ${statusCode || '515'}). Finalizing pairing & reconnecting...`);
-                await delay(2000);
+            } else if (statusCode === 515 || sock.authState.creds.registered) {
+                console.log(`🔄 Handshake complete (Code: ${statusCode}). Finalizing login...`);
+                await delay(3000);
                 startPairing(false);
+            } else {
+                console.log(`🔄 Connection reset by WhatsApp (Code: ${statusCode || 'closed'}).`);
             }
         }
     });
