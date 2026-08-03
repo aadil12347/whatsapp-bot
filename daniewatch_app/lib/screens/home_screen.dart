@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../providers/app_state.dart';
 import '../models/site_config.dart';
 import '../theme/app_theme.dart';
+import '../widgets/app_logo.dart';
 import '../widgets/movie_card.dart';
 import '../widgets/search_bar_widget.dart';
 import '../widgets/site_switcher_fab.dart';
@@ -174,25 +175,13 @@ class _HomeScreenState extends State<HomeScreen> {
       padding: const EdgeInsets.fromLTRB(20, 14, 20, 4),
       child: Row(
         children: [
-          // App logo
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [accent.withOpacity(0.35), accent.withOpacity(0.12)],
-              ),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: accent.withOpacity(0.3)),
-            ),
-            child: Icon(Icons.play_circle_filled_rounded,
-                color: accent, size: 26),
-          ),
+          const AppLogo(size: 38),
           const SizedBox(width: 12),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'DanieWatch',
+                'DanieWatch Extractor',
                 style: TextStyle(
                   color: AppTheme.champagne,
                   fontSize: 22,
