@@ -62,5 +62,8 @@
     "wa-sticker-formatter": "4.4.4",
     "yt-search": "2.11.1",
     "daniewatch-baileys": "npm:@whiskeysockets/baileys@7.0.0-rc13"
+  },
+  "overrides": {
+    "jsonpath-plus": "^10.0.0"
   }
 }
