@@ -1,5 +1,10 @@
 run = "node start.js"
 entrypoint = "start.js"
+modules = ["nodejs-24"]
 
 [nix]
 channel = "stable-24.05"
+
+[[ports]]
+localPort = 3000
+externalPort = 80
