@@ -89,6 +89,29 @@ async function startPairing(cleanStart = true) {
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect } = update;
 
+        if (connection === 'connecting' && !sock.authState.creds.registered && !isPairingInProgress) {
+            isPairingInProgress = true;
+            await delay(5000);
+            if (sock.authState.creds.registered) return;
+            console.log('⏳ Requesting pairing code from WhatsApp...');
+            try {
+                const code = await sock.requestPairingCode(botNumber);
+                console.log('\n╔═════════════════════════════════════╗');
+                console.log(`║  🔑 YOUR PAIRING CODE: ${code.toUpperCase()}       ║`);
+                console.log('╠═════════════════════════════════════╣');
+                console.log('║  1. Open WhatsApp on your phone     ║');
+                console.log('║  2. Settings → Linked Devices       ║');
+                console.log('║  3. Link a Device                   ║');
+                console.log('║  4. "Link with phone number"        ║');
+                console.log('║  5. Enter the code above            ║');
+                console.log('╚═════════════════════════════════════╝\n');
+                console.log('⏳ Waiting for authorization...');
+            } catch (err) {
+                console.error('❌ Failed to get pairing code:', err.message);
+                isPairingInProgress = false;
+            }
+        }
+
         if (connection === 'open') {
             console.log('\n=========================================');
             console.log('🎉 SUCCESS! WhatsApp Connected Successfully!');
@@ -109,36 +132,15 @@ async function startPairing(cleanStart = true) {
                 try { fs.rmSync(SESSION_DIR, { recursive: true, force: true }); } catch (e) {}
                 try { fs.rmSync(SESS_ALT_DIR, { recursive: true, force: true }); } catch (e) {}
                 process.exit(1);
+                return;
             }
             
             console.log('🔄 Reconnecting...');
+            isPairingInProgress = false;
             await delay(3000);
             startPairing(false);
         }
     });
-
-    // Request pairing code ONCE when not registered
-    if (!sock.authState.creds.registered && !isPairingInProgress) {
-        isPairingInProgress = true;
-        await delay(3000);
-        console.log('⏳ Requesting pairing code from WhatsApp...');
-        try {
-            const code = await sock.requestPairingCode(botNumber);
-            console.log('\n╔═════════════════════════════════════╗');
-            console.log(`║  🔑 YOUR PAIRING CODE: ${code.toUpperCase()}       ║`);
-            console.log('╠═════════════════════════════════════╣');
-            console.log('║  1. Open WhatsApp on your phone     ║');
-            console.log('║  2. Settings → Linked Devices       ║');
-            console.log('║  3. Link a Device                   ║');
-            console.log('║  4. "Link with phone number"        ║');
-            console.log('║  5. Enter the code above            ║');
-            console.log('╚═════════════════════════════════════╝\n');
-            console.log('⏳ Waiting for authorization...');
-        } catch (err) {
-            console.error('❌ Failed to get pairing code:', err.message);
-            isPairingInProgress = false;
-        }
-    }
 }
 
 startPairing(true).catch(err => {
