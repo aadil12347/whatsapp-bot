@@ -40,7 +40,7 @@ function syncSessionFiles() {
 async function startPairing(cleanStart = true) {
     try { require('./src/Utils/singleInstance').killPreviousInstances(); } catch(e) {}
 
-    if (cleanStart) {
+    if (cleanStart && !fs.existsSync(path.join(SESSION_DIR, 'creds.json'))) {
         if (fs.existsSync(SESSION_DIR)) try { fs.rmSync(SESSION_DIR, { recursive: true, force: true }); } catch (e) {}
         if (fs.existsSync(SESS_ALT_DIR)) try { fs.rmSync(SESS_ALT_DIR, { recursive: true, force: true }); } catch (e) {}
     }
@@ -71,7 +71,6 @@ async function startPairing(cleanStart = true) {
         printQRInTerminal: false,
         browser: Browsers.macOS('Desktop'),
         connectTimeoutMs: 60000,
-        defaultQueryTimeoutMs: 0,
         keepAliveIntervalMs: 30000,
     });
 
@@ -106,7 +105,7 @@ async function startPairing(cleanStart = true) {
             } catch (err) {
                 console.error('❌ Failed to get pairing code:', err.message || err);
             }
-        }, 5000);
+        }, 3000);
     }
 
     sock.ev.on('connection.update', async (update) => {
