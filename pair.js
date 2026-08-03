@@ -37,8 +37,13 @@ function syncSessionFiles() {
     } catch(e) {}
 }
 
-async function startPairing() {
+async function startPairing(cleanStart = true) {
     try { require('./src/Utils/singleInstance').killPreviousInstances(); } catch(e) {}
+
+    if (cleanStart && !fs.existsSync(path.join(SESSION_DIR, 'creds.json'))) {
+        if (fs.existsSync(SESSION_DIR)) try { fs.rmSync(SESSION_DIR, { recursive: true, force: true }); } catch (e) {}
+        if (fs.existsSync(SESS_ALT_DIR)) try { fs.rmSync(SESS_ALT_DIR, { recursive: true, force: true }); } catch (e) {}
+    }
 
     if (!fs.existsSync(SESSION_DIR)) fs.mkdirSync(SESSION_DIR, { recursive: true });
     if (!fs.existsSync(SESS_ALT_DIR)) fs.mkdirSync(SESS_ALT_DIR, { recursive: true });
@@ -116,18 +121,21 @@ async function startPairing() {
         
         if (connection === 'close') {
             const statusCode = (lastDisconnect && lastDisconnect.error && lastDisconnect.error.output) ? lastDisconnect.error.output.statusCode : undefined;
-            console.log(`🔄 Connection closed. Code: ${statusCode || '?'}`);
             
             if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
                 console.log('❌ Logged out or pairing rejected. Clearing session...');
                 try { fs.rmSync(SESSION_DIR, { recursive: true, force: true }); } catch (e) {}
                 try { fs.rmSync(SESS_ALT_DIR, { recursive: true, force: true }); } catch (e) {}
                 process.exit(1);
+            } else {
+                console.log(`🔄 Connection reset (Code: ${statusCode || '515'}). Finalizing pairing & reconnecting...`);
+                await delay(2000);
+                startPairing(false);
             }
         }
     });
 }
 
-startPairing().catch(err => {
+startPairing(true).catch(err => {
     console.error('Error starting pairing:', err);
 });
