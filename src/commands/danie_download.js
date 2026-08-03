@@ -272,6 +272,10 @@ function getAllFiles(dirPath, arrayOfFiles) {
 const SETTINGS_PATH = path.join(__dirname, '..', '..', 'session', 'download_settings.json');
 
 
+// Track which private JIDs have had their Signal session primed this bot session.
+// Once a text primer succeeds for a JID, we don't need to prime it again until restart.
+const _primedSessions = new Set();
+
 async function sendAndForwardFile(conn, targets, filePayload, sendOptions = {}) {
     let targetList = [];
     if (Array.isArray(targets) && targets.length > 0) {
@@ -286,27 +290,114 @@ async function sendAndForwardFile(conn, targets, filePayload, sendOptions = {}) 
 
     const primaryJid = targetList[0];
     console.log(`[DanieWatch] Uploading file to primary target (${primaryJid})...`);
+
+    // --- FIX 1: Session Primer for private JIDs ---
+    // Before sending media to a private number, send a tiny text message first.
+    // This forces the Signal session to establish cleanly with a lightweight payload
+    // before attempting the heavier media upload, preventing silent session corruption.
+    const isPrivateJid = primaryJid && primaryJid.endsWith('@s.whatsapp.net');
+    if (isPrivateJid && !_primedSessions.has(primaryJid)) {
+        try {
+            console.log(`[DanieWatch] Priming Signal session for new private target: ${primaryJid}`);
+            // Verify the number exists on WhatsApp first
+            if (typeof conn.onWhatsApp === 'function') {
+                const [exists] = await conn.onWhatsApp(primaryJid.split('@')[0]);
+                if (!exists || !exists.exists) {
+                    console.error(`[DanieWatch] Target number ${primaryJid} is NOT on WhatsApp! Skipping primer.`);
+                }
+            }
+            // Send a lightweight text primer to establish the Signal session
+            const primerMsg = await conn.sendMessage(primaryJid, { text: 'DanieWatch' });
+            if (primerMsg && primerMsg.key && primerMsg.key.id) {
+                _primedSessions.add(primaryJid);
+                console.log(`[DanieWatch] Session primer succeeded for ${primaryJid} (msgId: ${primerMsg.key.id})`);
+                // Small delay to let the session ratchet settle
+                await new Promise(r => setTimeout(r, 2000));
+            } else {
+                console.warn(`[DanieWatch] Session primer returned no valid key for ${primaryJid} — session may be broken`);
+            }
+        } catch (primerErr) {
+            console.error(`[DanieWatch] Session primer FAILED for ${primaryJid}:`, primerErr.message);
+            // If the primer itself fails, the media send will almost certainly fail too.
+            // Fall back to the sender's own chat immediately.
+            const senderFallback = cleanJid(sendOptions.senderJid || '');
+            if (senderFallback && senderFallback !== primaryJid) {
+                console.log(`[DanieWatch] Primer failed. Falling back to sender chat: ${senderFallback}`);
+                try {
+                    const fbMsg = await conn.sendMessage(senderFallback, filePayload, sendOptions.quoted ? { quoted: sendOptions.quoted } : {});
+                    return fbMsg;
+                } catch (fbErr) {
+                    console.error(`[DanieWatch] Fallback to sender also failed:`, fbErr.message);
+                }
+            }
+        }
+    }
     
+    // --- FIX 2: Send media with silent-failure detection ---
     let sentMsg = null;
     const maxUploadAttempts = 3;
     for (let attempt = 1; attempt <= maxUploadAttempts; attempt++) {
         try {
             sentMsg = await conn.sendMessage(primaryJid, filePayload, sendOptions.quoted ? { quoted: sendOptions.quoted } : {});
-            break;
+            
+            // Verify the response has a valid message key — if not, it may be a silent failure
+            if (!sentMsg || !sentMsg.key || !sentMsg.key.id) {
+                console.warn(`[DanieWatch] Upload attempt ${attempt}: sendMessage returned no valid key (silent failure). Retrying...`);
+                sentMsg = null;
+                if (attempt < maxUploadAttempts) {
+                    await new Promise(r => setTimeout(r, attempt * 3000));
+                    continue;
+                }
+            } else {
+                console.log(`[DanieWatch] Upload succeeded for ${primaryJid} (msgId: ${sentMsg.key.id})`);
+                break;
+            }
         } catch (uploadErr) {
             console.error(`[DanieWatch] Upload attempt ${attempt}/${maxUploadAttempts} failed for ${primaryJid}:`, uploadErr.message);
-            if (attempt === maxUploadAttempts) throw uploadErr;
-            const delayMs = attempt * 3000;
-            console.log(`[DanieWatch] Retrying upload in ${delayMs / 1000}s...`);
-            await new Promise(r => setTimeout(r, delayMs));
+            if (attempt < maxUploadAttempts) {
+                const delayMs = attempt * 3000;
+                console.log(`[DanieWatch] Retrying upload in ${delayMs / 1000}s...`);
+                await new Promise(r => setTimeout(r, delayMs));
+            }
         }
     }
 
+    // --- FIX 3: Fallback using senderJid (not LID-based 'from') ---
+    // If all attempts failed, fall back to the sender's own chat.
+    // Use sendOptions.senderJid (the real @s.whatsapp.net JID) instead of
+    // sendOptions.from (which can be a LID like "17064693616661@lid" → bogus JID).
+    if (!sentMsg || !sentMsg.key) {
+        const fallbackJid = cleanJid(sendOptions.senderJid || sendOptions.from || '');
+        if (fallbackJid && fallbackJid !== primaryJid) {
+            console.log(`[DanieWatch] All upload attempts failed. Falling back to sender chat: ${fallbackJid}`);
+            try {
+                sentMsg = await conn.sendMessage(fallbackJid, filePayload, sendOptions.quoted ? { quoted: sendOptions.quoted } : {});
+                if (sentMsg && sentMsg.key) {
+                    console.log(`[DanieWatch] Fallback upload succeeded to ${fallbackJid}`);
+                }
+            } catch (fbErr) {
+                console.error(`[DanieWatch] Fallback upload to ${fallbackJid} also failed:`, fbErr.message);
+            }
+        }
+        if (!sentMsg || !sentMsg.key) {
+            throw new Error(`Failed to upload file to ${primaryJid} after ${maxUploadAttempts} attempts`);
+        }
+    }
+
+    // Forward to additional targets
     if (targetList.length > 1 && sentMsg && sentMsg.key) {
         for (let i = 1; i < targetList.length; i++) {
             const nextJid = targetList[i];
             try {
                 console.log(`[DanieWatch] Forwarding uploaded media to target ${i + 1}/${targetList.length}: ${nextJid}`);
+                // Prime secondary private targets too
+                if (nextJid.endsWith('@s.whatsapp.net') && !_primedSessions.has(nextJid)) {
+                    try {
+                        await conn.sendMessage(nextJid, { text: 'DanieWatch' });
+                        _primedSessions.add(nextJid);
+                        await new Promise(r => setTimeout(r, 1500));
+                    } catch (_) {}
+                }
                 if (typeof conn.forwardMessage === 'function') {
                     await conn.forwardMessage(nextJid, sentMsg, { forceForward: true });
                 } else if (conn.sendMessage) {
@@ -819,6 +910,11 @@ function initUpsertListener(conn) {
     if (conn.danieDownloadUpsertRegistered) return;
     conn.danieDownloadUpsertRegistered = true;
 
+    // Pre-prime the bot's own JID so we never send a primer message to ourselves
+    if (conn.user && conn.user.id) {
+        _primedSessions.add(cleanJid(conn.user.id));
+    }
+
     // Listen to WhatsApp sync events to capture active chat threads
     try {
         if (conn.ev) {
@@ -1161,7 +1257,15 @@ async function handleConfigReply(conn, mek, m, senderJid, text, reply) {
                 const g = groups[intVal - 1];
                 if (g) selectedTargets.push({ jid: cleanJid(g.jid), name: g.subject, type: 'group' });
             } else if (cleanNum.length >= 7) {
-                const jid = cleanJid(`${cleanNum}@s.whatsapp.net`);
+                let jid = cleanJid(`${cleanNum}@s.whatsapp.net`);
+                try {
+                    if (conn && typeof conn.onWhatsApp === 'function') {
+                        const [onWa] = await conn.onWhatsApp(cleanNum);
+                        if (onWa && onWa.exists && onWa.jid) {
+                            jid = cleanJid(onWa.jid);
+                        }
+                    }
+                } catch (_) {}
                 selectedTargets.push({ jid, name: `+${cleanNum}`, type: 'private' });
             }
         }
@@ -1568,7 +1672,7 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
                             document: { url: filePath },
                             mimetype: fileMime,
                             fileName: finalFileName
-                        }, { quoted: destJid === from ? mek : null, from });
+                        }, { quoted: destJid === from ? mek : null, from, senderJid });
                         
                         uploadedCount++;
                     }
@@ -1610,7 +1714,7 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
                     document: { url: tempFilePath },
                     mimetype: mime,
                     fileName: finalFileName
-                }, { quoted: destJid === from ? mek : null, from });
+                }, { quoted: destJid === from ? mek : null, from, senderJid });
 
                 // Delete temporary file
                 try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch (_) {}
@@ -1840,7 +1944,7 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
                     await sendAndForwardFile(conn, activeTargets, {
                         image: { url: tempPosterPath },
                         caption: detailsMessage
-                    }, { quoted: destJid === from ? mek : null, from });
+                    }, { quoted: destJid === from ? mek : null, from, senderJid });
                     posterSent = true;
                     try { if (fs.existsSync(tempPosterPath)) fs.unlinkSync(tempPosterPath); } catch (_) {}
                 }
@@ -1889,7 +1993,7 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
                             await sendAndForwardFile(conn, activeTargets, {
                                 video: { url: tempTrailerPath },
                                 caption: `🎬 *Trailer:* *${tmdb.title}*`
-                            }, { quoted: destJid === from ? mek : null, from });
+                            }, { quoted: destJid === from ? mek : null, from, senderJid });
                             console.log(`[DanieDownload] Successfully sent trailer video for ${tmdb.title}`);
                             await updatePStatus(`✅ *[2/3] Trailer video sent to:* *${destLabel}*`, true);
                         }
@@ -3089,7 +3193,7 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                         caption: `🎬 *${formattedFileName.replace(/\.mp4$/i, '')}*\n📺 *Quality:* ${chosenQuality.quality}\n📦 *Size:* ${verification.sizeMB.toFixed(2)}MB\n${durationText}\n\nDownloaded via DanieBot (.si)`
                     };
 
-                    await sendAndForwardFile(conn, activeTargets, filePayload);
+                    await sendAndForwardFile(conn, activeTargets, filePayload, { from: mek.key.remoteJid, senderJid: cleanJid(senderJid) });
 
                     try {
                         const completeText = `✅ *Upload Completed:* "${formattedFileName}" (${verification.sizeMB.toFixed(2)} MB)\n${durationText}`;
