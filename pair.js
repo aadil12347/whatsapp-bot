@@ -44,19 +44,19 @@ function checkAndCleanUnregisteredSession() {
             const rawData = fs.readFileSync(credsFile, 'utf-8');
             const credsData = JSON.parse(rawData);
             if (!credsData.registered) {
-                console.log('🧹 Found incomplete/unregistered session data. Purging dirty session for fresh pairing...');
+                console.log('🧹 Purging old incomplete session for fresh pairing...');
                 try { fs.rmSync(SESSION_DIR, { recursive: true, force: true }); } catch (_) {}
                 try { fs.rmSync(SESS_ALT_DIR, { recursive: true, force: true }); } catch (_) {}
             }
         } catch (e) {
-            console.log('🧹 Corrupted session file detected. Purging...');
+            console.log('🧹 Purging corrupted session...');
             try { fs.rmSync(SESSION_DIR, { recursive: true, force: true }); } catch (_) {}
             try { fs.rmSync(SESS_ALT_DIR, { recursive: true, force: true }); } catch (_) {}
         }
     }
 }
 
-let isPairingInProgress = false;
+let isPairingRequested = false;
 
 async function startPairing(cleanStart = true) {
     try { require('./src/Utils/singleInstance').killPreviousInstances(); } catch(e) {}
@@ -103,19 +103,13 @@ async function startPairing(cleanStart = true) {
     console.log('⏳ Connecting to WhatsApp servers...');
 
     sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect } = update;
+        const { connection, lastDisconnect, qr } = update;
 
-        if (connection === 'connecting' && !sock.authState.creds.registered && !isPairingInProgress) {
-            isPairingInProgress = true;
-            console.log('⏳ Establishing secure connection for pairing code...');
-            
-            // Wait 4 seconds for WebSocket handshake to stabilize before sending requestPairingCode
-            await delay(4000);
-            
-            if (sock.authState.creds.registered) return;
-
+        // Trigger pairing code ONLY when connection handshake is complete (QR event emitted)
+        if ((qr || connection === 'connecting') && !sock.authState.creds.registered && !isPairingRequested) {
+            isPairingRequested = true;
+            console.log('⏳ Handshake established! Requesting pairing code from WhatsApp...');
             try {
-                console.log('⏳ Requesting pairing code from WhatsApp...');
                 let code = await sock.requestPairingCode(botNumber);
                 code = code?.match(/.{1,4}/g)?.join("-") || code;
                 console.log('\n╔═════════════════════════════════════╗');
@@ -130,7 +124,7 @@ async function startPairing(cleanStart = true) {
                 console.log('⏳ Waiting for authorization...');
             } catch (err) {
                 console.error('❌ Failed to get pairing code:', err.message || err);
-                isPairingInProgress = false;
+                isPairingRequested = false;
             }
         }
 
@@ -155,7 +149,7 @@ async function startPairing(cleanStart = true) {
                 process.exit(1);
             } else if (statusCode === 515 || sock.authState.creds.registered) {
                 console.log(`🔄 Handshake complete (Code: ${statusCode}). Finalizing login...`);
-                isPairingInProgress = false;
+                isPairingRequested = false;
                 await delay(2000);
                 startPairing(false);
             } else {
