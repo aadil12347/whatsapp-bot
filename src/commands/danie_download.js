@@ -275,10 +275,13 @@ const SETTINGS_PATH = path.join(__dirname, '..', '..', 'session', 'download_sett
 async function sendAndForwardFile(conn, targets, filePayload, sendOptions = {}) {
     let targetList = [];
     if (Array.isArray(targets) && targets.length > 0) {
-        targetList = targets.map(t => typeof t === 'string' ? t : t.jid).filter(Boolean);
+        targetList = targets.map(t => {
+            const raw = typeof t === 'string' ? t : (t?.jid || '');
+            return cleanJid(raw);
+        }).filter(Boolean);
     }
     if (targetList.length === 0) {
-        targetList = [sendOptions.from || sendOptions.destJid];
+        targetList = [cleanJid(sendOptions.from || sendOptions.destJid)].filter(Boolean);
     }
 
     const primaryJid = targetList[0];
@@ -1561,7 +1564,6 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
                         
                         await reply(`📤 Uploading extracted file: *${finalFileName}* (${fileSizeInMB} MB)`);
                         
-                        const activeTargets = settings.targets && settings.targets.length > 0 ? settings.targets : [{ jid: destJid, name: 'Chat' }];
                         await sendAndForwardFile(conn, activeTargets, {
                             document: { url: filePath },
                             mimetype: fileMime,
@@ -1604,7 +1606,6 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
                     remuxFileToFaststart(tempFilePath);
                 }
 
-                const activeTargets = settings.targets && settings.targets.length > 0 ? settings.targets : [{ jid: destJid, name: 'Chat' }];
                 await sendAndForwardFile(conn, activeTargets, {
                     document: { url: tempFilePath },
                     mimetype: mime,

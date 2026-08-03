@@ -4,7 +4,7 @@
   "description": "A Simple WhatsApp bot Created By Daniyal Aadil",
   "main": "start.js",
   "scripts": {
-    "start": "pm2 start start.js --deep-monitoring --attach --name Daniewatch_Bot",
+    "start": "node start.js",
     "stop": "pm2 stop Daniewatch_Bot",
     "restart": "pm2 restart Daniewatch_Bot",
     "pair": "node pair.js"

@@ -1,0 +1,5 @@
+run = "node start.js"
+entrypoint = "start.js"
+
+[nix]
+channel = "stable-24.05"
