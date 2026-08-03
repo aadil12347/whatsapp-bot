@@ -69,7 +69,7 @@ async function startPairing(cleanStart = true) {
             keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'fatal' })),
         },
         printQRInTerminal: false,
-        browser: ["Ubuntu", "Chrome", "20.0.04"],
+        browser: Browsers.macOS('Desktop'),
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 0,
         keepAliveIntervalMs: 30000,
