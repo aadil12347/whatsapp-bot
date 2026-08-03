@@ -56,8 +56,6 @@ function checkAndCleanUnregisteredSession() {
     }
 }
 
-let isPairingRequested = false;
-
 async function startPairing(cleanStart = true) {
     try { require('./src/Utils/singleInstance').killPreviousInstances(); } catch(e) {}
 
@@ -89,7 +87,7 @@ async function startPairing(cleanStart = true) {
             keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'fatal' })),
         },
         printQRInTerminal: false,
-        browser: Browsers.macOS('Desktop'),
+        browser: Browsers.ubuntu('Chrome'),
         connectTimeoutMs: 60000,
         keepAliveIntervalMs: 30000,
     });
@@ -102,14 +100,14 @@ async function startPairing(cleanStart = true) {
     console.log(`🤖 Target Phone Number: +${botNumber}`);
     console.log('⏳ Connecting to WhatsApp servers...');
 
-    sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect, qr } = update;
+    let pairingCodeRequested = false;
 
-        // Trigger pairing code ONLY when connection handshake is complete (QR event emitted)
-        if ((qr || connection === 'connecting') && !sock.authState.creds.registered && !isPairingRequested) {
-            isPairingRequested = true;
-            console.log('⏳ Handshake established! Requesting pairing code from WhatsApp...');
+    if (!sock.authState.creds.registered) {
+        setTimeout(async () => {
+            if (pairingCodeRequested) return;
+            pairingCodeRequested = true;
             try {
+                console.log('⏳ Requesting pairing code from WhatsApp...');
                 let code = await sock.requestPairingCode(botNumber);
                 code = code?.match(/.{1,4}/g)?.join("-") || code;
                 console.log('\n╔═════════════════════════════════════╗');
@@ -124,9 +122,12 @@ async function startPairing(cleanStart = true) {
                 console.log('⏳ Waiting for authorization...');
             } catch (err) {
                 console.error('❌ Failed to get pairing code:', err.message || err);
-                isPairingRequested = false;
             }
-        }
+        }, 1200);
+    }
+
+    sock.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect } = update;
 
         if (connection === 'open') {
             console.log('\n=========================================');
@@ -149,7 +150,6 @@ async function startPairing(cleanStart = true) {
                 process.exit(1);
             } else if (statusCode === 515 || sock.authState.creds.registered) {
                 console.log(`🔄 Handshake complete (Code: ${statusCode}). Finalizing login...`);
-                isPairingRequested = false;
                 await delay(2000);
                 startPairing(false);
             } else {
