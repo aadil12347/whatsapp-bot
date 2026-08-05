@@ -1176,6 +1176,70 @@ async function extractDirectDownloadLinks(url, parentUrl = null) {
 }
 
 /**
+ * Extract direct download URLs for Gofile.io links using official Gofile API
+ */
+async function extractGofileDirectLink(url) {
+    try {
+        const contentIdMatch = url.match(/\/d\/([a-zA-Z0-9]+)/);
+        if (!contentIdMatch) return [];
+        const contentId = contentIdMatch[1];
+
+        console.log(`[MovieScraper] Extracting Gofile direct links for contentId: ${contentId}`);
+
+        const headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+            'Accept': '*/*',
+            'Origin': 'https://gofile.io',
+            'Referer': `https://gofile.io/d/${contentId}`
+        };
+
+        // 1. Get wt parameter from config.js
+        let wt = '4fd6sg89d7s6';
+        try {
+            const configRes = await axios.get('https://gofile.io/dist/js/config.js', { headers, timeout: 5000 });
+            const wtMatch = configRes.data.match(/wt\s*=\s*['"]([^'"]+)['"]/);
+            if (wtMatch && wtMatch[1]) wt = wtMatch[1];
+        } catch (_) {}
+
+        // 2. Create guest account token
+        let token = '';
+        try {
+            const accRes = await axios.post('https://api.gofile.io/accounts', {}, { headers, timeout: 8000 });
+            token = accRes.data?.data?.token || '';
+        } catch (_) {}
+
+        const reqHeaders = {
+            ...headers,
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        };
+
+        // 3. Fetch folder contents
+        const contentUrl = `https://api.gofile.io/contents/${contentId}?wt=${wt}`;
+        const res = await axios.get(contentUrl, { headers: reqHeaders, timeout: 10000 });
+
+        if (res.data && res.data.status === 'ok' && res.data.data && res.data.data.children) {
+            const children = res.data.data.children;
+            const links = [];
+            Object.values(children).forEach(item => {
+                const directUrl = item.link || (item.server && item.name ? `https://${item.server}.gofile.io/download/web/${item.id || item.name}/${encodeURIComponent(item.name)}` : null);
+                if (directUrl) {
+                    links.push({
+                        text: item.name || 'Gofile Direct Link',
+                        href: directUrl
+                    });
+                }
+            });
+            if (links.length > 0) return links;
+        } else if (res.data && res.data.status === 'error-notPremium') {
+            console.warn(`[MovieScraper] Gofile folder ${contentId} requires Premium account`);
+        }
+    } catch (err) {
+        console.error('[MovieScraper] extractGofileDirectLink failed:', err.message);
+    }
+    return [];
+}
+
+/**
  * Scrapes a landing/redirect page (vcloud.zip, gdflix, fastdl, filebee, hubcloud)
  * and extracts all sub-options (like FSL Server, FSLv2, GDrive, PixelDrain, etc.)
  */
@@ -1213,6 +1277,12 @@ async function extractSubOptions(url, parentUrl = null) {
                 if (href) finalLinks.push({ text, href });
             });
             if (finalLinks.length > 0) return finalLinks;
+        }
+
+        // 2. Handle Gofile.io links directly via API
+        if (url.includes('gofile.io')) {
+            const gofileLinks = await extractGofileDirectLink(url);
+            if (gofileLinks && gofileLinks.length > 0) return gofileLinks;
         }
 
         const html = await fetchHtmlWithRetry(url, parentUrl);
@@ -1882,6 +1952,7 @@ module.exports = {
     scrapeAllPostLinks,
     extractDirectDownloadLinks,
     extractSubOptions,
+    extractGofileDirectLink,
     searchHdhub4u,
     searchHdhub4uViaSitemap,
     getHdhub4uSitemapUrls,

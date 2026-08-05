@@ -2794,17 +2794,17 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
         executeFn: async (signal, ref) => {
             let candidates = [];
 
-            // === DIRECT CDN ONLY MODE ===
-            // Only use fastdl.zip hosts (which resolve to googleusercontent.com Direct CDN Links via var reurl)
-            // Skip all other hosts (vcloud, filebee, gofile, vikingfile, megaup) — they consistently fail with 403
+            // === STRICT DIRECT CDN ONLY MODE ===
+            // Only use FastDL hosts (which resolve to googleusercontent.com Direct CDN Links via var reurl)
+            // and already-resolved googleusercontent.com / googleapis.com direct CDN links.
+            // Exclude all other providers (vcloud, filebee, gofile, vikingfile, megaup, hubcloud, gdtot, etc.).
 
-            // 1. Separate fastdl/filebee hosts and already-resolved direct CDN URLs from the rest
             const cdnHosts = [];
             const directCdnHosts = [];
 
             for (const host of hostsList) {
                 const lowerHref = (host.href || '').toLowerCase();
-                if (lowerHref.includes('fastdl') || lowerHref.includes('filebee') || lowerHref.includes('filepress')) {
+                if (lowerHref.includes('fastdl')) {
                     cdnHosts.push(host);
                 } else if (
                     lowerHref.includes('googleusercontent.com') ||
@@ -2814,14 +2814,13 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
                 ) {
                     directCdnHosts.push(host);
                 }
-                // Skip everything else (vcloud, gofile, vikingfile, megaup, hubcloud, etc.)
             }
 
-            console.log(`[DanieSearch] CDN-Only Mode: ${cdnHosts.length} FastDL/Filebee host(s), ${directCdnHosts.length} direct CDN host(s), skipped ${hostsList.length - cdnHosts.length - directCdnHosts.length} non-CDN host(s)`);
+            console.log(`[DanieSearch] Strict Direct CDN Mode: ${cdnHosts.length} FastDL host(s), ${directCdnHosts.length} direct CDN host(s)`);
 
-            // 2. Process FastDL & Filebee hosts to extract Direct CDN Links
+            // Process FastDL hosts to extract Direct CDN Links
             for (const host of cdnHosts) {
-                console.log(`[DanieSearch] Resolving Direct CDN from ${host.href}`);
+                console.log(`[DanieSearch] Resolving Direct CDN from FastDL: ${host.href}`);
                 try {
                     const subOpts = await extractSubOptions(host.href);
                     if (subOpts && subOpts.length > 0) {
@@ -2833,11 +2832,11 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
                         });
                     }
                 } catch (subErr) {
-                    console.error(`[DanieSearch] Sub-options failed for ${host.href}:`, subErr.message);
+                    console.error(`[DanieSearch] FastDL resolution failed for ${host.href}:`, subErr.message);
                 }
             }
 
-            // 3. Add any already-resolved direct CDN URLs
+            // Add any already-resolved direct CDN URLs
             for (const host of directCdnHosts) {
                 candidates.push({ name: host.text || 'Direct CDN Link', href: host.href });
             }
@@ -2851,13 +2850,11 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
             });
 
             if (candidates.length === 0) {
-                console.log(`[DanieSearch] No Direct CDN links found, falling back to first available host as last resort`);
-                for (const host of hostsList) {
-                    candidates.push({ name: host.text || 'Direct Link', href: host.href });
-                }
+                console.log(`[DanieSearch] No Direct CDN (FastDL/Google CDN) links available for this item.`);
+                throw new Error('No Direct CDN (FastDL) link available for this item.');
             }
 
-            console.log(`[DanieSearch] Fallback system candidates:`, candidates.map(c => c.name));
+            console.log(`[DanieSearch] Direct CDN candidates:`, candidates.map(c => c.name));
 
             let downloadSuccess = false;
             let lastError = null;
