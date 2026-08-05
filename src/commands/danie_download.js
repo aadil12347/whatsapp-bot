@@ -2793,65 +2793,54 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
         from,
         executeFn: async (signal, ref) => {
             let candidates = [];
-            const candidates10g = [];
-            const candidatesFslv2 = [];
-            const candidatesFsl = [];
-            const candidatesOther = [];
 
-            // Process ALL available hosts (vcloud, filebee, fastdl, gofile, megaup, etc.)
+            // === DIRECT CDN ONLY MODE ===
+            // Only use fastdl.zip hosts (which resolve to googleusercontent.com Direct CDN Links via var reurl)
+            // Skip all other hosts (vcloud, filebee, gofile, vikingfile, megaup) — they consistently fail with 403
+
+            // 1. Separate fastdl/filebee hosts and already-resolved direct CDN URLs from the rest
+            const cdnHosts = [];
+            const directCdnHosts = [];
+
             for (const host of hostsList) {
-                if (isLandingUrl(host.href)) {
-                    console.log(`[DanieSearch] Resolving sub-options for landing url: ${host.href}`);
-                    
-                    let subOpts = null;
-                    for (let attempt = 1; attempt <= 2; attempt++) {
-                        try {
-                            subOpts = await extractSubOptions(host.href);
-                            const hasRealServers = subOpts && subOpts.some(opt => {
-                                const t = opt.text.toLowerCase();
-                                return t.includes('fsl') || t.includes('10gbps') || t.includes('server') || t.includes('file') || t.includes('download') || t.includes('cdn');
-                            });
-                            if (hasRealServers || attempt >= 2) break;
-                            console.log(`[DanieSearch] Sub-options attempt ${attempt} returned no servers, retrying in 3s...`);
-                            await new Promise(r => setTimeout(r, 3000));
-                        } catch (subErr) {
-                            console.error(`[DanieSearch] Sub-options attempt ${attempt} failed for ${host.href}:`, subErr.message);
-                            if (attempt < 2) {
-                                console.log(`[DanieSearch] Retrying sub-options in 3s...`);
-                                await new Promise(r => setTimeout(r, 3000));
-                            }
-                        }
-                    }
-                    
+                const lowerHref = (host.href || '').toLowerCase();
+                if (lowerHref.includes('fastdl') || lowerHref.includes('filebee') || lowerHref.includes('filepress')) {
+                    cdnHosts.push(host);
+                } else if (
+                    lowerHref.includes('googleusercontent.com') ||
+                    lowerHref.includes('googleapis.com') ||
+                    lowerHref.includes('cdn.') ||
+                    lowerHref.includes('.cdn')
+                ) {
+                    directCdnHosts.push(host);
+                }
+                // Skip everything else (vcloud, gofile, vikingfile, megaup, hubcloud, etc.)
+            }
+
+            console.log(`[DanieSearch] CDN-Only Mode: ${cdnHosts.length} FastDL/Filebee host(s), ${directCdnHosts.length} direct CDN host(s), skipped ${hostsList.length - cdnHosts.length - directCdnHosts.length} non-CDN host(s)`);
+
+            // 2. Process FastDL & Filebee hosts to extract Direct CDN Links
+            for (const host of cdnHosts) {
+                console.log(`[DanieSearch] Resolving Direct CDN from ${host.href}`);
+                try {
+                    const subOpts = await extractSubOptions(host.href);
                     if (subOpts && subOpts.length > 0) {
                         subOpts.forEach(opt => {
-                            const txt = opt.text.toLowerCase();
-                            if (txt.includes('10gbps')) {
-                                candidates10g.push({ name: '10Gbps Server', href: opt.href });
-                            } else if (txt.includes('fslv2')) {
-                                candidatesFslv2.push({ name: 'FSLv2 Server', href: opt.href });
-                            } else if (txt.includes('fsl')) {
-                                candidatesFsl.push({ name: 'FSL Server', href: opt.href });
-                            } else if (!txt.includes('login') && !txt.includes('admin')) {
-                                candidatesOther.push({ name: opt.text || host.text || 'Direct Link', href: opt.href });
+                            const txt = (opt.text || '').toLowerCase();
+                            if (!txt.includes('login') && !txt.includes('admin')) {
+                                candidates.push({ name: opt.text || 'Direct CDN Link', href: opt.href });
                             }
                         });
-                    } else {
-                        // If extractSubOptions returned no sub-options or failed, add the host URL as a candidate
-                        candidatesOther.push({ name: host.text || 'Download Host', href: host.href });
                     }
-                } else {
-                    candidatesOther.push({ name: host.text || 'Direct Link', href: host.href });
+                } catch (subErr) {
+                    console.error(`[DanieSearch] Sub-options failed for ${host.href}:`, subErr.message);
                 }
             }
 
-            // Order candidates: Prioritize FSLv2, FSL, 10Gbps, then all other extracted hosts (Filebee, Fastdl, Gofile, etc.)
-            candidates = [
-                ...candidatesFslv2,
-                ...candidatesFsl,
-                ...candidates10g,
-                ...candidatesOther
-            ];
+            // 3. Add any already-resolved direct CDN URLs
+            for (const host of directCdnHosts) {
+                candidates.push({ name: host.text || 'Direct CDN Link', href: host.href });
+            }
 
             // Deduplicate candidates by href
             const seenHref = new Set();
@@ -2862,6 +2851,7 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
             });
 
             if (candidates.length === 0) {
+                console.log(`[DanieSearch] No Direct CDN links found, falling back to first available host as last resort`);
                 for (const host of hostsList) {
                     candidates.push({ name: host.text || 'Direct Link', href: host.href });
                 }
