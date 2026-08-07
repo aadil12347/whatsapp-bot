@@ -14,6 +14,7 @@
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@google/generative-ai": "^0.24.0",
     "@hapi/boom": "^10.0.1",
+    "@img/sharp-linux-x64": "^0.35.3",
     "@supabase/supabase-js": "^2.112.2",
     "@xaviabot/fb-downloader": "^1.0.14",
     "adm-zip": "0.5.16",
