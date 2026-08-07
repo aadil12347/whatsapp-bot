@@ -1971,7 +1971,10 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
                         url: directVideoUrl,
                         responseType: 'stream',
                         headers: {
-                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36',
+                            'Referer': 'https://frame.y2meta-uk.com/',
+                            'Origin': 'https://frame.y2meta-uk.com',
+                            'Accept': '*/*'
                         },
                         timeout: 60000
                     });
