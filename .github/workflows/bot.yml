@@ -1,0 +1,53 @@
+name: WhatsApp Bot Task Runner
+
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        description: 'Optional command or task to execute'
+        required: false
+        default: 'start'
+  repository_dispatch:
+    types: [run-bot, execute-task]
+
+jobs:
+  run-bot-task:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 📦 Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 10
+
+      - name: ⚙️ Install Dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: 🤖 Execute Bot Task
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          BOT_NUMBER: ${{ secrets.BOT_NUMBER }}
+          SUDO: ${{ secrets.SUDO }}
+          CF_WORKER_URL: ${{ secrets.CF_WORKER_URL }}
+          OWNER_NAME: ${{ secrets.OWNER_NAME }}
+        run: |
+          echo "🚀 Restoring session from Supabase & running bot task..."
+          node start.js
+
+      - name: 📤 Sync Final Session to Supabase
+        if: always()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          echo "📤 Backing up updated session to Supabase..."
+          pnpm exec node scratch/upload_current_session.js || true

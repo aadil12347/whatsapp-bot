@@ -14,6 +14,7 @@
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@google/generative-ai": "^0.24.0",
     "@hapi/boom": "^10.0.1",
+    "@supabase/supabase-js": "^2.112.2",
     "@xaviabot/fb-downloader": "^1.0.14",
     "adm-zip": "0.5.16",
     "anju-xpro-baileys": "npm:@whiskeysockets/baileys@7.0.0-rc13",
@@ -25,6 +26,7 @@
     "cheerio": "^1.1.0",
     "crypto": "1.0.1",
     "css-select": "5.1.0",
+    "daniewatch-baileys": "npm:@whiskeysockets/baileys@7.0.0-rc13",
     "dotenv": "^17.4.2",
     "express": "latest",
     "ffmpeg": "^0.0.4",
@@ -60,8 +62,7 @@
     "util": "^0.12.4",
     "vm": "^0.1.0",
     "wa-sticker-formatter": "4.4.4",
-    "yt-search": "2.11.1",
-    "daniewatch-baileys": "npm:@whiskeysockets/baileys@7.0.0-rc13"
+    "yt-search": "2.11.1"
   },
   "overrides": {
     "jsonpath-plus": "^10.0.0"
