@@ -18,6 +18,16 @@ const ALLOWED_COMMANDS = [
 const path = require('path');
 const fs = require('fs');
 
+// Filter out framework's console.log("✅ Welcome message sent (delayed)")
+const originalConsoleLog = console.log.bind(console);
+console.log = function(...args) {
+    const msg = args.join(' ');
+    if (msg.includes('Welcome message sent (delayed)') || msg.includes('Welcome message sent')) {
+        return; // Silently drop framework welcome message log
+    }
+    originalConsoleLog(...args);
+};
+
 function hookDanieWatch(conn) {
     if (!conn || conn._danieWatchHooked) return;
     conn._danieWatchHooked = true;

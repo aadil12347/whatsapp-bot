@@ -511,8 +511,8 @@
             let clean = line.replace(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z\s*/, '').trim();
             if (!clean) return;
 
-            // Skip GitHub runner noise groups
-            if (clean.startsWith('##[group]') || clean.startsWith('##[endgroup]') || clean.includes('Hosted Compute Agent')) return;
+            // Skip GitHub runner noise groups & legacy framework welcome log lines
+            if (clean.startsWith('##[group]') || clean.startsWith('##[endgroup]') || clean.includes('Hosted Compute Agent') || clean.includes('Welcome message sent')) return;
 
             let styleClass = '';
             if (clean.includes('🚀') || clean.includes('📁') || clean.includes('✅') || clean.includes('connected')) styleClass = 'ok';
