@@ -3,491 +3,549 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DanieWatch — WhatsApp Bot Controller</title>
-    <meta name="description" content="Remote controller for the DanieWatch WhatsApp Bot. Start, stop, and monitor your bot from anywhere.">
+    <title>DanieWatch — IDE Bot Controller</title>
+    <meta name="description" content="Cyberpunk Code IDE & Terminal Remote Controller for DanieWatch WhatsApp Bot.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;0,800;1,400&family=Fira+Code:wght@400;600&display=swap" rel="stylesheet">
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
         :root {
-            --bg-deep: #06080f;
-            --glass-bg: rgba(15, 23, 42, 0.65);
-            --glass-border: rgba(99, 102, 241, 0.15);
-            --glass-hover: rgba(99, 102, 241, 0.25);
-            --accent-1: #818cf8;
-            --accent-2: #6366f1;
-            --green: #34d399;
-            --green-glow: rgba(52, 211, 153, 0.35);
-            --red: #f87171;
-            --red-glow: rgba(248, 113, 113, 0.35);
-            --blue: #60a5fa;
-            --blue-glow: rgba(96, 165, 250, 0.3);
-            --text: #f1f5f9;
-            --text-dim: #94a3b8;
-            --radius: 16px;
+            --ide-bg: #0d1117;
+            --ide-panel: #161b22;
+            --ide-tab-active: #21262d;
+            --ide-border: #30363d;
+            --ide-line-num: #484f58;
+            
+            /* Syntax Highlighting Colors */
+            --syn-kw: #ff7b72;       /* salmon red */
+            --syn-fn: #d2a8ff;       /* purple */
+            --syn-str: #a5d6ff;      /* soft blue */
+            --syn-num: #79c0ff;      /* bright cyan */
+            --syn-cm: #8b949e;       /* grey comment */
+            --syn-var: #ffa657;      /* orange */
+            
+            /* UI Neon Accents */
+            --neon-green: #3fb950;
+            --neon-green-glow: rgba(63, 185, 80, 0.4);
+            --neon-red: #f85149;
+            --neon-red-glow: rgba(248, 81, 73, 0.4);
+            --neon-cyan: #58a6ff;
+            --neon-cyan-glow: rgba(88, 166, 255, 0.4);
+            --neon-amber: #d29922;
+            --neon-amber-glow: rgba(210, 153, 34, 0.4);
+            
+            --text-main: #c9d1d9;
+            --text-dim: #8b949e;
         }
 
         body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-            background: var(--bg-deep);
-            color: var(--text);
+            font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+            background-color: #010409;
+            color: var(--text-main);
             min-height: 100vh;
             display: flex;
             justify-content: center;
             align-items: center;
-            padding: 24px;
-            overflow: hidden;
+            padding: 20px;
+            overflow-x: hidden;
+            background-image: 
+                linear-gradient(rgba(48, 54, 61, 0.25) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(48, 54, 61, 0.25) 1px, transparent 1px);
+            background-size: 32px 32px;
         }
 
-        /* Animated gradient background */
-        body::before {
-            content: '';
-            position: fixed;
-            top: -50%;
-            left: -50%;
-            width: 200%;
-            height: 200%;
-            background: radial-gradient(ellipse at 20% 50%, rgba(99,102,241,0.08) 0%, transparent 50%),
-                        radial-gradient(ellipse at 80% 20%, rgba(52,211,153,0.06) 0%, transparent 50%),
-                        radial-gradient(ellipse at 50% 80%, rgba(248,113,113,0.05) 0%, transparent 50%);
-            animation: bgDrift 20s ease-in-out infinite alternate;
-            z-index: 0;
-            pointer-events: none;
-        }
-
-        @keyframes bgDrift {
-            0% { transform: translate(0, 0) rotate(0deg); }
-            100% { transform: translate(-3%, 2%) rotate(3deg); }
-        }
-
-        /* Floating particles */
-        .particles {
-            position: fixed;
-            top: 0; left: 0;
-            width: 100%; height: 100%;
-            pointer-events: none;
-            z-index: 0;
-            overflow: hidden;
-        }
-        .particles span {
-            position: absolute;
-            width: 3px;
-            height: 3px;
-            background: var(--accent-1);
-            border-radius: 50%;
-            opacity: 0;
-            animation: float 12s infinite;
-        }
-        .particles span:nth-child(1) { left: 10%; animation-delay: 0s; animation-duration: 14s; }
-        .particles span:nth-child(2) { left: 25%; animation-delay: 2s; animation-duration: 10s; }
-        .particles span:nth-child(3) { left: 45%; animation-delay: 4s; animation-duration: 16s; }
-        .particles span:nth-child(4) { left: 65%; animation-delay: 1s; animation-duration: 12s; }
-        .particles span:nth-child(5) { left: 80%; animation-delay: 3s; animation-duration: 15s; }
-        .particles span:nth-child(6) { left: 90%; animation-delay: 5s; animation-duration: 11s; }
-
-        @keyframes float {
-            0% { transform: translateY(100vh) scale(0); opacity: 0; }
-            10% { opacity: 0.6; }
-            90% { opacity: 0.3; }
-            100% { transform: translateY(-10vh) scale(1.2); opacity: 0; }
-        }
-
-        .container {
-            position: relative;
-            z-index: 1;
+        /* IDE Window Container */
+        .ide-window {
             width: 100%;
-            max-width: 460px;
-            background: var(--glass-bg);
-            backdrop-filter: blur(20px) saturate(1.4);
-            -webkit-backdrop-filter: blur(20px) saturate(1.4);
-            border: 1px solid var(--glass-border);
-            border-radius: 24px;
-            padding: 0;
-            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.6),
-                        0 0 0 1px rgba(99,102,241,0.05),
-                        inset 0 1px 0 rgba(255,255,255,0.04);
-            animation: cardEntry 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+            max-width: 680px;
+            background: var(--ide-bg);
+            border: 1px solid var(--ide-border);
+            border-radius: 10px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8), 0 0 20px rgba(88, 166, 255, 0.08);
             overflow: hidden;
+            animation: ideScan 0.5s ease-out;
         }
 
-        @keyframes cardEntry {
-            0% { opacity: 0; transform: translateY(30px) scale(0.97); }
-            100% { opacity: 1; transform: translateY(0) scale(1); }
+        @keyframes ideScan {
+            from { opacity: 0; transform: translateY(16px) scale(0.99); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
         }
 
-        /* Header */
-        .header {
-            padding: 32px 28px 20px;
-            text-align: center;
-            border-bottom: 1px solid rgba(99,102,241,0.08);
-            background: linear-gradient(180deg, rgba(99,102,241,0.06) 0%, transparent 100%);
+        /* Title Bar */
+        .ide-titlebar {
+            background: var(--ide-panel);
+            padding: 10px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--ide-border);
+            user-select: none;
         }
-        .header .logo {
-            font-size: 2rem;
-            margin-bottom: 4px;
-            animation: logoPulse 3s ease-in-out infinite;
+        .window-controls {
+            display: flex;
+            gap: 8px;
         }
-        @keyframes logoPulse {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.05); }
+        .win-btn {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
         }
-        .header h1 {
-            font-size: 1.35rem;
-            font-weight: 800;
-            letter-spacing: -0.02em;
-            background: linear-gradient(135deg, var(--accent-1), var(--green));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-        .header .subtitle {
+        .win-close { background: #ff5f56; }
+        .win-min { background: #ffbd2e; }
+        .win-max { background: #27c93f; }
+
+        .ide-breadcrumbs {
+            font-size: 0.76rem;
             color: var(--text-dim);
-            font-size: 0.78rem;
-            margin-top: 4px;
-            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 6px;
         }
+        .ide-breadcrumbs span.path { color: var(--syn-num); }
+        .ide-breadcrumbs span.file { color: var(--syn-str); font-weight: 600; }
 
-        /* Status badge */
-        .status-badge {
+        .status-pill {
+            font-size: 0.7rem;
+            padding: 3px 10px;
+            border-radius: 12px;
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            margin-top: 12px;
-            padding: 5px 14px;
-            border-radius: 20px;
-            font-size: 0.72rem;
-            font-weight: 600;
+            font-weight: 700;
+            background: rgba(63, 185, 80, 0.15);
+            color: var(--neon-green);
+            border: 1px solid rgba(63, 185, 80, 0.3);
             text-transform: uppercase;
-            letter-spacing: 0.06em;
-            background: rgba(52, 211, 153, 0.1);
-            border: 1px solid rgba(52, 211, 153, 0.2);
-            color: var(--green);
-            transition: all 0.4s ease;
+            letter-spacing: 0.05em;
         }
-        .status-badge.offline {
-            background: rgba(248, 113, 113, 0.1);
-            border-color: rgba(248, 113, 113, 0.2);
-            color: var(--red);
+        .status-pill.offline {
+            background: rgba(248, 81, 73, 0.15);
+            color: var(--neon-red);
+            border-color: rgba(248, 81, 73, 0.3);
         }
-        .status-badge.checking {
-            background: rgba(96, 165, 250, 0.1);
-            border-color: rgba(96, 165, 250, 0.2);
-            color: var(--blue);
+        .status-pill.checking {
+            background: rgba(88, 166, 255, 0.15);
+            color: var(--neon-cyan);
+            border-color: rgba(88, 166, 255, 0.3);
         }
-        .status-dot {
-            width: 7px;
-            height: 7px;
+        .status-pill .pulse-dot {
+            width: 6px;
+            height: 6px;
             border-radius: 50%;
-            background: var(--green);
-            animation: dotPulse 1.8s ease-in-out infinite;
+            background: currentColor;
+            box-shadow: 0 0 8px currentColor;
+            animation: pulseGlow 1.5s infinite alternate;
         }
-        .status-badge.offline .status-dot {
-            background: var(--red);
-            animation: none;
-        }
-        .status-badge.checking .status-dot {
-            background: var(--blue);
-            animation: dotSpin 1s linear infinite;
-        }
-        @keyframes dotPulse {
-            0%, 100% { opacity: 1; box-shadow: 0 0 0 0 var(--green-glow); }
-            50% { opacity: 0.6; box-shadow: 0 0 0 5px transparent; }
-        }
-        @keyframes dotSpin {
-            0% { transform: scale(0.8); opacity: 0.4; }
-            50% { transform: scale(1.2); opacity: 1; }
-            100% { transform: scale(0.8); opacity: 0.4; }
+        @keyframes pulseGlow {
+            0% { opacity: 0.4; }
+            100% { opacity: 1; }
         }
 
-        /* Tabs */
-        .tabs {
+        /* IDE Tabs Bar */
+        .ide-tabs {
+            background: var(--ide-panel);
             display: flex;
-            padding: 0 28px;
-            gap: 4px;
-            margin-top: 0;
-            border-bottom: 1px solid rgba(99,102,241,0.08);
+            border-bottom: 1px solid var(--ide-border);
+            overflow-x: auto;
         }
-        .tab {
-            flex: 1;
-            padding: 12px 0;
-            text-align: center;
-            font-size: 0.82rem;
-            font-weight: 600;
+        .ide-tab {
+            padding: 8px 18px;
+            font-size: 0.78rem;
             color: var(--text-dim);
             cursor: pointer;
-            border-bottom: 2px solid transparent;
-            transition: all 0.3s ease;
-            user-select: none;
-            position: relative;
-        }
-        .tab:hover {
-            color: var(--text);
-        }
-        .tab.active {
-            color: var(--accent-1);
-            border-bottom-color: var(--accent-1);
-        }
-        .tab.active::after {
-            content: '';
-            position: absolute;
-            bottom: -1px;
-            left: 20%;
-            width: 60%;
-            height: 2px;
-            background: var(--accent-1);
-            border-radius: 2px;
-            box-shadow: 0 0 8px var(--accent-1);
-        }
-
-        /* Tab content */
-        .tab-content {
-            padding: 20px 28px 28px;
-        }
-        .tab-panel {
-            display: none;
-            animation: tabFade 0.35s ease;
-        }
-        .tab-panel.active {
-            display: block;
-        }
-        @keyframes tabFade {
-            0% { opacity: 0; transform: translateY(6px); }
-            100% { opacity: 1; transform: translateY(0); }
-        }
-
-        /* Buttons */
-        .btn {
-            width: 100%;
-            padding: 14px 20px;
-            margin: 6px 0;
-            border: none;
-            border-radius: var(--radius);
-            font-family: 'Inter', sans-serif;
-            font-size: 0.92rem;
-            font-weight: 700;
-            color: white;
-            cursor: pointer;
-            position: relative;
-            overflow: hidden;
-            transition: all 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+            border-right: 1px solid var(--ide-border);
             display: flex;
             align-items: center;
-            justify-content: center;
             gap: 8px;
-        }
-        .btn::before {
-            content: '';
-            position: absolute;
-            top: 0; left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
-            transition: left 0.5s ease;
-        }
-        .btn:hover::before {
-            left: 100%;
-        }
-        .btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 25px -8px currentColor;
-        }
-        .btn:active {
-            transform: translateY(0) scale(0.98);
-        }
-
-        .btn-start {
-            background: linear-gradient(135deg, #059669, var(--green));
-            box-shadow: 0 4px 14px -4px var(--green-glow);
-        }
-        .btn-start:hover {
-            box-shadow: 0 8px 30px -6px var(--green-glow);
-        }
-        .btn-stop {
-            background: linear-gradient(135deg, #dc2626, var(--red));
-            box-shadow: 0 4px 14px -4px var(--red-glow);
-        }
-        .btn-stop:hover {
-            box-shadow: 0 8px 30px -6px var(--red-glow);
-        }
-        .btn-status {
-            background: linear-gradient(135deg, #2563eb, var(--blue));
-            box-shadow: 0 4px 14px -4px var(--blue-glow);
-        }
-        .btn-status:hover {
-            box-shadow: 0 8px 30px -6px var(--blue-glow);
-        }
-        .btn-token {
-            background: rgba(100, 116, 139, 0.2);
-            border: 1px solid rgba(100, 116, 139, 0.3);
-            color: var(--text-dim);
-            margin-top: 12px;
-            font-weight: 600;
-            font-size: 0.82rem;
-        }
-        .btn-token:hover {
-            background: rgba(100, 116, 139, 0.3);
-            color: var(--text);
-            border-color: rgba(100, 116, 139, 0.5);
-        }
-
-        /* Log area */
-        .log-area {
-            background: rgba(2, 6, 14, 0.6);
-            border: 1px solid rgba(99,102,241,0.1);
-            border-radius: 12px;
-            padding: 14px 16px;
-            min-height: 200px;
-            max-height: 340px;
-            overflow-y: auto;
-            font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
-            font-size: 0.72rem;
-            line-height: 1.7;
-            color: var(--text-dim);
-            scrollbar-width: thin;
-            scrollbar-color: rgba(99,102,241,0.2) transparent;
-        }
-        .log-area::-webkit-scrollbar {
-            width: 4px;
-        }
-        .log-area::-webkit-scrollbar-track {
+            transition: all 0.2s ease;
+            user-select: none;
             background: transparent;
         }
-        .log-area::-webkit-scrollbar-thumb {
-            background: rgba(99,102,241,0.3);
-            border-radius: 4px;
+        .ide-tab:hover {
+            color: var(--text-main);
+            background: rgba(255, 255, 255, 0.02);
         }
-        .log-entry {
-            padding: 3px 0;
-            border-bottom: 1px solid rgba(99,102,241,0.04);
-            animation: logSlide 0.3s ease;
+        .ide-tab.active {
+            color: var(--text-main);
+            background: var(--ide-bg);
+            border-top: 2px solid var(--neon-cyan);
         }
-        @keyframes logSlide {
-            0% { opacity: 0; transform: translateX(-6px); }
-            100% { opacity: 1; transform: translateX(0); }
+        .ide-tab .icon-ts { color: var(--neon-cyan); font-weight: bold; font-size: 0.7rem; }
+        .ide-tab .icon-term { color: var(--neon-green); font-weight: bold; font-size: 0.7rem; }
+
+        /* Code Editor Body */
+        .editor-container {
+            display: none;
         }
-        .log-entry .time {
-            color: rgba(99,102,241,0.5);
-            margin-right: 6px;
-        }
-        .log-entry.success { color: var(--green); }
-        .log-entry.error { color: var(--red); }
-        .log-entry.info { color: var(--blue); }
-        .log-entry.warn { color: #fbbf24; }
-        .log-empty {
-            color: rgba(148,163,184,0.4);
-            text-align: center;
-            padding: 40px 0;
-            font-style: italic;
+        .editor-container.active {
+            display: block;
         }
 
+        .code-grid {
+            display: grid;
+            grid-template-columns: 42px 1fr;
+            padding: 16px 0;
+            font-size: 0.84rem;
+            line-height: 1.8;
+        }
+
+        .line-numbers {
+            color: var(--ide-line-num);
+            text-align: right;
+            padding-right: 14px;
+            user-select: none;
+            font-size: 0.78rem;
+        }
+
+        .code-area {
+            padding-right: 16px;
+        }
+
+        /* Syntax styling */
+        .kw { color: var(--syn-kw); font-weight: bold; }
+        .fn { color: var(--syn-fn); }
+        .str { color: var(--syn-str); }
+        .num { color: var(--syn-num); }
+        .cm { color: var(--syn-cm); font-style: italic; }
+        .var { color: var(--syn-var); }
+
+        /* Interactive Executable Code Action Block */
+        .cmd-block {
+            margin: 8px 0;
+            padding: 10px 14px;
+            background: rgba(22, 27, 34, 0.8);
+            border: 1px dashed var(--ide-border);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            transition: all 0.25s ease;
+        }
+        .cmd-block:hover {
+            border-style: solid;
+            background: rgba(33, 38, 45, 0.9);
+            transform: translateX(4px);
+        }
+
+        .cmd-code {
+            font-size: 0.8rem;
+            overflow-x: auto;
+            white-space: nowrap;
+        }
+
+        /* IDE Code Action Buttons */
+        .run-btn {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.74rem;
+            font-weight: 700;
+            padding: 6px 14px;
+            border-radius: 4px;
+            border: 1px solid currentColor;
+            cursor: pointer;
+            background: transparent;
+            white-space: nowrap;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .run-btn-start {
+            color: var(--neon-green);
+            border-color: rgba(63, 185, 80, 0.4);
+            background: rgba(63, 185, 80, 0.08);
+        }
+        .run-btn-start:hover {
+            background: var(--neon-green);
+            color: #000;
+            box-shadow: 0 0 15px var(--neon-green-glow);
+        }
+
+        .run-btn-stop {
+            color: var(--neon-red);
+            border-color: rgba(248, 81, 73, 0.4);
+            background: rgba(248, 81, 73, 0.08);
+        }
+        .run-btn-stop:hover {
+            background: var(--neon-red);
+            color: #fff;
+            box-shadow: 0 0 15px var(--neon-red-glow);
+        }
+
+        .run-btn-sync {
+            color: var(--neon-cyan);
+            border-color: rgba(88, 166, 255, 0.4);
+            background: rgba(88, 166, 255, 0.08);
+        }
+        .run-btn-sync:hover {
+            background: var(--neon-cyan);
+            color: #000;
+            box-shadow: 0 0 15px var(--neon-cyan-glow);
+        }
+
+        .run-btn-auth {
+            color: var(--neon-amber);
+            border-color: rgba(210, 153, 34, 0.4);
+            background: rgba(210, 153, 34, 0.08);
+        }
+        .run-btn-auth:hover {
+            background: var(--neon-amber);
+            color: #000;
+            box-shadow: 0 0 15px var(--neon-amber-glow);
+        }
+
+        .run-btn:active {
+            transform: scale(0.95);
+        }
+
+        /* Terminal Window */
+        .terminal-panel {
+            background: #040d14;
+            padding: 16px;
+            min-height: 260px;
+            max-height: 380px;
+            overflow-y: auto;
+            font-size: 0.78rem;
+            line-height: 1.6;
+            color: #8b949e;
+        }
+
+        .term-prompt {
+            color: var(--neon-green);
+            font-weight: bold;
+        }
+        .term-host {
+            color: var(--neon-cyan);
+        }
+        .term-path {
+            color: var(--syn-var);
+        }
+
+        .log-line {
+            padding: 2px 0;
+            display: flex;
+            gap: 8px;
+            animation: lineFade 0.2s ease-out;
+        }
+        @keyframes lineFade {
+            from { opacity: 0; transform: translateX(-4px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        .log-time { color: var(--ide-line-num); }
+        .log-ok { color: var(--neon-green); }
+        .log-err { color: var(--neon-red); }
+        .log-info { color: var(--neon-cyan); }
+        .log-warn { color: var(--neon-amber); }
+
+        .cursor {
+            display: inline-block;
+            width: 8px;
+            height: 15px;
+            background: var(--neon-green);
+            vertical-align: middle;
+            margin-left: 4px;
+            animation: blink 1s step-end infinite;
+        }
+        @keyframes blink {
+            50% { opacity: 0; }
+        }
+
+        /* IDE Status Bar at Bottom */
+        .ide-statusbar {
+            background: var(--ide-panel);
+            border-top: 1px solid var(--ide-border);
+            padding: 6px 14px;
+            font-size: 0.7rem;
+            color: var(--text-dim);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            user-select: none;
+        }
+        .statusbar-left, .statusbar-right {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+        .statusbar-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .statusbar-item.branch { color: var(--syn-fn); }
+
         /* Responsive */
-        @media (max-width: 480px) {
-            body { padding: 12px; }
-            .container { border-radius: 20px; }
-            .header { padding: 24px 20px 16px; }
-            .tab-content { padding: 16px 20px 24px; }
+        @media (max-width: 600px) {
+            body { padding: 8px; }
+            .cmd-block { flex-direction: column; align-items: flex-start; }
+            .run-btn { width: 100%; justify-content: center; }
+            .code-grid { grid-template-columns: 28px 1fr; font-size: 0.78rem; }
         }
     </style>
 </head>
 <body>
 
-<div class="particles">
-    <span></span><span></span><span></span>
-    <span></span><span></span><span></span>
-</div>
-
-<div class="container">
-    <!-- Header -->
-    <div class="header">
-        <div class="logo">🤖</div>
-        <h1>WhatsApp Bot</h1>
-        <div class="subtitle">DanieWatch Remote Controller</div>
-        <div class="status-badge checking" id="statusBadge">
-            <div class="status-dot"></div>
-            <span id="statusText">Checking...</span>
+<div class="ide-window">
+    <!-- Window Header -->
+    <div class="ide-titlebar">
+        <div class="window-controls">
+            <span class="win-btn win-close"></span>
+            <span class="win-btn win-min"></span>
+            <span class="win-btn win-max"></span>
+        </div>
+        <div class="ide-breadcrumbs">
+            <span class="path">workspace</span> / <span class="path">src</span> / <span class="file">bot.controller.ts</span>
+        </div>
+        <div class="status-pill checking" id="statusPill">
+            <span class="pulse-dot"></span>
+            <span id="statusLabel">CHECKING</span>
         </div>
     </div>
 
-    <!-- Tabs -->
-    <div class="tabs">
-        <div class="tab active" data-tab="controls" onclick="switchTab('controls')">⚡ Controls</div>
-        <div class="tab" data-tab="logs" onclick="switchTab('logs')">📋 Logs</div>
+    <!-- IDE File Tabs -->
+    <div class="ide-tabs">
+        <div class="ide-tab active" data-tab="editor" onclick="switchIdeTab('editor')">
+            <span class="icon-ts">TS</span> bot.controller.ts
+        </div>
+        <div class="ide-tab" data-tab="terminal" onclick="switchIdeTab('terminal')">
+            <span class="icon-term">&gt;_</span> terminal.log
+        </div>
     </div>
 
-    <!-- Tab Content -->
-    <div class="tab-content">
-        <!-- Controls Panel -->
-        <div class="tab-panel active" id="panel-controls">
-            <button class="btn btn-start" id="startBtn" onclick="startBot()">
-                🚀 <span>START BOT</span>
-            </button>
-            <button class="btn btn-stop" id="stopBtn" onclick="stopBot()">
-                🛑 <span>STOP BOT</span>
-            </button>
-            <button class="btn btn-status" onclick="checkStatus()">
-                📊 <span>REFRESH STATUS</span>
-            </button>
-            <button class="btn btn-token" onclick="resetToken()">
-                🔑 Change Token
-            </button>
-        </div>
-
-        <!-- Logs Panel -->
-        <div class="tab-panel" id="panel-logs">
-            <div class="log-area" id="logArea">
-                <div class="log-empty">No logs yet. Interact with your bot to see activity.</div>
+    <!-- TAB 1: CODE EDITOR -->
+    <div class="editor-container active" id="tab-editor">
+        <div class="code-grid">
+            <div class="line-numbers">
+                01<br>02<br>03<br>04<br>05<br>06<br>07<br>08<br>09<br>10<br>11<br>12<br>13<br>14<br>15
             </div>
+            <div class="code-area">
+                <div><span class="cm">// DanieWatch WhatsApp Bot Execution Controller</span></div>
+                <div><span class="kw">import</span> { <span class="fn">GitHubActions</span> } <span class="kw">from</span> <span class="str">"@octokit/actions"</span>;</div>
+                <br>
+
+                <!-- START BLOCK -->
+                <div class="cmd-block">
+                    <div class="cmd-code">
+                        <span class="kw">await</span> <span class="var">bot</span>.<span class="fn">startWorker</span>({ <span class="var">event</span>: <span class="str">"run-bot"</span> });
+                    </div>
+                    <button class="run-btn run-btn-start" id="startBtn" onclick="startBot()">
+                        ▶ EXECUTE
+                    </button>
+                </div>
+
+                <!-- STOP BLOCK -->
+                <div class="cmd-block">
+                    <div class="cmd-code">
+                        <span class="kw">await</span> <span class="var">bot</span>.<span class="fn">terminateRuns</span>({ <span class="var">force</span>: <span class="num">true</span> });
+                    </div>
+                    <button class="run-btn run-btn-stop" id="stopBtn" onclick="stopBot()">
+                        ■ TERMINATE
+                    </button>
+                </div>
+
+                <!-- REFRESH BLOCK -->
+                <div class="cmd-block">
+                    <div class="cmd-code">
+                        <span class="kw">await</span> <span class="var">bot</span>.<span class="fn">syncWorkflowStatus</span>();
+                    </div>
+                    <button class="run-btn run-btn-sync" onclick="checkStatus()">
+                        ↻ REFRESH
+                    </button>
+                </div>
+
+                <!-- TOKEN CONFIG BLOCK -->
+                <div class="cmd-block">
+                    <div class="cmd-code">
+                        <span class="kw">const</span> <span class="var">token</span> = <span class="fn">getAuthSecret</span>();
+                    </div>
+                    <button class="run-btn run-btn-auth" onclick="resetToken()">
+                        🔑 SET TOKEN
+                    </button>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- TAB 2: TERMINAL LOGS -->
+    <div class="editor-container" id="tab-terminal">
+        <div class="terminal-panel" id="terminalPanel">
+            <div class="log-line">
+                <span class="term-prompt">daniewatch</span><span class="term-host">@bot-runner</span>:<span class="term-path">~/app</span>$&nbsp;init controller session...
+            </div>
+        </div>
+    </div>
+
+    <!-- IDE Status Bar -->
+    <div class="ide-statusbar">
+        <div class="statusbar-left">
+            <div class="statusbar-item branch"> main*</div>
+            <div class="statusbar-item">0 ⊗ 0 ⚠</div>
+        </div>
+        <div class="statusbar-right">
+            <div class="statusbar-item">UTF-8</div>
+            <div class="statusbar-item">TypeScript</div>
+            <div class="statusbar-item" style="color: var(--neon-green)">● Connected</div>
         </div>
     </div>
 </div>
 
 <script>
-    // ── Tab Switching ──
-    function switchTab(tabName) {
-        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-        document.querySelector(`.tab[data-tab="${tabName}"]`).classList.add('active');
-        document.getElementById(`panel-${tabName}`).classList.add('active');
+    // ── Tab Navigation ──
+    function switchIdeTab(tabName) {
+        document.querySelectorAll('.ide-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.editor-container').forEach(c => c.classList.remove('active'));
+        
+        document.querySelector(`.ide-tab[data-tab="${tabName}"]`).classList.add('active');
+        document.getElementById(`tab-${tabName}`).classList.add('active');
     }
 
-    // ── Logging ──
+    // ── Terminal Logging ──
     function addLog(message, type = '') {
-        const logArea = document.getElementById('logArea');
-        const empty = logArea.querySelector('.log-empty');
-        if (empty) empty.remove();
+        const terminal = document.getElementById('terminalPanel');
 
-        const entry = document.createElement('div');
-        entry.className = `log-entry ${type}`;
+        const line = document.createElement('div');
+        line.className = 'log-line';
+        
         const now = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        entry.innerHTML = `<span class="time">[${now}]</span> ${message}`;
-        logArea.appendChild(entry);
-        logArea.scrollTop = logArea.scrollHeight;
+        
+        let typeLabel = '';
+        if (type === 'success') typeLabel = '<span class="log-ok">[OK]</span>';
+        else if (type === 'error') typeLabel = '<span class="log-err">[ERR]</span>';
+        else if (type === 'warn') typeLabel = '<span class="log-warn">[WARN]</span>';
+        else typeLabel = '<span class="log-info">[INFO]</span>';
 
-        // Keep max 50 entries
-        while (logArea.querySelectorAll('.log-entry').length > 50) {
-            logArea.querySelector('.log-entry').remove();
+        line.innerHTML = `<span class="log-time">[${now}]</span> ${typeLabel} <span>${message}</span>`;
+        terminal.appendChild(line);
+        terminal.scrollTop = terminal.scrollHeight;
+
+        // Keep max 60 lines
+        while (terminal.querySelectorAll('.log-line').length > 60) {
+            terminal.querySelector('.log-line').remove();
         }
     }
 
-    // ── Status Badge ──
+    // ── Status Indicator ──
     function setStatus(state, text) {
-        const badge = document.getElementById('statusBadge');
-        const statusText = document.getElementById('statusText');
-        badge.className = 'status-badge ' + state;
-        statusText.textContent = text;
+        const pill = document.getElementById('statusPill');
+        const label = document.getElementById('statusLabel');
+        pill.className = 'status-pill ' + state;
+        label.textContent = text;
     }
 
     // ── Token Management ──
     function getToken() {
         let token = localStorage.getItem('GH_TOKEN');
         if (!token) {
-            token = prompt('Please enter your GitHub Personal Access Token (PAT):');
+            token = prompt('Enter your GitHub Personal Access Token (PAT):');
             if (token) {
                 token = token.trim();
                 localStorage.setItem('GH_TOKEN', token);
-                addLog('Token saved.', 'success');
+                addLog('GitHub Auth Token saved to localStorage.', 'success');
             }
         }
         return token;
@@ -495,10 +553,10 @@
 
     function resetToken() {
         localStorage.removeItem('GH_TOKEN');
-        const newToken = prompt('Enter your new GitHub Personal Access Token (PAT):');
+        const newToken = prompt('Enter new GitHub Personal Access Token (PAT):');
         if (newToken) {
             localStorage.setItem('GH_TOKEN', newToken.trim());
-            addLog('Token updated successfully.', 'success');
+            addLog('Auth Token updated successfully.', 'success');
             checkStatus();
         }
     }
@@ -507,12 +565,12 @@
     const OWNER = 'griffithbuildwiseestimation-cmd';
     const REPO = 'whatsapp-bot';
 
-    // ── Bot Actions ──
+    // ── Actions ──
     async function startBot() {
         const token = getToken();
-        if (!token) { addLog('Token required to start bot.', 'error'); return; }
-        setStatus('checking', 'Starting...');
-        addLog('Sending start signal to GitHub Actions...', 'info');
+        if (!token) { addLog('Authentication required: Token missing.', 'error'); return; }
+        setStatus('checking', 'STARTING');
+        addLog('POST /repos/' + OWNER + '/' + REPO + '/dispatches (event: run-bot)', 'info');
         try {
             const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/dispatches`, {
                 method: 'POST',
@@ -524,92 +582,93 @@
                 body: JSON.stringify({ event_type: 'run-bot' })
             });
             if (res.status === 204) {
-                addLog('Bot started on GitHub Actions!', 'success');
-                setStatus('', 'Starting...');
-                setTimeout(checkStatus, 4000);
+                addLog('Workflow dispatch sent successfully (Status 204)', 'success');
+                setStatus('', 'STARTING');
+                setTimeout(checkStatus, 3500);
             } else if (res.status === 401) {
                 localStorage.removeItem('GH_TOKEN');
-                addLog('401 Bad Credentials — click Change Token to fix.', 'error');
-                setStatus('offline', 'Auth Error');
+                addLog('401 Unauthorized — bad PAT token.', 'error');
+                setStatus('offline', 'AUTH ERR');
             } else {
                 const text = await res.text();
-                addLog('Start failed: ' + text, 'error');
-                setStatus('offline', 'Error');
+                addLog('Dispatch failed: ' + text, 'error');
+                setStatus('offline', 'ERR');
             }
         } catch (e) {
-            addLog('Network error: ' + e.message, 'error');
-            setStatus('offline', 'Error');
+            addLog('Fetch Exception: ' + e.message, 'error');
+            setStatus('offline', 'ERR');
         }
     }
 
     async function stopBot() {
         const token = getToken();
-        if (!token) { addLog('Token required.', 'error'); return; }
-        setStatus('checking', 'Stopping...');
-        addLog('Cancelling active workflow runs...', 'warn');
+        if (!token) { addLog('Authentication token missing.', 'error'); return; }
+        setStatus('checking', 'STOPPING');
+        addLog('GET /repos/' + OWNER + '/' + REPO + '/actions/runs?status=in_progress', 'warn');
         try {
             const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/actions/runs?status=in_progress`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             if (res.status === 401) {
                 localStorage.removeItem('GH_TOKEN');
-                addLog('401 Bad Credentials — click Change Token to fix.', 'error');
-                setStatus('offline', 'Auth Error');
+                addLog('401 Unauthorized — bad PAT token.', 'error');
+                setStatus('offline', 'AUTH ERR');
                 return;
             }
             const data = await res.json();
             const runs = data.workflow_runs || [];
             if (runs.length === 0) {
-                addLog('No active bot runs found to stop.', 'info');
-                setStatus('offline', 'Stopped');
+                addLog('No active workflow runs found to cancel.', 'info');
+                setStatus('offline', 'STOPPED');
                 return;
             }
             for (const run of runs) {
+                addLog('POST /actions/runs/' + run.id + '/cancel', 'warn');
                 await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/actions/runs/${run.id}/cancel`, {
                     method: 'POST',
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
             }
-            addLog(`Stop signal sent to ${runs.length} run(s).`, 'success');
-            setStatus('offline', 'Stopping...');
-            setTimeout(checkStatus, 4000);
+            addLog(`Cancel signal sent to ${runs.length} active run(s).`, 'success');
+            setStatus('offline', 'STOPPING');
+            setTimeout(checkStatus, 3500);
         } catch (e) {
-            addLog('Error: ' + e.message, 'error');
-            setStatus('offline', 'Error');
+            addLog('Error stopping runs: ' + e.message, 'error');
+            setStatus('offline', 'ERR');
         }
     }
 
     async function checkStatus() {
         const token = getToken();
-        if (!token) { setStatus('checking', 'No Token'); return; }
-        setStatus('checking', 'Checking...');
+        if (!token) { setStatus('checking', 'NO TOKEN'); return; }
+        setStatus('checking', 'SYNCING');
         try {
             const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/actions/runs?per_page=1`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             if (res.status === 401) {
                 localStorage.removeItem('GH_TOKEN');
-                setStatus('offline', 'Auth Error');
-                addLog('401 Bad Credentials — click Change Token.', 'error');
+                setStatus('offline', 'AUTH ERR');
+                addLog('401 Unauthorized — bad PAT token.', 'error');
                 return;
             }
             const data = await res.json();
             const run = (data.workflow_runs || [])[0];
             if (!run) {
-                setStatus('offline', 'No Runs');
+                setStatus('offline', 'NO RUNS');
                 addLog('No workflow runs recorded yet.', 'info');
                 return;
             }
             if (run.status === 'in_progress') {
-                setStatus('', `Running · #${run.run_number}`);
-                addLog(`Bot is RUNNING (Run #${run.run_number})`, 'success');
+                setStatus('', `RUNNING #${run.run_number}`);
+                addLog(`Workflow RUNNING (Run #${run.run_number})`, 'success');
             } else {
-                setStatus('offline', run.conclusion || run.status);
-                addLog(`Bot is STOPPED (${run.conclusion || run.status})`, 'warn');
+                setStatus('offline', (run.conclusion || run.status).toUpperCase());
+                addLog(`Workflow STOPPED (${run.conclusion || run.status})`, 'warn');
             }
         } catch (e) {
-            setStatus('offline', 'Error');
-            addLog('Status check failed: ' + e.message, 'error');
+            setStatus('offline', 'ERR');
+            addLog('Status sync failed: ' + e.message, 'error');
         }
     }
 
