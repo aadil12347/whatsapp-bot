@@ -32,33 +32,13 @@ function hookDanieWatch(conn) {
         console.error('[DanieWatch] Auto-init error:', e.message);
     }
 
-    // Intercept conn.sendMessage to replace legacy XPROVERCE welcome message/image with DanieWatch
+    // Completely block & silence any legacy framework XPROVERCE welcome messages
     const origSendMessage = conn.sendMessage.bind(conn);
     conn.sendMessage = async function(jid, content, options) {
         const strContent = JSON.stringify(content || {});
         if (/xproverce|xpro|anju|queen_anju|welcome\s*message/i.test(strContent)) {
-            console.log('[DanieWatch] 🎯 Intercepted framework XPROVERCE welcome message! Replacing with DanieWatch branding...');
-            const logoPath = path.join(__dirname, '..', '..', 'assets', 'daniewatch_logo.png');
-            const caption =
-                `╭─── ⋆ ⋅ ✦ ⋅ ⋆ ───╮\n` +
-                `   ✨ *DANIEWATCH BOT* ✨\n` +
-                `╰─── ⋆ ⋅ ✦ ⋅ ⋆ ───╯\n\n` +
-                `┌─❒ *System Online*\n` +
-                `│ ⚡ Bot connected successfully!\n` +
-                `│ 👑 Developer: Daniyal Aadil\n` +
-                `└───────────────\n\n` +
-                `🚀 _Ready for movie & video downloads!_`;
-
-            try {
-                if (fs.existsSync(logoPath)) {
-                    const imageBuffer = fs.readFileSync(logoPath);
-                    return await origSendMessage(jid, { image: imageBuffer, caption: caption }, options);
-                } else {
-                    return await origSendMessage(jid, { text: caption }, options);
-                }
-            } catch (err) {
-                console.error('[DanieWatch] Error sending replaced welcome message:', err.message);
-            }
+            console.log('[DanieWatch] 🚫 Completely blocked and removed legacy framework XPROVERCE welcome message.');
+            return { key: { id: 'blocked_xproverce_' + Date.now() } };
         }
         return await origSendMessage(jid, content, options);
     };
