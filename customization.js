@@ -110,35 +110,24 @@ Twitter URL: ${q}
     }
     if (!config) config = {};
     return `
-🧚‍♂️⃟🩵 𝐃𝐀𝐍𝐈𝐄𝐖𝐀𝐓𝐂𝐇 𝐃class 𝐀𝐋𝐈𝐕𝐄 𝐒𝐓𝐀𝐓𝐔𝐒 🧚‍♂️⃟🩵
+╭─── ⋆ ⋅ ✦ ⋅ ⋆ ───╮
+   ✨ *DANIEWATCH BOT* ✨
+╰─── ⋆ ⋅ ✦ ⋅ ⋆ ───╯
 
-✘◍ 𝗜'𝗺 𝗔𝗹𝗶𝘃𝗲, 𝗧𝗵𝗮𝗻𝗸𝘀 𝗳𝗼𝗿 𝗔𝘀𝗸𝗶𝗻𝗴!
-
-┏━━━━❮ 📅 𝑻𝑶𝑫𝑎𝒚 📅❯━━━━
-┃
-┃ 📅 Date Today: ${new Date().toLocaleDateString("en-GB", {
-      timeZone: "Asia/Colombo",
-    })}
-┃ ⌚ Time Now: ${new Date().toLocaleTimeString("en-GB", {
-      timeZone: "Asia/Colombo",
-    })}
-┃
-┗━━━━━━━━━━━━━━━
-┏━━━━❮📝 𝗦𝘁𝗮𝘁𝘂𝘀 𝗗class 📝❯━━━
-┃🗣️ 𝚄𝚜𝚎𝚛 : ${pushname}
-┃🤖 𝙱𝚘𝚝 : © DanieWatch Downloader Bot V${packageJson.version}
-┃📜 𝙿𝚛𝚎𝚏𝚒𝚡 : ${config.PREFIX || ""}
-┃📚 𝚅𝚎𝚛𝚜𝚒𝚘𝚗 : ${packageJson.version}
-┃📝 𝙿𝚕𝚊𝚝𝚏𝚘𝚛𝚖 : ${hostname}
-┃📟 𝙷𝚘𝚜𝚝 : ${os.hostname()}
-┃⚙️ 𝙼𝚘𝚍𝚎 : ${config.MODE || ""}
-┃💻 𝚄𝚙𝚝𝚒𝚖𝚎 : ${runtime(process.uptime())}
-┃✨𝙼𝚎𝚖 : ${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(
+┌─❒ *Bot Status*
+│ ⚡ I'm Alive & Active!
+│ 🗣️ User: ${pushname}
+│ 🤖 Bot: © DanieWatch Bot V${packageJson.version}
+│ 📜 Prefix: ${config.PREFIX || ""}
+│ ⏱️ Uptime: ${runtime(process.uptime())}
+│ 🧠 Memory: ${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(
       2
     )}MB / ${Math.round(require("os").totalmem() / 1024 / 1024)}MB
-┗━━━━━━━━━━━━━━━
+│ 💻 Platform: ${hostname}
+│ ⚙️ Mode: ${config.MODE || ""}
+└───────────────
 
-💬 ᴇɴᴏʏ ᴛʜᴇ 𝗯𝗼𝘁 ᴏ𝗳 𝚚𝚞𝚎𝚎𝚗 𝗮𝗻𝗷𝘂! ✨
+🚀 _Ready for movie & video downloads!_
         `.trim();
   },
   //====================movie======================================

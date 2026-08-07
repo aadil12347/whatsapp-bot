@@ -3,90 +3,491 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WhatsApp Bot Remote Controller</title>
+    <title>DanieWatch — WhatsApp Bot Controller</title>
+    <meta name="description" content="Remote controller for the DanieWatch WhatsApp Bot. Start, stop, and monitor your bot from anywhere.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
         :root {
-            --bg-color: #0f172a;
-            --card-bg: #1e293b;
-            --accent-green: #22c55e;
-            --accent-red: #ef4444;
-            --text-color: #f8fafc;
+            --bg-deep: #06080f;
+            --glass-bg: rgba(15, 23, 42, 0.65);
+            --glass-border: rgba(99, 102, 241, 0.15);
+            --glass-hover: rgba(99, 102, 241, 0.25);
+            --accent-1: #818cf8;
+            --accent-2: #6366f1;
+            --green: #34d399;
+            --green-glow: rgba(52, 211, 153, 0.35);
+            --red: #f87171;
+            --red-glow: rgba(248, 113, 113, 0.35);
+            --blue: #60a5fa;
+            --blue-glow: rgba(96, 165, 250, 0.3);
+            --text: #f1f5f9;
+            --text-dim: #94a3b8;
+            --radius: 16px;
         }
+
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-color);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-deep);
+            color: var(--text);
+            min-height: 100vh;
             display: flex;
             justify-content: center;
             align-items: center;
-            min-height: 100vh;
-            margin: 0;
-            padding: 20px;
+            padding: 24px;
+            overflow: hidden;
         }
+
+        /* Animated gradient background */
+        body::before {
+            content: '';
+            position: fixed;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(ellipse at 20% 50%, rgba(99,102,241,0.08) 0%, transparent 50%),
+                        radial-gradient(ellipse at 80% 20%, rgba(52,211,153,0.06) 0%, transparent 50%),
+                        radial-gradient(ellipse at 50% 80%, rgba(248,113,113,0.05) 0%, transparent 50%);
+            animation: bgDrift 20s ease-in-out infinite alternate;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        @keyframes bgDrift {
+            0% { transform: translate(0, 0) rotate(0deg); }
+            100% { transform: translate(-3%, 2%) rotate(3deg); }
+        }
+
+        /* Floating particles */
+        .particles {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            pointer-events: none;
+            z-index: 0;
+            overflow: hidden;
+        }
+        .particles span {
+            position: absolute;
+            width: 3px;
+            height: 3px;
+            background: var(--accent-1);
+            border-radius: 50%;
+            opacity: 0;
+            animation: float 12s infinite;
+        }
+        .particles span:nth-child(1) { left: 10%; animation-delay: 0s; animation-duration: 14s; }
+        .particles span:nth-child(2) { left: 25%; animation-delay: 2s; animation-duration: 10s; }
+        .particles span:nth-child(3) { left: 45%; animation-delay: 4s; animation-duration: 16s; }
+        .particles span:nth-child(4) { left: 65%; animation-delay: 1s; animation-duration: 12s; }
+        .particles span:nth-child(5) { left: 80%; animation-delay: 3s; animation-duration: 15s; }
+        .particles span:nth-child(6) { left: 90%; animation-delay: 5s; animation-duration: 11s; }
+
+        @keyframes float {
+            0% { transform: translateY(100vh) scale(0); opacity: 0; }
+            10% { opacity: 0.6; }
+            90% { opacity: 0.3; }
+            100% { transform: translateY(-10vh) scale(1.2); opacity: 0; }
+        }
+
         .container {
-            background-color: var(--card-bg);
-            border-radius: 16px;
-            padding: 32px;
-            max-width: 400px;
+            position: relative;
+            z-index: 1;
             width: 100%;
-            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
-            text-align: center;
+            max-width: 460px;
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px) saturate(1.4);
+            -webkit-backdrop-filter: blur(20px) saturate(1.4);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            padding: 0;
+            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.6),
+                        0 0 0 1px rgba(99,102,241,0.05),
+                        inset 0 1px 0 rgba(255,255,255,0.04);
+            animation: cardEntry 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+            overflow: hidden;
         }
-        h1 { font-size: 1.5rem; margin-bottom: 8px; }
-        .repo-tag { color: #94a3b8; font-size: 0.8rem; margin-bottom: 24px; word-break: break-all; }
+
+        @keyframes cardEntry {
+            0% { opacity: 0; transform: translateY(30px) scale(0.97); }
+            100% { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        /* Header */
+        .header {
+            padding: 32px 28px 20px;
+            text-align: center;
+            border-bottom: 1px solid rgba(99,102,241,0.08);
+            background: linear-gradient(180deg, rgba(99,102,241,0.06) 0%, transparent 100%);
+        }
+        .header .logo {
+            font-size: 2rem;
+            margin-bottom: 4px;
+            animation: logoPulse 3s ease-in-out infinite;
+        }
+        @keyframes logoPulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        .header h1 {
+            font-size: 1.35rem;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            background: linear-gradient(135deg, var(--accent-1), var(--green));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .header .subtitle {
+            color: var(--text-dim);
+            font-size: 0.78rem;
+            margin-top: 4px;
+            font-weight: 500;
+        }
+
+        /* Status badge */
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 12px;
+            padding: 5px 14px;
+            border-radius: 20px;
+            font-size: 0.72rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            background: rgba(52, 211, 153, 0.1);
+            border: 1px solid rgba(52, 211, 153, 0.2);
+            color: var(--green);
+            transition: all 0.4s ease;
+        }
+        .status-badge.offline {
+            background: rgba(248, 113, 113, 0.1);
+            border-color: rgba(248, 113, 113, 0.2);
+            color: var(--red);
+        }
+        .status-badge.checking {
+            background: rgba(96, 165, 250, 0.1);
+            border-color: rgba(96, 165, 250, 0.2);
+            color: var(--blue);
+        }
+        .status-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--green);
+            animation: dotPulse 1.8s ease-in-out infinite;
+        }
+        .status-badge.offline .status-dot {
+            background: var(--red);
+            animation: none;
+        }
+        .status-badge.checking .status-dot {
+            background: var(--blue);
+            animation: dotSpin 1s linear infinite;
+        }
+        @keyframes dotPulse {
+            0%, 100% { opacity: 1; box-shadow: 0 0 0 0 var(--green-glow); }
+            50% { opacity: 0.6; box-shadow: 0 0 0 5px transparent; }
+        }
+        @keyframes dotSpin {
+            0% { transform: scale(0.8); opacity: 0.4; }
+            50% { transform: scale(1.2); opacity: 1; }
+            100% { transform: scale(0.8); opacity: 0.4; }
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            padding: 0 28px;
+            gap: 4px;
+            margin-top: 0;
+            border-bottom: 1px solid rgba(99,102,241,0.08);
+        }
+        .tab {
+            flex: 1;
+            padding: 12px 0;
+            text-align: center;
+            font-size: 0.82rem;
+            font-weight: 600;
+            color: var(--text-dim);
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.3s ease;
+            user-select: none;
+            position: relative;
+        }
+        .tab:hover {
+            color: var(--text);
+        }
+        .tab.active {
+            color: var(--accent-1);
+            border-bottom-color: var(--accent-1);
+        }
+        .tab.active::after {
+            content: '';
+            position: absolute;
+            bottom: -1px;
+            left: 20%;
+            width: 60%;
+            height: 2px;
+            background: var(--accent-1);
+            border-radius: 2px;
+            box-shadow: 0 0 8px var(--accent-1);
+        }
+
+        /* Tab content */
+        .tab-content {
+            padding: 20px 28px 28px;
+        }
+        .tab-panel {
+            display: none;
+            animation: tabFade 0.35s ease;
+        }
+        .tab-panel.active {
+            display: block;
+        }
+        @keyframes tabFade {
+            0% { opacity: 0; transform: translateY(6px); }
+            100% { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Buttons */
         .btn {
             width: 100%;
-            padding: 16px;
-            margin: 10px 0;
+            padding: 14px 20px;
+            margin: 6px 0;
             border: none;
-            border-radius: 12px;
-            font-size: 1.1rem;
-            font-weight: bold;
+            border-radius: var(--radius);
+            font-family: 'Inter', sans-serif;
+            font-size: 0.92rem;
+            font-weight: 700;
             color: white;
             cursor: pointer;
-            transition: transform 0.1s, opacity 0.2s;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
-        }
-        .btn:active { transform: scale(0.98); }
-        .btn-start { background-color: var(--accent-green); }
-        .btn-stop { background-color: var(--accent-red); }
-        .btn-status { background-color: #3b82f6; }
-        #status-box {
-            margin-top: 20px;
-            padding: 14px;
-            border-radius: 10px;
-            background-color: #0f172a;
-            font-size: 0.9rem;
-            min-height: 45px;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.35s cubic-bezier(0.22, 1, 0.36, 1);
             display: flex;
             align-items: center;
             justify-content: center;
-            border: 1px solid #334155;
+            gap: 8px;
+        }
+        .btn::before {
+            content: '';
+            position: absolute;
+            top: 0; left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+            transition: left 0.5s ease;
+        }
+        .btn:hover::before {
+            left: 100%;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px -8px currentColor;
+        }
+        .btn:active {
+            transform: translateY(0) scale(0.98);
+        }
+
+        .btn-start {
+            background: linear-gradient(135deg, #059669, var(--green));
+            box-shadow: 0 4px 14px -4px var(--green-glow);
+        }
+        .btn-start:hover {
+            box-shadow: 0 8px 30px -6px var(--green-glow);
+        }
+        .btn-stop {
+            background: linear-gradient(135deg, #dc2626, var(--red));
+            box-shadow: 0 4px 14px -4px var(--red-glow);
+        }
+        .btn-stop:hover {
+            box-shadow: 0 8px 30px -6px var(--red-glow);
+        }
+        .btn-status {
+            background: linear-gradient(135deg, #2563eb, var(--blue));
+            box-shadow: 0 4px 14px -4px var(--blue-glow);
+        }
+        .btn-status:hover {
+            box-shadow: 0 8px 30px -6px var(--blue-glow);
+        }
+        .btn-token {
+            background: rgba(100, 116, 139, 0.2);
+            border: 1px solid rgba(100, 116, 139, 0.3);
+            color: var(--text-dim);
+            margin-top: 12px;
+            font-weight: 600;
+            font-size: 0.82rem;
+        }
+        .btn-token:hover {
+            background: rgba(100, 116, 139, 0.3);
+            color: var(--text);
+            border-color: rgba(100, 116, 139, 0.5);
+        }
+
+        /* Log area */
+        .log-area {
+            background: rgba(2, 6, 14, 0.6);
+            border: 1px solid rgba(99,102,241,0.1);
+            border-radius: 12px;
+            padding: 14px 16px;
+            min-height: 200px;
+            max-height: 340px;
+            overflow-y: auto;
+            font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
+            font-size: 0.72rem;
+            line-height: 1.7;
+            color: var(--text-dim);
+            scrollbar-width: thin;
+            scrollbar-color: rgba(99,102,241,0.2) transparent;
+        }
+        .log-area::-webkit-scrollbar {
+            width: 4px;
+        }
+        .log-area::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .log-area::-webkit-scrollbar-thumb {
+            background: rgba(99,102,241,0.3);
+            border-radius: 4px;
+        }
+        .log-entry {
+            padding: 3px 0;
+            border-bottom: 1px solid rgba(99,102,241,0.04);
+            animation: logSlide 0.3s ease;
+        }
+        @keyframes logSlide {
+            0% { opacity: 0; transform: translateX(-6px); }
+            100% { opacity: 1; transform: translateX(0); }
+        }
+        .log-entry .time {
+            color: rgba(99,102,241,0.5);
+            margin-right: 6px;
+        }
+        .log-entry.success { color: var(--green); }
+        .log-entry.error { color: var(--red); }
+        .log-entry.info { color: var(--blue); }
+        .log-entry.warn { color: #fbbf24; }
+        .log-empty {
+            color: rgba(148,163,184,0.4);
+            text-align: center;
+            padding: 40px 0;
+            font-style: italic;
+        }
+
+        /* Responsive */
+        @media (max-width: 480px) {
+            body { padding: 12px; }
+            .container { border-radius: 20px; }
+            .header { padding: 24px 20px 16px; }
+            .tab-content { padding: 16px 20px 24px; }
         }
     </style>
 </head>
 <body>
 
+<div class="particles">
+    <span></span><span></span><span></span>
+    <span></span><span></span><span></span>
+</div>
+
 <div class="container">
-    <h1>🤖 Bot Controller</h1>
-    <div class="repo-tag">griffithbuildwiseestimation-cmd/whatsapp-bot</div>
+    <!-- Header -->
+    <div class="header">
+        <div class="logo">🤖</div>
+        <h1>WhatsApp Bot</h1>
+        <div class="subtitle">DanieWatch Remote Controller</div>
+        <div class="status-badge checking" id="statusBadge">
+            <div class="status-dot"></div>
+            <span id="statusText">Checking...</span>
+        </div>
+    </div>
 
-    <button id="startBtn" class="btn btn-start" onclick="startBot()">🚀 START BOT</button>
-    <button id="stopBtn" class="btn btn-stop" onclick="stopBot()">🛑 STOP BOT</button>
-    <button class="btn btn-status" onclick="checkStatus()">📊 REFRESH STATUS</button>
-    <button class="btn" style="background-color: #64748b; margin-top: 15px;" onclick="resetToken()">🔑 CHANGE TOKEN</button>
+    <!-- Tabs -->
+    <div class="tabs">
+        <div class="tab active" data-tab="controls" onclick="switchTab('controls')">⚡ Controls</div>
+        <div class="tab" data-tab="logs" onclick="switchTab('logs')">📋 Logs</div>
+    </div>
 
-    <div id="status-box">Loading status...</div>
+    <!-- Tab Content -->
+    <div class="tab-content">
+        <!-- Controls Panel -->
+        <div class="tab-panel active" id="panel-controls">
+            <button class="btn btn-start" id="startBtn" onclick="startBot()">
+                🚀 <span>START BOT</span>
+            </button>
+            <button class="btn btn-stop" id="stopBtn" onclick="stopBot()">
+                🛑 <span>STOP BOT</span>
+            </button>
+            <button class="btn btn-status" onclick="checkStatus()">
+                📊 <span>REFRESH STATUS</span>
+            </button>
+            <button class="btn btn-token" onclick="resetToken()">
+                🔑 Change Token
+            </button>
+        </div>
+
+        <!-- Logs Panel -->
+        <div class="tab-panel" id="panel-logs">
+            <div class="log-area" id="logArea">
+                <div class="log-empty">No logs yet. Interact with your bot to see activity.</div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <script>
+    // ── Tab Switching ──
+    function switchTab(tabName) {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        document.querySelector(`.tab[data-tab="${tabName}"]`).classList.add('active');
+        document.getElementById(`panel-${tabName}`).classList.add('active');
+    }
+
+    // ── Logging ──
+    function addLog(message, type = '') {
+        const logArea = document.getElementById('logArea');
+        const empty = logArea.querySelector('.log-empty');
+        if (empty) empty.remove();
+
+        const entry = document.createElement('div');
+        entry.className = `log-entry ${type}`;
+        const now = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        entry.innerHTML = `<span class="time">[${now}]</span> ${message}`;
+        logArea.appendChild(entry);
+        logArea.scrollTop = logArea.scrollHeight;
+
+        // Keep max 50 entries
+        while (logArea.querySelectorAll('.log-entry').length > 50) {
+            logArea.querySelector('.log-entry').remove();
+        }
+    }
+
+    // ── Status Badge ──
+    function setStatus(state, text) {
+        const badge = document.getElementById('statusBadge');
+        const statusText = document.getElementById('statusText');
+        badge.className = 'status-badge ' + state;
+        statusText.textContent = text;
+    }
+
+    // ── Token Management ──
     function getToken() {
         let token = localStorage.getItem('GH_TOKEN');
         if (!token) {
-            token = prompt("Please enter your GitHub Personal Access Token (PAT):");
+            token = prompt('Please enter your GitHub Personal Access Token (PAT):');
             if (token) {
                 token = token.trim();
                 localStorage.setItem('GH_TOKEN', token);
+                addLog('Token saved.', 'success');
             }
         }
         return token;
@@ -94,23 +495,24 @@
 
     function resetToken() {
         localStorage.removeItem('GH_TOKEN');
-        const newToken = prompt("Enter your new GitHub Personal Access Token (PAT):");
+        const newToken = prompt('Enter your new GitHub Personal Access Token (PAT):');
         if (newToken) {
             localStorage.setItem('GH_TOKEN', newToken.trim());
-            logBox.innerText = "🔑 Token updated!";
+            addLog('Token updated successfully.', 'success');
             checkStatus();
         }
     }
 
-    const OWNER = "griffithbuildwiseestimation-cmd";
-    const REPO = "whatsapp-bot";
+    // ── Config ──
+    const OWNER = 'aadil12347';
+    const REPO = 'whatsapp-bot';
 
-    const logBox = document.getElementById('status-box');
-
+    // ── Bot Actions ──
     async function startBot() {
         const token = getToken();
-        if (!token) return logBox.innerText = "❌ Token required.";
-        logBox.innerText = "⏳ Sending start signal...";
+        if (!token) { addLog('Token required to start bot.', 'error'); return; }
+        setStatus('checking', 'Starting...');
+        addLog('Sending start signal to GitHub Actions...', 'info');
         try {
             const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/dispatches`, {
                 method: 'POST',
@@ -121,85 +523,97 @@
                 },
                 body: JSON.stringify({ event_type: 'run-bot' })
             });
-
             if (res.status === 204) {
-                logBox.innerText = "✅ Bot started on GitHub Actions!";
-                setTimeout(checkStatus, 3000);
+                addLog('Bot started on GitHub Actions!', 'success');
+                setStatus('', 'Starting...');
+                setTimeout(checkStatus, 4000);
             } else if (res.status === 401) {
                 localStorage.removeItem('GH_TOKEN');
-                logBox.innerText = "❌ 401 Bad Credentials! Click 'CHANGE TOKEN' below to re-enter your PAT.";
+                addLog('401 Bad Credentials — click Change Token to fix.', 'error');
+                setStatus('offline', 'Auth Error');
             } else {
                 const text = await res.text();
-                logBox.innerText = "❌ Error: " + text;
+                addLog('Start failed: ' + text, 'error');
+                setStatus('offline', 'Error');
             }
         } catch (e) {
-            logBox.innerText = "❌ Error: " + e.message;
+            addLog('Network error: ' + e.message, 'error');
+            setStatus('offline', 'Error');
         }
     }
 
     async function stopBot() {
         const token = getToken();
-        if (!token) return logBox.innerText = "❌ Token required.";
-        logBox.innerText = "⏳ Stopping active runs...";
+        if (!token) { addLog('Token required.', 'error'); return; }
+        setStatus('checking', 'Stopping...');
+        addLog('Cancelling active workflow runs...', 'warn');
         try {
             const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/actions/runs?status=in_progress`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             if (res.status === 401) {
                 localStorage.removeItem('GH_TOKEN');
-                return logBox.innerText = "❌ 401 Bad Credentials! Click 'CHANGE TOKEN' below to re-enter your PAT.";
+                addLog('401 Bad Credentials — click Change Token to fix.', 'error');
+                setStatus('offline', 'Auth Error');
+                return;
             }
             const data = await res.json();
             const runs = data.workflow_runs || [];
-
             if (runs.length === 0) {
-                logBox.innerText = "ℹ️ No active bot runs found to stop.";
+                addLog('No active bot runs found to stop.', 'info');
+                setStatus('offline', 'Stopped');
                 return;
             }
-
             for (const run of runs) {
                 await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/actions/runs/${run.id}/cancel`, {
                     method: 'POST',
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
             }
-            logBox.innerText = "🛑 Stop signal sent!";
-            setTimeout(checkStatus, 3000);
+            addLog(`Stop signal sent to ${runs.length} run(s).`, 'success');
+            setStatus('offline', 'Stopping...');
+            setTimeout(checkStatus, 4000);
         } catch (e) {
-            logBox.innerText = "❌ Error: " + e.message;
+            addLog('Error: ' + e.message, 'error');
+            setStatus('offline', 'Error');
         }
     }
 
     async function checkStatus() {
         const token = getToken();
-        if (!token) return logBox.innerText = "🔑 Enter token to check status.";
-        logBox.innerText = "⏳ Checking status...";
+        if (!token) { setStatus('checking', 'No Token'); return; }
+        setStatus('checking', 'Checking...');
         try {
             const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/actions/runs?per_page=1`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             if (res.status === 401) {
                 localStorage.removeItem('GH_TOKEN');
-                return logBox.innerText = "❌ 401 Bad Credentials! Click 'CHANGE TOKEN' below to re-enter your PAT.";
+                setStatus('offline', 'Auth Error');
+                addLog('401 Bad Credentials — click Change Token.', 'error');
+                return;
             }
             const data = await res.json();
             const run = (data.workflow_runs || [])[0];
-
             if (!run) {
-                logBox.innerText = "ℹ️ No workflow runs recorded yet.";
+                setStatus('offline', 'No Runs');
+                addLog('No workflow runs recorded yet.', 'info');
                 return;
             }
-
             if (run.status === 'in_progress') {
-                logBox.innerText = `🟢 RUNNING (Run #${run.run_number})`;
+                setStatus('', `Running · #${run.run_number}`);
+                addLog(`Bot is RUNNING (Run #${run.run_number})`, 'success');
             } else {
-                logBox.innerText = `🔴 STOPPED (Last status: ${run.conclusion || run.status})`;
+                setStatus('offline', run.conclusion || run.status);
+                addLog(`Bot is STOPPED (${run.conclusion || run.status})`, 'warn');
             }
         } catch (e) {
-            logBox.innerText = "❌ Error: " + e.message;
+            setStatus('offline', 'Error');
+            addLog('Status check failed: ' + e.message, 'error');
         }
     }
 
+    // ── Init ──
     checkStatus();
 </script>
 </body>
