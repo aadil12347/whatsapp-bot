@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DanieWatch — IDE Bot Controller</title>
-    <meta name="description" content="Cyberpunk Code IDE & Terminal Remote Controller for DanieWatch WhatsApp Bot.">
+    <title>DanieWatch — Live Bot IDE & Log Streamer</title>
+    <meta name="description" content="Live Cyberpunk IDE & Real-time GitHub Actions Log Streamer for DanieWatch WhatsApp Bot.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;0,800;1,400&family=Fira+Code:wght@400;600&display=swap" rel="stylesheet">
@@ -14,19 +14,9 @@
         :root {
             --ide-bg: #0d1117;
             --ide-panel: #161b22;
-            --ide-tab-active: #21262d;
             --ide-border: #30363d;
             --ide-line-num: #484f58;
             
-            /* Syntax Highlighting Colors */
-            --syn-kw: #ff7b72;       /* salmon red */
-            --syn-fn: #d2a8ff;       /* purple */
-            --syn-str: #a5d6ff;      /* soft blue */
-            --syn-num: #79c0ff;      /* bright cyan */
-            --syn-cm: #8b949e;       /* grey comment */
-            --syn-var: #ffa657;      /* orange */
-            
-            /* UI Neon Accents */
             --neon-green: #3fb950;
             --neon-green-glow: rgba(63, 185, 80, 0.4);
             --neon-red: #f85149;
@@ -35,6 +25,7 @@
             --neon-cyan-glow: rgba(88, 166, 255, 0.4);
             --neon-amber: #d29922;
             --neon-amber-glow: rgba(210, 153, 34, 0.4);
+            --neon-purple: #bc8cff;
             
             --text-main: #c9d1d9;
             --text-dim: #8b949e;
@@ -48,29 +39,28 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            padding: 20px;
-            overflow-x: hidden;
+            padding: 16px;
             background-image: 
-                linear-gradient(rgba(48, 54, 61, 0.25) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(48, 54, 61, 0.25) 1px, transparent 1px);
-            background-size: 32px 32px;
+                linear-gradient(rgba(48, 54, 61, 0.2) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(48, 54, 61, 0.2) 1px, transparent 1px);
+            background-size: 28px 28px;
         }
 
-        /* IDE Window Container */
+        /* Main IDE Window */
         .ide-window {
             width: 100%;
-            max-width: 680px;
+            max-width: 720px;
             background: var(--ide-bg);
             border: 1px solid var(--ide-border);
             border-radius: 10px;
             box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8), 0 0 20px rgba(88, 166, 255, 0.08);
             overflow: hidden;
-            animation: ideScan 0.5s ease-out;
+            animation: ideScan 0.4s ease-out;
         }
 
         @keyframes ideScan {
-            from { opacity: 0; transform: translateY(16px) scale(0.99); }
-            to { opacity: 1; transform: translateY(0) scale(1); }
+            from { opacity: 0; transform: translateY(12px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
         /* Title Bar */
@@ -83,16 +73,8 @@
             border-bottom: 1px solid var(--ide-border);
             user-select: none;
         }
-        .window-controls {
-            display: flex;
-            gap: 8px;
-        }
-        .win-btn {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            display: inline-block;
-        }
+        .window-controls { display: flex; gap: 8px; }
+        .win-btn { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
         .win-close { background: #ff5f56; }
         .win-min { background: #ffbd2e; }
         .win-max { background: #27c93f; }
@@ -104,8 +86,8 @@
             align-items: center;
             gap: 6px;
         }
-        .ide-breadcrumbs span.path { color: var(--syn-num); }
-        .ide-breadcrumbs span.file { color: var(--syn-str); font-weight: 600; }
+        .ide-breadcrumbs span.path { color: var(--neon-cyan); }
+        .ide-breadcrumbs span.file { color: #a5d6ff; font-weight: 600; }
 
         .status-pill {
             font-size: 0.7rem;
@@ -144,106 +126,24 @@
             100% { opacity: 1; }
         }
 
-        /* IDE Tabs Bar */
-        .ide-tabs {
-            background: var(--ide-panel);
-            display: flex;
+        /* Controls Section */
+        .controls-section {
+            padding: 16px;
+            background: rgba(22, 27, 34, 0.6);
             border-bottom: 1px solid var(--ide-border);
-            overflow-x: auto;
         }
-        .ide-tab {
-            padding: 8px 18px;
-            font-size: 0.78rem;
-            color: var(--text-dim);
-            cursor: pointer;
-            border-right: 1px solid var(--ide-border);
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            transition: all 0.2s ease;
-            user-select: none;
-            background: transparent;
-        }
-        .ide-tab:hover {
-            color: var(--text-main);
-            background: rgba(255, 255, 255, 0.02);
-        }
-        .ide-tab.active {
-            color: var(--text-main);
-            background: var(--ide-bg);
-            border-top: 2px solid var(--neon-cyan);
-        }
-        .ide-tab .icon-ts { color: var(--neon-cyan); font-weight: bold; font-size: 0.7rem; }
-        .ide-tab .icon-term { color: var(--neon-green); font-weight: bold; font-size: 0.7rem; }
-
-        /* Code Editor Body */
-        .editor-container {
-            display: none;
-        }
-        .editor-container.active {
-            display: block;
-        }
-
-        .code-grid {
+        .btn-grid {
             display: grid;
-            grid-template-columns: 42px 1fr;
-            padding: 16px 0;
-            font-size: 0.84rem;
-            line-height: 1.8;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
         }
 
-        .line-numbers {
-            color: var(--ide-line-num);
-            text-align: right;
-            padding-right: 14px;
-            user-select: none;
-            font-size: 0.78rem;
-        }
-
-        .code-area {
-            padding-right: 16px;
-        }
-
-        /* Syntax styling */
-        .kw { color: var(--syn-kw); font-weight: bold; }
-        .fn { color: var(--syn-fn); }
-        .str { color: var(--syn-str); }
-        .num { color: var(--syn-num); }
-        .cm { color: var(--syn-cm); font-style: italic; }
-        .var { color: var(--syn-var); }
-
-        /* Interactive Executable Code Action Block */
-        .cmd-block {
-            margin: 8px 0;
-            padding: 10px 14px;
-            background: rgba(22, 27, 34, 0.8);
-            border: 1px dashed var(--ide-border);
-            border-radius: 6px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-            transition: all 0.25s ease;
-        }
-        .cmd-block:hover {
-            border-style: solid;
-            background: rgba(33, 38, 45, 0.9);
-            transform: translateX(4px);
-        }
-
-        .cmd-code {
-            font-size: 0.8rem;
-            overflow-x: auto;
-            white-space: nowrap;
-        }
-
-        /* IDE Code Action Buttons */
         .run-btn {
             font-family: 'JetBrains Mono', monospace;
-            font-size: 0.74rem;
+            font-size: 0.76rem;
             font-weight: 700;
-            padding: 6px 14px;
-            border-radius: 4px;
+            padding: 10px 14px;
+            border-radius: 6px;
             border: 1px solid currentColor;
             cursor: pointer;
             background: transparent;
@@ -251,6 +151,7 @@
             transition: all 0.2s ease;
             display: inline-flex;
             align-items: center;
+            justify-content: center;
             gap: 6px;
         }
 
@@ -298,61 +199,80 @@
             box-shadow: 0 0 15px var(--neon-amber-glow);
         }
 
-        .run-btn:active {
-            transform: scale(0.95);
+        .run-btn:active { transform: scale(0.96); }
+
+        /* GitHub Actions Workflow Section */
+        .workflow-header {
+            background: #161b22;
+            padding: 10px 16px;
+            font-size: 0.76rem;
+            border-bottom: 1px solid var(--ide-border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
         }
+        .workflow-title {
+            color: var(--neon-purple);
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .workflow-time { color: var(--text-dim); font-size: 0.72rem; }
+
+        /* Workflow Steps Breakdown */
+        .steps-container {
+            padding: 10px 16px;
+            background: #0d1117;
+            border-bottom: 1px solid var(--ide-border);
+            font-size: 0.74rem;
+        }
+        .step-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 4px 0;
+            border-bottom: 1px dashed rgba(48, 54, 61, 0.5);
+        }
+        .step-item:last-child { border-bottom: none; }
+        .step-name { display: flex; align-items: center; gap: 8px; }
+        .step-icon-success { color: var(--neon-green); }
+        .step-icon-running { color: var(--neon-cyan); animation: spin 1.2s linear infinite; display: inline-block; }
+        .step-icon-pending { color: var(--text-dim); }
+        .step-icon-failed { color: var(--neon-red); }
+        .step-duration { color: var(--text-dim); font-size: 0.7rem; }
+
+        @keyframes spin { 100% { transform: rotate(360deg); } }
 
         /* Terminal Window */
         .terminal-panel {
             background: #040d14;
             padding: 16px;
-            min-height: 260px;
-            max-height: 380px;
+            height: 320px;
             overflow-y: auto;
-            font-size: 0.78rem;
+            font-size: 0.76rem;
             line-height: 1.6;
-            color: #8b949e;
-        }
-
-        .term-prompt {
-            color: var(--neon-green);
-            font-weight: bold;
-        }
-        .term-host {
-            color: var(--neon-cyan);
-        }
-        .term-path {
-            color: var(--syn-var);
+            color: #c9d1d9;
+            scrollbar-width: thin;
+            scrollbar-color: var(--ide-border) transparent;
         }
 
         .log-line {
             padding: 2px 0;
-            display: flex;
-            gap: 8px;
-            animation: lineFade 0.2s ease-out;
+            word-break: break-all;
+            white-space: pre-wrap;
+            animation: lineFade 0.15s ease-out;
         }
         @keyframes lineFade {
             from { opacity: 0; transform: translateX(-4px); }
             to { opacity: 1; transform: translateX(0); }
         }
-        .log-time { color: var(--ide-line-num); }
-        .log-ok { color: var(--neon-green); }
-        .log-err { color: var(--neon-red); }
-        .log-info { color: var(--neon-cyan); }
-        .log-warn { color: var(--neon-amber); }
 
-        .cursor {
-            display: inline-block;
-            width: 8px;
-            height: 15px;
-            background: var(--neon-green);
-            vertical-align: middle;
-            margin-left: 4px;
-            animation: blink 1s step-end infinite;
-        }
-        @keyframes blink {
-            50% { opacity: 0; }
-        }
+        .log-line.cmd { color: var(--neon-cyan); font-weight: bold; }
+        .log-line.ok { color: var(--neon-green); }
+        .log-line.err { color: var(--neon-red); }
+        .log-line.warn { color: var(--neon-amber); }
+        .log-line.sys { color: var(--neon-purple); }
 
         /* IDE Status Bar at Bottom */
         .ide-statusbar {
@@ -366,24 +286,15 @@
             justify-content: space-between;
             user-select: none;
         }
-        .statusbar-left, .statusbar-right {
-            display: flex;
-            align-items: center;
-            gap: 14px;
-        }
-        .statusbar-item {
-            display: flex;
-            align-items: center;
-            gap: 4px;
-        }
-        .statusbar-item.branch { color: var(--syn-fn); }
+        .statusbar-left, .statusbar-right { display: flex; align-items: center; gap: 14px; }
+        .statusbar-item { display: flex; align-items: center; gap: 4px; }
+        .statusbar-item.branch { color: var(--neon-cyan); }
 
         /* Responsive */
-        @media (max-width: 600px) {
+        @media (max-width: 640px) {
             body { padding: 8px; }
-            .cmd-block { flex-direction: column; align-items: flex-start; }
-            .run-btn { width: 100%; justify-content: center; }
-            .code-grid { grid-template-columns: 28px 1fr; font-size: 0.78rem; }
+            .btn-grid { grid-template-columns: repeat(2, 1fr); }
+            .terminal-panel { height: 280px; font-size: 0.72rem; }
         }
     </style>
 </head>
@@ -398,139 +309,87 @@
             <span class="win-btn win-max"></span>
         </div>
         <div class="ide-breadcrumbs">
-            <span class="path">workspace</span> / <span class="path">src</span> / <span class="file">bot.controller.ts</span>
+            <span class="path">actions</span> / <span class="file">run-bot-task</span>
         </div>
         <div class="status-pill checking" id="statusPill">
             <span class="pulse-dot"></span>
-            <span id="statusLabel">CHECKING</span>
+            <span id="statusLabel">SYNCING...</span>
         </div>
     </div>
 
-    <!-- IDE File Tabs -->
-    <div class="ide-tabs">
-        <div class="ide-tab active" data-tab="editor" onclick="switchIdeTab('editor')">
-            <span class="icon-ts">TS</span> bot.controller.ts
-        </div>
-        <div class="ide-tab" data-tab="terminal" onclick="switchIdeTab('terminal')">
-            <span class="icon-term">&gt;_</span> terminal.log
-        </div>
-    </div>
-
-    <!-- TAB 1: CODE EDITOR -->
-    <div class="editor-container active" id="tab-editor">
-        <div class="code-grid">
-            <div class="line-numbers">
-                01<br>02<br>03<br>04<br>05<br>06<br>07<br>08<br>09<br>10<br>11<br>12<br>13<br>14<br>15
-            </div>
-            <div class="code-area">
-                <div><span class="cm">// DanieWatch WhatsApp Bot Execution Controller</span></div>
-                <div><span class="kw">import</span> { <span class="fn">GitHubActions</span> } <span class="kw">from</span> <span class="str">"@octokit/actions"</span>;</div>
-                <br>
-
-                <!-- START BLOCK -->
-                <div class="cmd-block">
-                    <div class="cmd-code">
-                        <span class="kw">await</span> <span class="var">bot</span>.<span class="fn">startWorker</span>({ <span class="var">event</span>: <span class="str">"run-bot"</span> });
-                    </div>
-                    <button class="run-btn run-btn-start" id="startBtn" onclick="startBot()">
-                        ▶ EXECUTE
-                    </button>
-                </div>
-
-                <!-- STOP BLOCK -->
-                <div class="cmd-block">
-                    <div class="cmd-code">
-                        <span class="kw">await</span> <span class="var">bot</span>.<span class="fn">terminateRuns</span>({ <span class="var">force</span>: <span class="num">true</span> });
-                    </div>
-                    <button class="run-btn run-btn-stop" id="stopBtn" onclick="stopBot()">
-                        ■ TERMINATE
-                    </button>
-                </div>
-
-                <!-- REFRESH BLOCK -->
-                <div class="cmd-block">
-                    <div class="cmd-code">
-                        <span class="kw">await</span> <span class="var">bot</span>.<span class="fn">syncWorkflowStatus</span>();
-                    </div>
-                    <button class="run-btn run-btn-sync" onclick="checkStatus()">
-                        ↻ REFRESH
-                    </button>
-                </div>
-
-                <!-- TOKEN CONFIG BLOCK -->
-                <div class="cmd-block">
-                    <div class="cmd-code">
-                        <span class="kw">const</span> <span class="var">token</span> = <span class="fn">getAuthSecret</span>();
-                    </div>
-                    <button class="run-btn run-btn-auth" onclick="resetToken()">
-                        🔑 SET TOKEN
-                    </button>
-                </div>
-
-            </div>
+    <!-- Controls Bar -->
+    <div class="controls-section">
+        <div class="btn-grid">
+            <button class="run-btn run-btn-start" id="startBtn" onclick="startBot()">▶ START</button>
+            <button class="run-btn run-btn-stop" id="stopBtn" onclick="stopBot()">■ STOP</button>
+            <button class="run-btn run-btn-sync" onclick="checkStatus(true)">↻ REFRESH</button>
+            <button class="run-btn run-btn-auth" onclick="resetToken()">🔑 TOKEN</button>
         </div>
     </div>
 
-    <!-- TAB 2: TERMINAL LOGS -->
-    <div class="editor-container" id="tab-terminal">
-        <div class="terminal-panel" id="terminalPanel">
-            <div class="log-line">
-                <span class="term-prompt">daniewatch</span><span class="term-host">@bot-runner</span>:<span class="term-path">~/app</span>$&nbsp;init controller session...
-            </div>
+    <!-- GitHub Actions Job & Steps Progress Header -->
+    <div class="workflow-header">
+        <div class="workflow-title" id="jobTitle">
+            ⚡ run-bot-task
         </div>
+        <div class="workflow-time" id="jobTime">
+            Started -- ago
+        </div>
+    </div>
+
+    <div class="steps-container" id="stepsContainer">
+        <div class="step-item">
+            <span class="step-name"><span class="step-icon-pending">⏳</span> Loading GitHub Actions pipeline...</span>
+            <span class="step-duration">--</span>
+        </div>
+    </div>
+
+    <!-- Live Execution Terminal -->
+    <div class="terminal-panel" id="terminalPanel">
+        <div class="log-line sys">[SYSTEM] Connecting to GitHub Actions runner...</div>
     </div>
 
     <!-- IDE Status Bar -->
     <div class="ide-statusbar">
         <div class="statusbar-left">
-            <div class="statusbar-item branch"> main*</div>
-            <div class="statusbar-item">0 ⊗ 0 ⚠</div>
+            <div class="statusbar-item branch"> main</div>
+            <div class="statusbar-item" id="runInfo">Run #--</div>
         </div>
         <div class="statusbar-right">
-            <div class="statusbar-item">UTF-8</div>
-            <div class="statusbar-item">TypeScript</div>
-            <div class="statusbar-item" style="color: var(--neon-green)">● Connected</div>
+            <div class="statusbar-item">GitHub Actions</div>
+            <div class="statusbar-item" style="color: var(--neon-green)">● Live Sync</div>
         </div>
     </div>
 </div>
 
 <script>
-    // ── Tab Navigation ──
-    function switchIdeTab(tabName) {
-        document.querySelectorAll('.ide-tab').forEach(t => t.classList.remove('active'));
-        document.querySelectorAll('.editor-container').forEach(c => c.classList.remove('active'));
-        
-        document.querySelector(`.ide-tab[data-tab="${tabName}"]`).classList.add('active');
-        document.getElementById(`tab-${tabName}`).classList.add('active');
-    }
+    const OWNER = 'griffithbuildwiseestimation-cmd';
+    const REPO = 'whatsapp-bot';
+    let pollTimer = null;
+    let activeRunId = null;
+    let activeJobId = null;
+    let lastFetchedLogs = '';
 
-    // ── Terminal Logging ──
-    function addLog(message, type = '') {
+    // ── Log Line Streamer ──
+    function appendTerminalLog(text, styleClass = '') {
         const terminal = document.getElementById('terminalPanel');
-
         const line = document.createElement('div');
-        line.className = 'log-line';
-        
-        const now = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        
-        let typeLabel = '';
-        if (type === 'success') typeLabel = '<span class="log-ok">[OK]</span>';
-        else if (type === 'error') typeLabel = '<span class="log-err">[ERR]</span>';
-        else if (type === 'warn') typeLabel = '<span class="log-warn">[WARN]</span>';
-        else typeLabel = '<span class="log-info">[INFO]</span>';
-
-        line.innerHTML = `<span class="log-time">[${now}]</span> ${typeLabel} <span>${message}</span>`;
+        line.className = 'log-line ' + styleClass;
+        line.textContent = text;
         terminal.appendChild(line);
         terminal.scrollTop = terminal.scrollHeight;
 
-        // Keep max 60 lines
-        while (terminal.querySelectorAll('.log-line').length > 60) {
+        while (terminal.querySelectorAll('.log-line').length > 120) {
             terminal.querySelector('.log-line').remove();
         }
     }
 
-    // ── Status Indicator ──
-    function setStatus(state, text) {
+    function clearTerminal() {
+        document.getElementById('terminalPanel').innerHTML = '';
+    }
+
+    // ── Status Pill Setter ──
+    function setStatusPill(state, text) {
         const pill = document.getElementById('statusPill');
         const label = document.getElementById('statusLabel');
         pill.className = 'status-pill ' + state;
@@ -545,7 +404,7 @@
             if (token) {
                 token = token.trim();
                 localStorage.setItem('GH_TOKEN', token);
-                addLog('GitHub Auth Token saved to localStorage.', 'success');
+                appendTerminalLog('[AUTH] PAT Token saved to local storage.', 'ok');
             }
         }
         return token;
@@ -556,21 +415,167 @@
         const newToken = prompt('Enter new GitHub Personal Access Token (PAT):');
         if (newToken) {
             localStorage.setItem('GH_TOKEN', newToken.trim());
-            addLog('Auth Token updated successfully.', 'success');
-            checkStatus();
+            appendTerminalLog('[AUTH] PAT Token updated successfully.', 'ok');
+            checkStatus(true);
         }
     }
 
-    // ── Config ──
-    const OWNER = 'griffithbuildwiseestimation-cmd';
-    const REPO = 'whatsapp-bot';
+    // ── Format Duration ──
+    function formatStepDuration(startedAt, completedAt) {
+        if (!startedAt) return '--';
+        const start = new Date(startedAt).getTime();
+        const end = completedAt ? new Date(completedAt).getTime() : Date.now();
+        const diffSec = Math.max(0, Math.floor((end - start) / 1000));
+        if (diffSec < 60) return diffSec + 's';
+        const min = Math.floor(diffSec / 60);
+        const sec = diffSec % 60;
+        return `${min}m ${sec}s`;
+    }
 
-    // ── Actions ──
+    function formatTimeAgo(startedAt) {
+        if (!startedAt) return 'Started -- ago';
+        const start = new Date(startedAt).getTime();
+        const diffSec = Math.max(0, Math.floor((Date.now() - start) / 1000));
+        if (diffSec < 60) return `Started ${diffSec}s ago`;
+        const min = Math.floor(diffSec / 60);
+        const sec = diffSec % 60;
+        return `Started ${min}m ${sec}s ago`;
+    }
+
+    // ── Fetch Steps & Live Console Logs ──
+    async function fetchWorkflowDetails(runId, token) {
+        try {
+            const jobsRes = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/actions/runs/${runId}/jobs`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (!jobsRes.ok) return;
+            const jobsData = await jobsRes.json();
+            const job = (jobsData.jobs || [])[0];
+            if (!job) return;
+
+            activeJobId = job.id;
+
+            // Render Job Title & Time
+            document.getElementById('jobTitle').innerHTML = `⚡ ${job.name} <span style="font-size:0.7rem; color:var(--text-dim);">(${job.status})</span>`;
+            document.getElementById('jobTime').textContent = formatTimeAgo(job.started_at);
+
+            // Render Steps List
+            const stepsContainer = document.getElementById('stepsContainer');
+            stepsContainer.innerHTML = '';
+
+            if (job.steps && job.steps.length > 0) {
+                job.steps.forEach(step => {
+                    let iconHtml = '<span class="step-icon-pending">⏳</span>';
+                    if (step.status === 'completed') {
+                        if (step.conclusion === 'success') iconHtml = '<span class="step-icon-success">✓</span>';
+                        else iconHtml = '<span class="step-icon-failed">✗</span>';
+                    } else if (step.status === 'in_progress') {
+                        iconHtml = '<span class="step-icon-running">⚙</span>';
+                    }
+
+                    const dur = formatStepDuration(step.started_at, step.completed_at);
+                    const item = document.createElement('div');
+                    item.className = 'step-item';
+                    item.innerHTML = `
+                        <span class="step-name">${iconHtml} ${step.name}</span>
+                        <span class="step-duration">${dur}</span>
+                    `;
+                    stepsContainer.appendChild(item);
+                });
+            }
+
+            // Fetch Live Raw Logs if job has started
+            const logsRes = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/actions/jobs/${job.id}/logs`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (logsRes.ok) {
+                const rawLogs = await logsRes.text();
+                if (rawLogs && rawLogs !== lastFetchedLogs) {
+                    lastFetchedLogs = rawLogs;
+                    renderCleanRawLogs(rawLogs);
+                }
+            }
+        } catch (e) {
+            console.error('Fetch Workflow Details error:', e);
+        }
+    }
+
+    // ── Parse & Clean Raw GitHub Logs ──
+    function renderCleanRawLogs(rawLogsText) {
+        clearTerminal();
+        const lines = rawLogsText.split('\n');
+        lines.forEach(line => {
+            if (!line.trim()) return;
+            // Remove GitHub ISO timestamp prefix (e.g. 2026-08-07T22:27:18.7631839Z )
+            let clean = line.replace(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z\s*/, '').trim();
+            if (!clean) return;
+
+            // Skip GitHub runner noise groups
+            if (clean.startsWith('##[group]') || clean.startsWith('##[endgroup]') || clean.includes('Hosted Compute Agent')) return;
+
+            let styleClass = '';
+            if (clean.includes('🚀') || clean.includes('📁') || clean.includes('✅') || clean.includes('connected')) styleClass = 'ok';
+            else if (clean.includes('❌') || clean.includes('Error') || clean.includes('FAILED')) styleClass = 'err';
+            else if (clean.includes('⚠️') || clean.includes('warn') || clean.includes('Closing session')) styleClass = 'warn';
+            else if (clean.startsWith('Run ') || clean.startsWith('echo')) styleClass = 'cmd';
+
+            appendTerminalLog(clean, styleClass);
+        });
+    }
+
+    // ── Status Check Function ──
+    async function checkStatus(isManual = false) {
+        const token = getToken();
+        if (!token) { setStatusPill('checking', 'NO TOKEN'); return; }
+        if (isManual) setStatusPill('checking', 'SYNCING...');
+
+        try {
+            const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/actions/runs?per_page=1`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (res.status === 401) {
+                localStorage.removeItem('GH_TOKEN');
+                setStatusPill('offline', 'AUTH ERR');
+                appendTerminalLog('[ERR] 401 Unauthorized — bad PAT token. Click TOKEN to update.', 'err');
+                return;
+            }
+
+            const data = await res.json();
+            const run = (data.workflow_runs || [])[0];
+
+            if (!run) {
+                setStatusPill('offline', 'NO RUNS');
+                if (isManual) appendTerminalLog('[INFO] No workflow runs recorded yet.', 'sys');
+                return;
+            }
+
+            activeRunId = run.id;
+            document.getElementById('runInfo').textContent = `Run #${run.run_number}`;
+
+            if (run.status === 'in_progress' || run.status === 'queued') {
+                setStatusPill('', `RUNNING #${run.run_number}`);
+                if (isManual) appendTerminalLog(`[STATUS] Workflow RUNNING (Run #${run.run_number})`, 'ok');
+                fetchWorkflowDetails(run.id, token);
+            } else {
+                setStatusPill('offline', (run.conclusion || run.status).toUpperCase());
+                if (isManual) appendTerminalLog(`[STATUS] Workflow STOPPED (${run.conclusion || run.status})`, 'warn');
+                fetchWorkflowDetails(run.id, token);
+            }
+        } catch (e) {
+            setStatusPill('offline', 'ERR');
+            appendTerminalLog('[ERR] Status sync failed: ' + e.message, 'err');
+        }
+    }
+
+    // ── Start Bot Command ──
     async function startBot() {
         const token = getToken();
-        if (!token) { addLog('Authentication required: Token missing.', 'error'); return; }
-        setStatus('checking', 'STARTING');
-        addLog('POST /repos/' + OWNER + '/' + REPO + '/dispatches (event: run-bot)', 'info');
+        if (!token) { appendTerminalLog('[ERR] Token required to start bot.', 'err'); return; }
+
+        setStatusPill('checking', 'STARTING...');
+        appendTerminalLog('[START] Dispatching run-bot event to GitHub Actions...', 'cmd');
+
         try {
             const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/dispatches`, {
                 method: 'POST',
@@ -581,99 +586,91 @@
                 },
                 body: JSON.stringify({ event_type: 'run-bot' })
             });
+
             if (res.status === 204) {
-                addLog('Workflow dispatch sent successfully (Status 204)', 'success');
-                setStatus('', 'STARTING');
-                setTimeout(checkStatus, 3500);
+                appendTerminalLog('[OK] Dispatch signal accepted (Status 204). Waiting for runner to boot...', 'ok');
+                setStatusPill('checking', 'BOOTING...');
+                
+                // Fast poll for 15s to detect boot
+                let checks = 0;
+                const fastPoll = setInterval(async () => {
+                    checks++;
+                    await checkStatus(false);
+                    if (checks > 5) clearInterval(fastPoll);
+                }, 3000);
             } else if (res.status === 401) {
                 localStorage.removeItem('GH_TOKEN');
-                addLog('401 Unauthorized — bad PAT token.', 'error');
-                setStatus('offline', 'AUTH ERR');
+                appendTerminalLog('[ERR] 401 Unauthorized — invalid token.', 'err');
+                setStatusPill('offline', 'AUTH ERR');
             } else {
                 const text = await res.text();
-                addLog('Dispatch failed: ' + text, 'error');
-                setStatus('offline', 'ERR');
+                appendTerminalLog('[ERR] Start failed: ' + text, 'err');
+                setStatusPill('offline', 'ERR');
             }
         } catch (e) {
-            addLog('Fetch Exception: ' + e.message, 'error');
-            setStatus('offline', 'ERR');
+            appendTerminalLog('[ERR] Exception: ' + e.message, 'err');
+            setStatusPill('offline', 'ERR');
         }
     }
 
+    // ── Stop Bot Command ──
     async function stopBot() {
         const token = getToken();
-        if (!token) { addLog('Authentication token missing.', 'error'); return; }
-        setStatus('checking', 'STOPPING');
-        addLog('GET /repos/' + OWNER + '/' + REPO + '/actions/runs?status=in_progress', 'warn');
+        if (!token) { appendTerminalLog('[ERR] Token required to stop bot.', 'err'); return; }
+
+        setStatusPill('checking', 'STOPPING...');
+        appendTerminalLog('[STOP] Querying active workflow runs...', 'cmd');
+
         try {
             const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/actions/runs?status=in_progress`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
+
             if (res.status === 401) {
                 localStorage.removeItem('GH_TOKEN');
-                addLog('401 Unauthorized — bad PAT token.', 'error');
-                setStatus('offline', 'AUTH ERR');
+                appendTerminalLog('[ERR] 401 Unauthorized — invalid token.', 'err');
+                setStatusPill('offline', 'AUTH ERR');
                 return;
             }
+
             const data = await res.json();
             const runs = data.workflow_runs || [];
+
             if (runs.length === 0) {
-                addLog('No active workflow runs found to cancel.', 'info');
-                setStatus('offline', 'STOPPED');
+                appendTerminalLog('[INFO] No active runs found in progress.', 'sys');
+                setStatusPill('offline', 'STOPPED');
                 return;
             }
+
             for (const run of runs) {
-                addLog('POST /actions/runs/' + run.id + '/cancel', 'warn');
+                appendTerminalLog(`[STOP] Cancelling Run #${run.run_number} (ID: ${run.id})...`, 'warn');
                 await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/actions/runs/${run.id}/cancel`, {
                     method: 'POST',
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
             }
-            addLog(`Cancel signal sent to ${runs.length} active run(s).`, 'success');
-            setStatus('offline', 'STOPPING');
-            setTimeout(checkStatus, 3500);
+
+            appendTerminalLog(`[OK] Cancel signal sent to ${runs.length} run(s). Waiting for shutdown...`, 'ok');
+            setStatusPill('offline', 'CANCELLING');
+            
+            setTimeout(() => checkStatus(true), 4000);
         } catch (e) {
-            addLog('Error stopping runs: ' + e.message, 'error');
-            setStatus('offline', 'ERR');
+            appendTerminalLog('[ERR] Exception: ' + e.message, 'err');
+            setStatusPill('offline', 'ERR');
         }
     }
 
-    async function checkStatus() {
-        const token = getToken();
-        if (!token) { setStatus('checking', 'NO TOKEN'); return; }
-        setStatus('checking', 'SYNCING');
-        try {
-            const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/actions/runs?per_page=1`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            if (res.status === 401) {
-                localStorage.removeItem('GH_TOKEN');
-                setStatus('offline', 'AUTH ERR');
-                addLog('401 Unauthorized — bad PAT token.', 'error');
-                return;
-            }
-            const data = await res.json();
-            const run = (data.workflow_runs || [])[0];
-            if (!run) {
-                setStatus('offline', 'NO RUNS');
-                addLog('No workflow runs recorded yet.', 'info');
-                return;
-            }
-            if (run.status === 'in_progress') {
-                setStatus('', `RUNNING #${run.run_number}`);
-                addLog(`Workflow RUNNING (Run #${run.run_number})`, 'success');
-            } else {
-                setStatus('offline', (run.conclusion || run.status).toUpperCase());
-                addLog(`Workflow STOPPED (${run.conclusion || run.status})`, 'warn');
-            }
-        } catch (e) {
-            setStatus('offline', 'ERR');
-            addLog('Status sync failed: ' + e.message, 'error');
-        }
+    // ── Auto Polling Loop (Every 4 seconds) ──
+    function startAutoPolling() {
+        if (pollTimer) clearInterval(pollTimer);
+        pollTimer = setInterval(() => {
+            checkStatus(false);
+        }, 4000);
     }
 
     // ── Init ──
-    checkStatus();
+    checkStatus(true);
+    startAutoPolling();
 </script>
 </body>
 </html>
