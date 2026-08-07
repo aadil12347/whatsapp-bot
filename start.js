@@ -55,12 +55,26 @@ async function startBot() {
         windowsHide: true
     });
 
+    const maxRunMinutes = parseInt(process.env.MAX_RUN_TIME_MINUTES || '0', 10);
+    if (maxRunMinutes > 0) {
+        console.log(`⏱️ Auto-restart timer active: Bot will exit gracefully in ${maxRunMinutes} minutes to save session & end run.`);
+        setTimeout(() => {
+            console.log(`⏰ ${maxRunMinutes} minutes elapsed. Stopping bot process for clean exit...`);
+            child.kill('SIGTERM');
+            setTimeout(() => {
+                if (!child.killed) child.kill('SIGKILL');
+                process.exit(0);
+            }, 5000);
+        }, maxRunMinutes * 60 * 1000);
+    }
+
     child.on('error', (err) => {
         console.error('❌ Bot crashed with error:', err.message);
     });
 
     child.on('exit', (code) => {
         console.log(`🤖 Bot process exited with code ${code}`);
+        process.exit(code || 0);
     });
 }
 

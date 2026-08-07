@@ -39,6 +39,7 @@ jobs:
           SUDO: ${{ secrets.SUDO }}
           CF_WORKER_URL: ${{ secrets.CF_WORKER_URL }}
           OWNER_NAME: ${{ secrets.OWNER_NAME }}
+          MAX_RUN_TIME_MINUTES: "280"
         run: |
           echo "🚀 Restoring session from Supabase & running bot task..."
           node start.js
