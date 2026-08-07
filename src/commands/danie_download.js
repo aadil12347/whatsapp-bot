@@ -927,21 +927,21 @@ function initUpsertListener(conn) {
             const botJid = cleanJid(conn.user?.id || '');
             if (!botJid) return;
             const uptime = formatUptime(process.uptime());
-            const settings = loadSettings();
-            let targetInfo = 'Default (Private Chat)';
-            if (settings.targets && settings.targets.length > 0) {
-                targetInfo = `${settings.targets.length} Receiver(s)`;
-            }
+            const pkgVersion = require('../../package.json')?.version || '5.0.0';
+            const hostName = os.hostname();
+            const platformName = os.platform();
 
             const startupMsg =
                 `╭─── ⋆ ⋅ ✦ ⋅ ⋆ ───╮\n` +
                 `   ✨ *DANIEWATCH BOT* ✨\n` +
                 `╰─── ⋆ ⋅ ✦ ⋅ ⋆ ───╯\n\n` +
                 `┌─❒ *System Online*\n` +
-                `│ ⚡ Bot connected successfully\n` +
-                `│ 👑 Developer: Daniyal Aadil\n` +
-                `│ 🎯 Targets: ${targetInfo}\n` +
-                `│ ⏱️ Uptime: ${uptime}\n` +
+                `│ ⚡ Status: *Connection Success*\n` +
+                `│ 👑 Dev: *Daniyal Aadil*\n` +
+                `│ 📚 Version: *v${pkgVersion}*\n` +
+                `│ 📟 Host: *${hostName}*\n` +
+                `│ 💻 Platform: *${platformName}*\n` +
+                `│ ⏱️ Uptime: *${uptime}*\n` +
                 `└───────────────\n\n` +
                 `🚀 _Ready for movie & video downloads!_`;
 

@@ -45,14 +45,22 @@ function hookDanieWatch(conn) {
         if (isFrameworkWelcome) {
             console.log('[DanieWatch] 🎯 Intercepted framework delayed welcome message! Converting to DanieWatch logo image & branding...');
             const logoPath = path.join(__dirname, '..', '..', 'assets', 'daniewatch_logo.png');
+            const pkgVersion = require('../../package.json')?.version || '5.0.0';
+            const hostName = os.hostname();
+            const platformName = os.platform();
+            const uptime = formatUptime(process.uptime());
 
             const danieWelcomeCaption =
                 `╭─── ⋆ ⋅ ✦ ⋅ ⋆ ───╮\n` +
                 `   ✨ *DANIEWATCH BOT* ✨\n` +
                 `╰─── ⋆ ⋅ ✦ ⋅ ⋆ ───╯\n\n` +
                 `┌─❒ *System Online*\n` +
-                `│ ⚡ Bot connected successfully!\n` +
-                `│ 👑 Developer: Daniyal Aadil\n` +
+                `│ ⚡ Status: *Connection Success*\n` +
+                `│ 👑 Dev: *Daniyal Aadil*\n` +
+                `│ 📚 Version: *v${pkgVersion}*\n` +
+                `│ 📟 Host: *${hostName}*\n` +
+                `│ 💻 Platform: *${platformName}*\n` +
+                `│ ⏱️ Uptime: *${uptime}*\n` +
                 `└───────────────\n\n` +
                 `🚀 _Ready for movie & video downloads!_`;
 
