@@ -74,6 +74,7 @@
     <button id="startBtn" class="btn btn-start" onclick="startBot()">🚀 START BOT</button>
     <button id="stopBtn" class="btn btn-stop" onclick="stopBot()">🛑 STOP BOT</button>
     <button class="btn btn-status" onclick="checkStatus()">📊 REFRESH STATUS</button>
+    <button class="btn" style="background-color: #64748b; margin-top: 15px;" onclick="resetToken()">🔑 CHANGE TOKEN</button>
 
     <div id="status-box">Loading status...</div>
 </div>
@@ -84,10 +85,21 @@
         if (!token) {
             token = prompt("Please enter your GitHub Personal Access Token (PAT):");
             if (token) {
-                localStorage.setItem('GH_TOKEN', token.trim());
+                token = token.trim();
+                localStorage.setItem('GH_TOKEN', token);
             }
         }
         return token;
+    }
+
+    function resetToken() {
+        localStorage.removeItem('GH_TOKEN');
+        const newToken = prompt("Enter your new GitHub Personal Access Token (PAT):");
+        if (newToken) {
+            localStorage.setItem('GH_TOKEN', newToken.trim());
+            logBox.innerText = "🔑 Token updated!";
+            checkStatus();
+        }
     }
 
     const OWNER = "griffithbuildwiseestimation-cmd";
@@ -113,6 +125,9 @@
             if (res.status === 204) {
                 logBox.innerText = "✅ Bot started on GitHub Actions!";
                 setTimeout(checkStatus, 3000);
+            } else if (res.status === 401) {
+                localStorage.removeItem('GH_TOKEN');
+                logBox.innerText = "❌ 401 Bad Credentials! Click 'CHANGE TOKEN' below to re-enter your PAT.";
             } else {
                 const text = await res.text();
                 logBox.innerText = "❌ Error: " + text;
@@ -130,6 +145,10 @@
             const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/actions/runs?status=in_progress`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
+            if (res.status === 401) {
+                localStorage.removeItem('GH_TOKEN');
+                return logBox.innerText = "❌ 401 Bad Credentials! Click 'CHANGE TOKEN' below to re-enter your PAT.";
+            }
             const data = await res.json();
             const runs = data.workflow_runs || [];
 
@@ -159,6 +178,10 @@
             const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/actions/runs?per_page=1`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
+            if (res.status === 401) {
+                localStorage.removeItem('GH_TOKEN');
+                return logBox.innerText = "❌ 401 Bad Credentials! Click 'CHANGE TOKEN' below to re-enter your PAT.";
+            }
             const data = await res.json();
             const run = (data.workflow_runs || [])[0];
 
