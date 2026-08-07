@@ -14,7 +14,7 @@ function formatUptime(seconds) {
 }
 
 module.exports = {
-  IMG: "https://i.ibb.co/MDwfZhF0/Untitled-1.jpg",
+  IMG: "./assets/daniewatch_logo.png",
   ARTISTS:[
       "Ranwan Liyanage original",
       "Amal Perera original",

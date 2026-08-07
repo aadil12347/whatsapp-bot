@@ -32,13 +32,40 @@ function hookDanieWatch(conn) {
         console.error('[DanieWatch] Auto-init error:', e.message);
     }
 
-    // Completely block & silence any legacy framework XPROVERCE welcome messages
+    // Convert any delayed framework welcome message and image into DanieWatch logo & branding caption
     const origSendMessage = conn.sendMessage.bind(conn);
     conn.sendMessage = async function(jid, content, options) {
         const strContent = JSON.stringify(content || {});
-        if (/xproverce|xpro|anju|queen_anju|welcome\s*message/i.test(strContent)) {
-            console.log('[DanieWatch] 🚫 Completely blocked and removed legacy framework XPROVERCE welcome message.');
-            return { key: { id: 'blocked_xproverce_' + Date.now() } };
+        const normalized = (strContent.normalize('NFKD') + ' ' + strContent).toLowerCase();
+
+        const isFrameworkWelcome =
+            /xproverce|xpro|anju|queen|rashmika|welcome|ibb\.co|untitled-1|mdwfZhF0/i.test(normalized) ||
+            (content && content.image && typeof content.image === 'object' && content.image.url && String(content.image.url).includes('ibb.co'));
+
+        if (isFrameworkWelcome) {
+            console.log('[DanieWatch] 🎯 Intercepted framework delayed welcome message! Converting to DanieWatch logo image & branding...');
+            const logoPath = path.join(__dirname, '..', '..', 'assets', 'daniewatch_logo.png');
+
+            const danieWelcomeCaption =
+                `╭─── ⋆ ⋅ ✦ ⋅ ⋆ ───╮\n` +
+                `   ✨ *DANIEWATCH BOT* ✨\n` +
+                `╰─── ⋆ ⋅ ✦ ⋅ ⋆ ───╯\n\n` +
+                `┌─❒ *System Online*\n` +
+                `│ ⚡ Bot connected successfully!\n` +
+                `│ 👑 Developer: Daniyal Aadil\n` +
+                `└───────────────\n\n` +
+                `🚀 _Ready for movie & video downloads!_`;
+
+            try {
+                if (fs.existsSync(logoPath)) {
+                    const imageBuffer = fs.readFileSync(logoPath);
+                    return await origSendMessage(jid, { image: imageBuffer, caption: danieWelcomeCaption }, options);
+                } else {
+                    return await origSendMessage(jid, { text: danieWelcomeCaption }, options);
+                }
+            } catch (err) {
+                console.error('[DanieWatch] Error sending converted DanieWatch welcome message:', err.message);
+            }
         }
         return await origSendMessage(jid, content, options);
     };
