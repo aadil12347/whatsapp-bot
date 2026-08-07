@@ -15,11 +15,90 @@ const ALLOWED_COMMANDS = [
     'song', 'songdl', 'yt1s', 'yts', 'yts1', 'video', 'yt2s', 'yt3s', 'csong', 'csongdl'
 ];
 
+const path = require('path');
+const fs = require('fs');
+
+function hookDanieWatch(conn) {
+    if (!conn || conn._danieWatchHooked) return;
+    conn._danieWatchHooked = true;
+
+    try {
+        const danie = require('../commands/danie_download');
+        if (danie.initUpsertListener) {
+            danie.initUpsertListener(conn);
+            console.log('[DanieWatch] ✅ Listener auto-initialized on bot startup (no .alive needed)!');
+        }
+    } catch (e) {
+        console.error('[DanieWatch] Auto-init error:', e.message);
+    }
+
+    // Intercept conn.sendMessage to replace legacy XPROVERCE welcome message/image with DanieWatch
+    const origSendMessage = conn.sendMessage.bind(conn);
+    conn.sendMessage = async function(jid, content, options) {
+        const strContent = JSON.stringify(content || {});
+        if (/xproverce|xpro|anju|queen_anju|welcome\s*message/i.test(strContent)) {
+            console.log('[DanieWatch] 🎯 Intercepted framework XPROVERCE welcome message! Replacing with DanieWatch branding...');
+            const logoPath = path.join(__dirname, '..', '..', 'assets', 'daniewatch_logo.png');
+            const caption =
+                `╭─── ⋆ ⋅ ✦ ⋅ ⋆ ───╮\n` +
+                `   ✨ *DANIEWATCH BOT* ✨\n` +
+                `╰─── ⋆ ⋅ ✦ ⋅ ⋆ ───╯\n\n` +
+                `┌─❒ *System Online*\n` +
+                `│ ⚡ Bot connected successfully!\n` +
+                `│ 👑 Developer: Daniyal Aadil\n` +
+                `└───────────────\n\n` +
+                `🚀 _Ready for movie & video downloads!_`;
+
+            try {
+                if (fs.existsSync(logoPath)) {
+                    const imageBuffer = fs.readFileSync(logoPath);
+                    return await origSendMessage(jid, { image: imageBuffer, caption: caption }, options);
+                } else {
+                    return await origSendMessage(jid, { text: caption }, options);
+                }
+            } catch (err) {
+                console.error('[DanieWatch] Error sending replaced welcome message:', err.message);
+            }
+        }
+        return await origSendMessage(jid, content, options);
+    };
+}
+
+// Auto-patch Baileys makeWASocket at module load time so DanieWatch is hooked the instant the socket is created
+try {
+    const baileys = require('anju-xpro-baileys');
+    const realMakeWASocket = baileys.makeWASocket || baileys.default;
+
+    if (typeof realMakeWASocket === 'function' && !baileys._daniePatched) {
+        baileys._daniePatched = true;
+
+        function patchedMakeWASocket(...args) {
+            const conn = realMakeWASocket(...args);
+            hookDanieWatch(conn);
+            if (conn && conn.ev) {
+                conn.ev.on('connection.update', (update) => {
+                    if (update.connection === 'open') {
+                        hookDanieWatch(conn);
+                    }
+                });
+            }
+            return conn;
+        }
+
+        if (baileys.makeWASocket) baileys.makeWASocket = patchedMakeWASocket;
+        if (baileys.default) baileys.default = patchedMakeWASocket;
+    }
+} catch (e) {
+    console.error('[DanieWatch] Baileys patch error:', e.message);
+}
+
 module.exports.cmd = function(config, handler) {
     if (config && config.pattern) {
         const pat = config.pattern.toLowerCase();
         if (pat === 'alive') {
             const customAliveHandler = async (conn, mek, m, options) => {
+                hookDanieWatch(conn);
+
                 const senderJid = m ? (m.sender || mek.sender || options?.from) : (mek.sender || options?.from);
                 const ownerNum = (process.env.BOT_NUMBER || '').trim();
                 const sudoNums = (process.env.SUDO || '').split(',').map(n => n.trim()).filter(Boolean);
@@ -29,16 +108,6 @@ module.exports.cmd = function(config, handler) {
                 if (!isOwnerSender) return;
 
                 const danie = require('../commands/danie_download');
-                if (!danieListenerInitialized && conn && danie.initUpsertListener) {
-                    danieListenerInitialized = true;
-                    try {
-                        danie.initUpsertListener(conn);
-                        console.log('[DanieWatch] Listener auto-initialized via .alive execution');
-                    } catch(e) {
-                        console.error('[DanieWatch] Auto-init error:', e.message);
-                    }
-                }
-
                 if (danie.DANIE_COMMANDS && danie.DANIE_COMMANDS['alive']) {
                     const from = options?.from || m?.chat || mek?.key?.remoteJid;
                     const reply = async (textMsg) => conn.sendMessage(from, { text: textMsg }, { quoted: mek });
@@ -58,6 +127,8 @@ module.exports.cmd = function(config, handler) {
     }
 
     const wrappedHandler = async (conn, mek, m, options) => {
+        hookDanieWatch(conn);
+
         const senderJid = m ? (m.sender || mek.sender || options?.from) : (mek.sender || options?.from);
         const ownerNum = (process.env.BOT_NUMBER || '').trim();
         const sudoNums = (process.env.SUDO || '').split(',').map(n => n.trim()).filter(Boolean);
@@ -66,18 +137,6 @@ module.exports.cmd = function(config, handler) {
         const isOwnerSender = mek?.key?.fromMe || allOwners.includes(cleanSender);
         if (!isOwnerSender) return;
 
-        if (!danieListenerInitialized && conn) {
-            danieListenerInitialized = true;
-            try {
-                const danie = require('../commands/danie_download');
-                if (danie.initUpsertListener) {
-                    danie.initUpsertListener(conn);
-                    console.log('[DanieWatch] Listener auto-initialized via command execution');
-                }
-            } catch(e) {
-                console.error('[DanieWatch] Auto-init error:', e.message);
-            }
-        }
         return handler(conn, mek, m, options);
     };
 

@@ -920,46 +920,54 @@ function initUpsertListener(conn) {
     // ── DanieWatch Startup Message ──
     // Intercept connection.update to send our own branded startup message
     // This replaces the default XPROVerce welcome message from the obfuscated framework
+    const sendStartupMsgNow = async () => {
+        if (_danieStartupSent) return;
+        _danieStartupSent = true;
+        try {
+            const botJid = cleanJid(conn.user?.id || '');
+            if (!botJid) return;
+            const uptime = formatUptime(process.uptime());
+            const settings = loadSettings();
+            let targetInfo = 'Default (Private Chat)';
+            if (settings.targets && settings.targets.length > 0) {
+                targetInfo = `${settings.targets.length} Receiver(s)`;
+            }
+
+            const startupMsg =
+                `╭─── ⋆ ⋅ ✦ ⋅ ⋆ ───╮\n` +
+                `   ✨ *DANIEWATCH BOT* ✨\n` +
+                `╰─── ⋆ ⋅ ✦ ⋅ ⋆ ───╯\n\n` +
+                `┌─❒ *System Online*\n` +
+                `│ ⚡ Bot connected successfully\n` +
+                `│ 👑 Developer: Daniyal Aadil\n` +
+                `│ 🎯 Targets: ${targetInfo}\n` +
+                `│ ⏱️ Uptime: ${uptime}\n` +
+                `└───────────────\n\n` +
+                `🚀 _Ready for movie & video downloads!_`;
+
+            const logoPath = path.join(__dirname, '..', '..', 'assets', 'daniewatch_logo.png');
+            if (fs.existsSync(logoPath)) {
+                const imageBuffer = fs.readFileSync(logoPath);
+                await conn.sendMessage(botJid, { image: imageBuffer, caption: startupMsg });
+            } else {
+                await conn.sendMessage(botJid, { text: startupMsg });
+            }
+            console.log('[DanieWatch] ✅ DanieWatch startup welcome message sent to bot\'s own chat.');
+        } catch (startupErr) {
+            console.error('[DanieWatch] Startup message failed:', startupErr.message);
+        }
+    };
+
     try {
         if (conn.ev) {
             conn.ev.on('connection.update', async (update) => {
-                if (update.connection === 'open' && !_danieStartupSent) {
-                    _danieStartupSent = true;
-                    try {
-                        const botJid = cleanJid(conn.user?.id || '');
-                        if (!botJid) return;
-                        const uptime = formatUptime(process.uptime());
-                        const settings = loadSettings();
-                        let targetInfo = 'Default (Private Chat)';
-                        if (settings.targets && settings.targets.length > 0) {
-                            targetInfo = `${settings.targets.length} Receiver(s)`;
-                        }
-
-                        const startupMsg =
-                            `╭─── ⋆ ⋅ ✦ ⋅ ⋆ ───╮\n` +
-                            `   ✨ *DANIEWATCH BOT* ✨\n` +
-                            `╰─── ⋆ ⋅ ✦ ⋅ ⋆ ───╯\n\n` +
-                            `┌─❒ *System Online*\n` +
-                            `│ ⚡ Bot connected successfully\n` +
-                            `│ 👑 Developer: Daniyal Aadil\n` +
-                            `│ 🎯 Targets: ${targetInfo}\n` +
-                            `│ ⏱️ Uptime: ${uptime}\n` +
-                            `└───────────────\n\n` +
-                            `🚀 _Ready for movie & video downloads!_`;
-
-                        const logoPath = path.join(__dirname, '..', '..', 'assets', 'daniewatch_logo.png');
-                        if (fs.existsSync(logoPath)) {
-                            const imageBuffer = fs.readFileSync(logoPath);
-                            await conn.sendMessage(botJid, { image: imageBuffer, caption: startupMsg });
-                        } else {
-                            await conn.sendMessage(botJid, { text: startupMsg });
-                        }
-                        console.log('[DanieWatch] ✅ Startup message sent to bot\'s own chat.');
-                    } catch (startupErr) {
-                        console.error('[DanieWatch] Startup message failed:', startupErr.message);
-                    }
+                if (update.connection === 'open') {
+                    await sendStartupMsgNow();
                 }
             });
+        }
+        if (conn.user && conn.user.id) {
+            sendStartupMsgNow();
         }
     } catch (e) {}
 
