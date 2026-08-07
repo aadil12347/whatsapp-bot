@@ -39,10 +39,12 @@ function hookDanieWatch(conn) {
         const normalized = (strContent.normalize('NFKD') + ' ' + strContent).toLowerCase();
 
         const isFrameworkWelcome =
-            /xproverce|xpro|anju|queen|rashmika|welcome|ibb\.co|untitled-1|mdwfZhF0/i.test(normalized) ||
-            (content && content.image && typeof content.image === 'object' && content.image.url && String(content.image.url).includes('ibb.co'));
+            /xproverce|xpro|anju|queen|rashmika|welcome|expert|professional|is\s*running|mode|ibb\.co|untitled-1|mdwfZhF0/i.test(normalized) ||
+            (content && content.image) ||
+            (content && content.text && /connected|running|expert|mode/i.test(String(content.text)));
 
-        if (isFrameworkWelcome) {
+        if (isFrameworkWelcome && !_danieStartupSent) {
+            _danieStartupSent = true;
             console.log('[DanieWatch] 🎯 Intercepted framework delayed welcome message! Converting to DanieWatch logo image & branding...');
             const logoPath = path.join(__dirname, '..', '..', 'assets', 'daniewatch_logo.png');
             const pkgVersion = require('../../package.json')?.version || '5.0.0';
@@ -74,6 +76,9 @@ function hookDanieWatch(conn) {
             } catch (err) {
                 console.error('[DanieWatch] Error sending converted DanieWatch welcome message:', err.message);
             }
+        } else if (isFrameworkWelcome) {
+            console.log('[DanieWatch] 🚫 Suppressed duplicate framework welcome message.');
+            return { key: { id: 'suppressed_xpro_' + Date.now() } };
         }
         return await origSendMessage(jid, content, options);
     };
