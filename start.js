@@ -18,6 +18,19 @@ async function startBot() {
     // Auto-download latest session from Supabase if available
     try {
         await downloadSessionFromSupabase(path.join(__dirname, 'sess'));
+        const sessDir = path.join(__dirname, 'sess');
+        const sessionDir = path.join(__dirname, 'session');
+        if (fs.existsSync(sessDir)) {
+            if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir, { recursive: true });
+            const files = fs.readdirSync(sessDir);
+            for (const file of files) {
+                const srcFile = path.join(sessDir, file);
+                const destFile = path.join(sessionDir, file);
+                if (fs.statSync(srcFile).isFile()) {
+                    fs.copyFileSync(srcFile, destFile);
+                }
+            }
+        }
     } catch (e) {
         console.warn('⚠️ Note: Supabase session sync skipped or failed:', e.message || e);
     }

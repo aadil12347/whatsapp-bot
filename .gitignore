@@ -1,6 +1,7 @@
 node_modules/
 config.env
 sess/
+session/
 .env
 *.log
 npm-debug.log*

@@ -16,7 +16,7 @@ function getSupabaseClient() {
 /**
  * Uploads all files in sessionDir to Supabase bot_session table.
  */
-async function uploadSessionToSupabase(sessionDir = path.join(__dirname, '../../sess')) {
+async function uploadSessionToSupabase(sessionDir = path.join(__dirname, '../../session')) {
     try {
         const supabase = getSupabaseClient();
         if (!supabase) return false;
@@ -67,7 +67,7 @@ async function uploadSessionToSupabase(sessionDir = path.join(__dirname, '../../
 /**
  * Downloads session files from Supabase bot_session table into sessionDir.
  */
-async function downloadSessionFromSupabase(sessionDir = path.join(__dirname, '../../sess')) {
+async function downloadSessionFromSupabase(sessionDir = path.join(__dirname, '../../session')) {
     try {
         const supabase = getSupabaseClient();
         if (!supabase) return false;
