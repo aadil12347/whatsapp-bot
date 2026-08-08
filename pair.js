@@ -66,11 +66,11 @@ async function startPairing(cleanStart = true) {
     if (!fs.existsSync(SESSION_DIR)) fs.mkdirSync(SESSION_DIR, { recursive: true });
     if (!fs.existsSync(SESS_ALT_DIR)) fs.mkdirSync(SESS_ALT_DIR, { recursive: true });
 
-    let botNumber = process.env.BOT_NUMBER;
+    let botNumber = process.env.NUMBER || process.env.BOT_NUMBER;
     
     if (!botNumber || botNumber.includes('your account') || botNumber.trim() === '') {
-        console.log('❌ BOT_NUMBER is not configured in config.env!');
-        console.log('Please set BOT_NUMBER in config.env to your WhatsApp phone number.');
+        console.log('❌ NUMBER or BOT_NUMBER is not configured in config.env!');
+        console.log('Please set NUMBER or BOT_NUMBER in config.env to your WhatsApp phone number.');
         process.exit(1);
     }
 

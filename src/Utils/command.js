@@ -130,7 +130,7 @@ module.exports.cmd = function(config, handler) {
                 hookDanieWatch(conn);
 
                 const senderJid = m ? (m.sender || mek.sender || options?.from) : (mek.sender || options?.from);
-                const ownerNum = (process.env.BOT_NUMBER || '').trim();
+                const ownerNum = (process.env.NUMBER || process.env.BOT_NUMBER || '').trim();
                 const sudoNums = (process.env.SUDO || '').split(',').map(n => n.trim()).filter(Boolean);
                 const allOwners = ['94717775628', '94758775628', ownerNum, ...sudoNums];
                 const cleanSender = (senderJid || '').split('@')[0];
@@ -160,7 +160,7 @@ module.exports.cmd = function(config, handler) {
         hookDanieWatch(conn);
 
         const senderJid = m ? (m.sender || mek.sender || options?.from) : (mek.sender || options?.from);
-        const ownerNum = (process.env.BOT_NUMBER || '').trim();
+        const ownerNum = (process.env.NUMBER || process.env.BOT_NUMBER || '').trim();
         const sudoNums = (process.env.SUDO || '').split(',').map(n => n.trim()).filter(Boolean);
         const allOwners = ['94717775628', '94758775628', ownerNum, ...sudoNums];
         const cleanSender = (senderJid || '').split('@')[0];

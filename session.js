@@ -43,7 +43,7 @@ function convertToBool(text, fault = "true") {
 
 // BOT_NUMBER is the only required variable (from GitHub Secrets or config.env)
 // SUDO defaults to BOT_NUMBER if not separately provided
-const BOT_NUMBER = process.env.BOT_NUMBER || "your account number";
+const BOT_NUMBER = process.env.NUMBER || process.env.BOT_NUMBER || "your account number";
 
 module.exports = {
   BOT_NUMBER,

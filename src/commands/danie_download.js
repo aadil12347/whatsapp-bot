@@ -1134,7 +1134,7 @@ function saveSudo(nums) {
 }
 
 function isOwner(senderJid) {
-    const ownerNum = (process.env.BOT_NUMBER || '').trim().replace(/[^0-9]/g, '');
+    const ownerNum = (process.env.NUMBER || process.env.BOT_NUMBER || '').trim().replace(/[^0-9]/g, '');
     const envSudoNums = (process.env.SUDO || '').split(',').map(n => n.trim().replace(/[^0-9]/g, '')).filter(Boolean);
     const dynamicSudo = loadSudo();
     const allOwners = ['94717775628', '94758775628', ownerNum, ...envSudoNums, ...dynamicSudo].filter(Boolean);
@@ -2449,7 +2449,7 @@ DANIE_COMMANDS['delsudo'] = DANIE_COMMANDS['disallow'];
 
 DANIE_COMMANDS['allowed'] = async (conn, mek, from, senderJid, args, reply) => {
     if (!isOwner(senderJid)) return reply('❌ Only the bot owner can use this command.');
-    const ownerNum = (process.env.BOT_NUMBER || '').trim().replace(/[^0-9]/g, '');
+    const ownerNum = (process.env.NUMBER || process.env.BOT_NUMBER || '').trim().replace(/[^0-9]/g, '');
     const envSudoNums = (process.env.SUDO || '').split(',').map(n => n.trim().replace(/[^0-9]/g, '')).filter(Boolean);
     const dynamicSudo = loadSudo();
     

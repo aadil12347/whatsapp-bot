@@ -2,8 +2,8 @@ const fs = require('fs');
 const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
 
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_KEY = process.env.SUPABASE_KEY;
+const SUPABASE_URL = process.env.URL || process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.KEY || process.env.SUPABASE_KEY;
 
 function getSupabaseClient() {
     if (!SUPABASE_URL || !SUPABASE_KEY) {
