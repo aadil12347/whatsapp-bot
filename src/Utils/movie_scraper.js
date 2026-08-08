@@ -457,13 +457,21 @@ async function downloadYoutubeVideoUrl(ytUrl, quality = '720', format = 'mp4') {
     };
 
     try {
-        console.log('[MovieScraper] Requesting cnv.cx API key...');
-        const keyRes = await axios.get('https://cnv.cx/v2/sanity/key', { headers: customHeaders, timeout: 10000 });
+        let videoId = '';
+        const match = (ytUrl || '').match(/(?:v=|\/embed\/|\/v\/|\/shorts\/|youtu\.be\/|\/v=|^)([a-zA-Z0-9_-]{11})/);
+        if (match) {
+            videoId = match[1];
+        }
+
+        console.log(`[MovieScraper] Requesting cnv.cx API key for video ID: ${videoId || ytUrl}...`);
+        const keyUrl = videoId ? `https://cnv.cx/v2/sanity/key?id=${videoId}` : 'https://cnv.cx/v2/sanity/key';
+        const keyRes = await axios.get(keyUrl, { headers: customHeaders, timeout: 10000 });
         if (!keyRes.data || !keyRes.data.key) throw new Error('Key fetch failed');
         const apiKey = keyRes.data.key;
 
         const params = new URLSearchParams({
-            link: ytUrl,
+            id: videoId || ytUrl,
+            link: `https://www.youtube.com/watch?v=${videoId || ytUrl}`,
             format: format,
             audioBitrate: '128',
             videoQuality: quality,
@@ -472,7 +480,8 @@ async function downloadYoutubeVideoUrl(ytUrl, quality = '720', format = 'mp4') {
         });
 
         console.log('[MovieScraper] Converting YouTube video URL...');
-        const convRes = await axios.post('https://cnv.cx/v2/converter', params.toString(), {
+        const convUrl = videoId ? `https://cnv.cx/v2/converter?id=${videoId}` : 'https://cnv.cx/v2/converter';
+        const convRes = await axios.post(convUrl, params.toString(), {
             headers: {
                 ...customHeaders,
                 'Content-Type': 'application/x-www-form-urlencoded',

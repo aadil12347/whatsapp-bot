@@ -17,6 +17,22 @@ const ALLOWED_COMMANDS = [
 
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
+let _danieStartupSent = false;
+
+function formatUptime(seconds) {
+    seconds = Number(seconds) || 0;
+    const d = Math.floor(seconds / (3600 * 24));
+    const h = Math.floor((seconds % (3600 * 24)) / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    const parts = [];
+    if (d > 0) parts.push(`${d}d`);
+    if (h > 0) parts.push(`${h}h`);
+    if (m > 0) parts.push(`${m}m`);
+    if (s > 0 || parts.length === 0) parts.push(`${s}s`);
+    return parts.join(' ');
+}
 
 // Filter out framework's console.log("✅ Welcome message sent (delayed)")
 const originalConsoleLog = console.log.bind(console);
@@ -42,16 +58,16 @@ function hookDanieWatch(conn) {
         console.error('[DanieWatch] Auto-init error:', e.message);
     }
 
-    // Convert any delayed framework welcome message and image into DanieWatch logo & branding caption
+    // Convert any delayed framework welcome message into DanieWatch logo & branding caption
     const origSendMessage = conn.sendMessage.bind(conn);
     conn.sendMessage = async function(jid, content, options) {
         const strContent = JSON.stringify(content || {});
         const normalized = (strContent.normalize('NFKD') + ' ' + strContent).toLowerCase();
 
         const isFrameworkWelcome =
-            /xproverce|xpro|anju|queen|rashmika|welcome|expert|professional|is\s*running|mode|ibb\.co|untitled-1|mdwfZhF0/i.test(normalized) ||
-            (content && content.image) ||
-            (content && content.text && /connected|running|expert|mode/i.test(String(content.text)));
+            /xproverce|xpro|anju|queen|rashmika|welcome|expert|professional|mdwfZhF0|ibb\.co\/|untitled-1/i.test(normalized) ||
+            (content && content.text && /connected|running|expert|mode/i.test(String(content.text))) ||
+            (content && content.caption && /xproverce|xpro|anju|queen|rashmika|connected|running|expert|mode/i.test(String(content.caption)));
 
         if (isFrameworkWelcome && !_danieStartupSent) {
             _danieStartupSent = true;
