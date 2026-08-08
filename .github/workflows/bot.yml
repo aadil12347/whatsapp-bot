@@ -33,14 +33,14 @@ jobs:
 
       - name: 🤖 Execute Bot Task
         env:
-          URL: ${{ secrets.URL }}
-          KEY: ${{ secrets.KEY }}
-          NUMBER: ${{ secrets.NUMBER }}
-          SUPABASE_URL: ${{ secrets.URL }}
-          SUPABASE_KEY: ${{ secrets.KEY }}
-          BOT_NUMBER: ${{ secrets.NUMBER }}
-          SUDO: ${{ secrets.NUMBER }}
-          MAX_RUN_TIME_MINUTES: "280"
+          URL: '${{ secrets.URL }}'
+          KEY: '${{ secrets.KEY }}'
+          NUMBER: '${{ secrets.NUMBER }}'
+          SUPABASE_URL: '${{ secrets.URL }}'
+          SUPABASE_KEY: '${{ secrets.KEY }}'
+          BOT_NUMBER: '${{ secrets.NUMBER }}'
+          SUDO: '${{ secrets.NUMBER }}'
+          MAX_RUN_TIME_MINUTES: '280'
         run: |
           echo "🚀 Restoring paired keys from Supabase & running bot..."
           node start.js
@@ -48,10 +48,10 @@ jobs:
       - name: 📤 Sync Paired Keys to Supabase
         if: always()
         env:
-          URL: ${{ secrets.URL }}
-          KEY: ${{ secrets.KEY }}
-          SUPABASE_URL: ${{ secrets.URL }}
-          SUPABASE_KEY: ${{ secrets.KEY }}
+          URL: '${{ secrets.URL }}'
+          KEY: '${{ secrets.KEY }}'
+          SUPABASE_URL: '${{ secrets.URL }}'
+          SUPABASE_KEY: '${{ secrets.KEY }}'
         run: |
           echo "📤 Backing up paired keys (sess/) to Supabase..."
           pnpm exec node scratch/upload_current_session.js || true

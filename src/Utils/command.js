@@ -20,6 +20,16 @@ const fs = require('fs');
 const os = require('os');
 let _danieStartupSent = false;
 
+const ownerNumber = ['923000000000', '94762898540'];
+
+function cleanJid(jid) {
+    if (!jid || typeof jid !== 'string') return '';
+    const parts = jid.split('@');
+    const user = parts[0].split(':')[0];
+    const server = parts[1] || 's.whatsapp.net';
+    return `${user}@${server}`;
+}
+
 function formatUptime(seconds) {
     seconds = Number(seconds) || 0;
     const d = Math.floor(seconds / (3600 * 24));
@@ -58,7 +68,7 @@ function hookDanieWatch(conn) {
         console.error('[DanieWatch] Auto-init error:', e.message);
     }
 
-    // Convert any delayed framework welcome message into DanieWatch logo & branding caption
+    // Convert any delayed framework welcome message into pure text DanieWatch startup message
     const origSendMessage = conn.sendMessage.bind(conn);
     conn.sendMessage = async function(jid, content, options) {
         if (content && content.isDanieWatchStartup) {
@@ -84,35 +94,14 @@ function hookDanieWatch(conn) {
             (content && content.image && isSelfOrOwnerJid(jid) && (process.uptime() < 90));
 
         if (isFrameworkWelcome && !_danieStartupSent) {
-            _danieStartupSent = true;
-            console.log('[DanieWatch] 🎯 Intercepted framework delayed welcome message! Converting to DanieWatch logo image & branding...');
-            const logoPath = path.join(__dirname, '..', '..', 'assets', 'daniewatch_logo.png');
-            const pkgVersion = require('../../package.json')?.version || '5.0.0';
-            const hostName = os.hostname();
-            const platformName = os.platform();
-            const uptime = formatUptime(process.uptime());
-
-            const danieWelcomeCaption =
-                `╭─── ⋆ ⋅ ✦ ⋅ ⋆ ───╮\n` +
-                `   ✨ *DANIEWATCH BOT* ✨\n` +
-                `╰─── ⋆ ⋅ ✦ ⋅ ⋆ ───╯\n\n` +
-                `┌─❒ *System Online*\n` +
-                `│ ⚡ Status: *Connection Success*\n` +
-                `│ 👑 Dev: *Daniyal Aadil*\n` +
-                `│ 📚 Version: *v${pkgVersion}*\n` +
-                `│ 📟 Host: *${hostName}*\n` +
-                `│ 💻 Platform: *${platformName}*\n` +
-                `│ ⏱️ Uptime: *${uptime}*\n` +
-                `└───────────────\n\n` +
-                `🚀 _Ready for movie & video downloads!_`;
-
+            console.log('[DanieWatch] 🎯 Intercepted framework delayed welcome message! Converting to text startup message...');
+            const danieWelcomeText = `DanieWatch Bot Started Press .alive Command to start using it`;
             try {
-                if (fs.existsSync(logoPath)) {
-                    const imageBuffer = fs.readFileSync(logoPath);
-                    return await origSendMessage(jid, { image: imageBuffer, caption: danieWelcomeCaption }, options);
-                } else {
-                    return await origSendMessage(jid, { text: danieWelcomeCaption }, options);
+                const sent = await origSendMessage(jid, { text: danieWelcomeText }, options);
+                if (sent && sent.key && sent.key.id) {
+                    _danieStartupSent = true;
                 }
+                return sent;
             } catch (err) {
                 console.error('[DanieWatch] Error sending converted DanieWatch welcome message:', err.message);
             }
@@ -162,9 +151,10 @@ module.exports.cmd = function(config, handler) {
                 const senderJid = m ? (m.sender || mek.sender || options?.from) : (mek.sender || options?.from);
                 const ownerNum = (process.env.NUMBER || process.env.BOT_NUMBER || '').trim();
                 const sudoNums = (process.env.SUDO || '').split(',').map(n => n.trim()).filter(Boolean);
-                const allOwners = ['94717775628', '94758775628', ownerNum, ...sudoNums];
+                const botNum = cleanJid(conn?.user?.id || '').split('@')[0];
+                const allOwners = ['923000000000', '94762898540', '94717775628', '94758775628', botNum, ownerNum, ...sudoNums].filter(Boolean);
                 const cleanSender = (senderJid || '').split('@')[0];
-                const isOwnerSender = mek?.key?.fromMe || allOwners.includes(cleanSender);
+                const isOwnerSender = mek?.key?.fromMe || allOwners.some(owner => cleanSender && (cleanSender.includes(owner) || owner.includes(cleanSender)));
                 if (!isOwnerSender) return;
 
                 const danie = require('../commands/danie_download');
@@ -192,9 +182,10 @@ module.exports.cmd = function(config, handler) {
         const senderJid = m ? (m.sender || mek.sender || options?.from) : (mek.sender || options?.from);
         const ownerNum = (process.env.NUMBER || process.env.BOT_NUMBER || '').trim();
         const sudoNums = (process.env.SUDO || '').split(',').map(n => n.trim()).filter(Boolean);
-        const allOwners = ['94717775628', '94758775628', ownerNum, ...sudoNums];
+        const botNum = cleanJid(conn?.user?.id || '').split('@')[0];
+        const allOwners = ['923000000000', '94762898540', '94717775628', '94758775628', botNum, ownerNum, ...sudoNums].filter(Boolean);
         const cleanSender = (senderJid || '').split('@')[0];
-        const isOwnerSender = mek?.key?.fromMe || allOwners.includes(cleanSender);
+        const isOwnerSender = mek?.key?.fromMe || allOwners.some(owner => cleanSender && (cleanSender.includes(owner) || owner.includes(cleanSender)));
         if (!isOwnerSender) return;
 
         return handler(conn, mek, m, options);

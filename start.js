@@ -12,21 +12,54 @@ killPreviousInstances();
 
 const { downloadSessionFromSupabase } = require('./src/Utils/supabaseSession');
 
+function cleanCorruptedSessionFiles(dir) {
+    if (!fs.existsSync(dir)) return;
+    try {
+        const files = fs.readdirSync(dir);
+        let removedCount = 0;
+        for (const file of files) {
+            const fullPath = path.join(dir, file);
+            if (fs.statSync(fullPath).isFile()) {
+                if (fs.statSync(fullPath).size === 0) {
+                    fs.unlinkSync(fullPath);
+                    removedCount++;
+                } else if (file.endsWith('.json')) {
+                    try {
+                        JSON.parse(fs.readFileSync(fullPath, 'utf8'));
+                    } catch (_) {
+                        fs.unlinkSync(fullPath);
+                        removedCount++;
+                    }
+                }
+            }
+        }
+        if (removedCount > 0) {
+            console.log(`🧹 Cleaned ${removedCount} corrupted/0-byte session files from ${path.basename(dir)}/`);
+        }
+    } catch (_) {}
+}
+
 async function startBot() {
     console.log('🚀 Starting your custom DanieWatch Downloader Bot...');
 
+    const sessionDir = path.join(__dirname, 'session');
+    const sessDir = path.join(__dirname, 'sess');
+
+    cleanCorruptedSessionFiles(sessionDir);
+    cleanCorruptedSessionFiles(sessDir);
+
     // Auto-download latest session from Supabase if available
     try {
-        await downloadSessionFromSupabase(path.join(__dirname, 'sess'));
-        const sessDir = path.join(__dirname, 'sess');
-        const sessionDir = path.join(__dirname, 'session');
+        await downloadSessionFromSupabase(sessDir);
+        cleanCorruptedSessionFiles(sessDir);
+
         if (fs.existsSync(sessDir)) {
             if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir, { recursive: true });
             const files = fs.readdirSync(sessDir);
             for (const file of files) {
                 const srcFile = path.join(sessDir, file);
                 const destFile = path.join(sessionDir, file);
-                if (fs.statSync(srcFile).isFile()) {
+                if (fs.statSync(srcFile).isFile() && fs.statSync(srcFile).size > 0) {
                     fs.copyFileSync(srcFile, destFile);
                 }
             }

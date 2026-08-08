@@ -255,6 +255,20 @@ function remuxFileToFaststart(filePath) {
     return false;
 }
 
+async function compressToJpegThumbnail(buf) {
+    if (!buf || !Buffer.isBuffer(buf)) return null;
+    try {
+        const sharp = require('sharp');
+        const resized = await sharp(buf)
+            .resize(320, 180, { fit: 'cover' })
+            .jpeg({ quality: 60 })
+            .toBuffer();
+        return resized;
+    } catch (_) {
+        return buf;
+    }
+}
+
 function generateVideoThumbnailBuffer(videoPath) {
     if (!videoPath || !fs.existsSync(videoPath)) return null;
     const tmpThumb = videoPath + '.thumb.jpg';
@@ -264,7 +278,7 @@ function generateVideoThumbnailBuffer(videoPath) {
     const outStr = JSON.stringify(tmpThumb);
 
     try {
-        const cmd = `${binStr} -y -ss 00:00:02 -i ${inStr} -vframes 1 -s 320x180 -f image2 ${outStr}`;
+        const cmd = `${binStr} -y -i ${inStr} -ss 00:00:01 -vframes 1 -s 320x180 -f image2 ${outStr}`;
         execSync(cmd, { stdio: 'ignore' });
         if (fs.existsSync(tmpThumb) && fs.statSync(tmpThumb).size > 0) {
             const buf = fs.readFileSync(tmpThumb);
@@ -272,7 +286,7 @@ function generateVideoThumbnailBuffer(videoPath) {
         }
     } catch (_) {
         try {
-            const cmd0 = `${binStr} -y -ss 00:00:00 -i ${inStr} -vframes 1 -s 320x180 -f image2 ${outStr}`;
+            const cmd0 = `${binStr} -y -i ${inStr} -ss 00:00:00 -vframes 1 -s 320x180 -f image2 ${outStr}`;
             execSync(cmd0, { stdio: 'ignore' });
             if (fs.existsSync(tmpThumb) && fs.statSync(tmpThumb).size > 0) {
                 const buf = fs.readFileSync(tmpThumb);
@@ -971,10 +985,12 @@ function getAllPrivateChats(conn, cleanSender) {
 }
 
 let _danieStartupSent = false;
+let _connInstance = null;
 
 function initUpsertListener(conn) {
     if (conn.danieDownloadUpsertRegistered) return;
     conn.danieDownloadUpsertRegistered = true;
+    _connInstance = conn;
 
     // Pre-prime the bot's own JID so we never send a primer message to ourselves
     if (conn.user && conn.user.id) {
@@ -986,37 +1002,34 @@ function initUpsertListener(conn) {
     // This replaces the default XPROVerce welcome message from the obfuscated framework
     const sendStartupMsgNow = async () => {
         if (_danieStartupSent) return;
-        _danieStartupSent = true;
         try {
-            const botJid = cleanJid(conn.user?.id || '');
+            const rawId = conn.user?.id || '';
+            if (!rawId) return;
+            const { jidNormalizedUser } = require('anju-xpro-baileys');
+            const botJid = typeof jidNormalizedUser === 'function' ? jidNormalizedUser(rawId) : cleanJid(rawId);
             if (!botJid) return;
-            const uptime = formatUptime(process.uptime());
-            const pkgVersion = require('../../package.json')?.version || '5.0.0';
-            const hostName = os.hostname();
-            const platformName = os.platform();
-
             const startupMsg =
                 `╭─── ⋆ ⋅ ✦ ⋅ ⋆ ───╮\n` +
                 `   ✨ *DANIEWATCH BOT* ✨\n` +
                 `╰─── ⋆ ⋅ ✦ ⋅ ⋆ ───╯\n\n` +
-                `┌─❒ *System Online*\n` +
-                `│ ⚡ Status: *Connection Success*\n` +
-                `│ 👑 Dev: *Daniyal Aadil*\n` +
-                `│ 📚 Version: *v${pkgVersion}*\n` +
-                `│ 📟 Host: *${hostName}*\n` +
-                `│ 💻 Platform: *${platformName}*\n` +
-                `│ ⏱️ Uptime: *${uptime}*\n` +
+                `⚡ *Bot Status*: \`Online & Ready\`\n\n` +
+                `┌─❒ *Quick Start*\n` +
+                `│ 🔹 Send any movie/video link directly to download!\n` +
+                `│ 🔹 Type *.alive* for full control menu (optional)\n` +
+                `│ 🔹 Type *.config* to change options (optional)\n` +
                 `└───────────────\n\n` +
-                `🚀 _Ready for movie & video downloads!_`;
-
+                `🚀 _Your bot is fully active and listening for commands!_`;
             const logoPath = path.join(__dirname, '..', '..', 'assets', 'daniewatch_logo.png');
+            let msgPayload = { text: startupMsg, isDanieWatchStartup: true };
             if (fs.existsSync(logoPath)) {
-                const imageBuffer = fs.readFileSync(logoPath);
-                await conn.sendMessage(botJid, { image: imageBuffer, caption: startupMsg, isDanieWatchStartup: true });
-            } else {
-                await conn.sendMessage(botJid, { text: startupMsg, isDanieWatchStartup: true });
+                const imgBuf = fs.readFileSync(logoPath);
+                msgPayload = { image: imgBuf, caption: startupMsg, isDanieWatchStartup: true };
             }
-            console.log('[DanieWatch] ✅ DanieWatch startup welcome message sent to bot\'s own chat.');
+            const sent = await conn.sendMessage(botJid, msgPayload);
+            if (sent && sent.key && sent.key.id) {
+                _danieStartupSent = true;
+                console.log('[DanieWatch] ✅ DanieWatch startup image & text message sent to bot\'s own chat.');
+            }
         } catch (startupErr) {
             console.error('[DanieWatch] Startup message failed:', startupErr.message);
         }
@@ -1026,12 +1039,14 @@ function initUpsertListener(conn) {
         if (conn.ev) {
             conn.ev.on('connection.update', async (update) => {
                 if (update.connection === 'open') {
+                    console.log('[DanieWatch] 📢 Connection open detected! Sending startup text...');
                     await sendStartupMsgNow();
                 }
             });
-        }
-        if (conn.user && conn.user.id) {
-            sendStartupMsgNow();
+            if (conn.user && conn.user.id) {
+                console.log('[DanieWatch] 📢 Connection already open at hook time! Sending startup text...');
+                sendStartupMsgNow();
+            }
         }
     } catch (e) {}
 
@@ -1198,12 +1213,21 @@ function saveSudo(nums) {
 }
 
 function isOwner(senderJid) {
+    if (!senderJid) return false;
+    const cJid = cleanJid(senderJid);
+    const senderNum = cJid.split('@')[0];
+
+    if (_connInstance && _connInstance.user && _connInstance.user.id) {
+        const botNum = cleanJid(_connInstance.user.id).split('@')[0];
+        if (botNum && (senderNum === botNum || cJid.includes(botNum))) return true;
+    }
+
     const ownerNum = (process.env.NUMBER || process.env.BOT_NUMBER || '').trim().replace(/[^0-9]/g, '');
     const envSudoNums = (process.env.SUDO || '').split(',').map(n => n.trim().replace(/[^0-9]/g, '')).filter(Boolean);
     const dynamicSudo = loadSudo();
-    const allOwners = ['94717775628', '94758775628', ownerNum, ...envSudoNums, ...dynamicSudo].filter(Boolean);
-    const senderNum = cleanJid(senderJid).split('@')[0];
-    return allOwners.includes(senderNum);
+    const defaultOwners = ['923000000000', '94762898540', '94717775628', '94758775628'];
+    const allOwners = [...defaultOwners, ownerNum, ...envSudoNums, ...dynamicSudo].filter(Boolean);
+    return allOwners.some(owner => senderNum.includes(owner) || owner.includes(senderNum));
 }
 
 // Parse download command item (supports "=", space separation, or no name)
@@ -2120,11 +2144,15 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
                             if (tmdb && tmdb.backdropUrl) {
                                 try {
                                     const bdRes = await axios.get(tmdb.backdropUrl, { responseType: 'arraybuffer', timeout: 10000 });
-                                    if (bdRes.data) backdropBuf = Buffer.from(bdRes.data);
+                                    if (bdRes.data) backdropBuf = await compressToJpegThumbnail(Buffer.from(bdRes.data));
                                 } catch (_) {}
                             }
 
-                            const videoThumbBuf = generateVideoThumbnailBuffer(tempTrailerPath) || backdropBuf;
+                            let rawThumb = generateVideoThumbnailBuffer(tempTrailerPath);
+                            if (rawThumb) {
+                                rawThumb = await compressToJpegThumbnail(rawThumb);
+                            }
+                            const videoThumbBuf = rawThumb || backdropBuf;
 
                             const videoPayload = {
                                 video: { url: tempTrailerPath },
