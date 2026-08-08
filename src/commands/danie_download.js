@@ -204,21 +204,54 @@ function generateCustomFileName(state, primaryHost) {
 
 const { execSync } = require('child_process');
 
+function getFFmpegPath() {
+    try {
+        const ffmpegInstaller = require('@ffmpeg-installer/ffmpeg');
+        if (ffmpegInstaller && ffmpegInstaller.path && fs.existsSync(ffmpegInstaller.path)) {
+            return ffmpegInstaller.path;
+        }
+    } catch (_) {}
+    return 'ffmpeg';
+}
+
 function remuxFileToFaststart(filePath) {
     if (!filePath || !fs.existsSync(filePath)) return false;
     const tmpFixed = filePath + '.fixed.mp4';
+    const ffmpegBin = getFFmpegPath();
+    const binStr = JSON.stringify(ffmpegBin);
+    const inStr = JSON.stringify(filePath);
+    const outStr = JSON.stringify(tmpFixed);
+
+    // 1. First attempt: Stream copy with faststart (+faststart moov atom relocation)
     try {
-        execSync(`ffmpeg -y -i "${filePath}" -c copy -movflags +faststart "${tmpFixed}"`, { stdio: 'ignore' });
+        const cmdCopy = `${binStr} -y -i ${inStr} -c copy -movflags +faststart ${outStr}`;
+        execSync(cmdCopy, { stdio: 'ignore' });
         if (fs.existsSync(tmpFixed) && fs.statSync(tmpFixed).size > 0) {
             fs.copyFileSync(tmpFixed, filePath);
-            console.log(`[DanieDownload] Faststart MP4 remux applied to: ${filePath}`);
+            console.log(`[DanieDownload] ✅ Faststart MP4 remux applied to: ${filePath}`);
             return true;
         }
-    } catch (e) {
-        console.error('[DanieDownload] Faststart remux failed for file:', e.message);
+    } catch (copyErr) {
+        console.warn(`[DanieDownload] Fast copy remux failed for ${filePath} (${copyErr.message}). Re-encoding to H.264/AAC for WhatsApp compatibility...`);
     } finally {
         try { if (fs.existsSync(tmpFixed)) fs.unlinkSync(tmpFixed); } catch (_) {}
     }
+
+    // 2. Second attempt: Re-encode video to H.264 (yuv420p) and audio to AAC for 100% WhatsApp video playback support
+    try {
+        const cmdEncode = `${binStr} -y -i ${inStr} -c:v libx264 -preset ultrafast -crf 26 -pix_fmt yuv420p -c:a aac -b:a 128k -movflags +faststart ${outStr}`;
+        execSync(cmdEncode, { stdio: 'ignore' });
+        if (fs.existsSync(tmpFixed) && fs.statSync(tmpFixed).size > 0) {
+            fs.copyFileSync(tmpFixed, filePath);
+            console.log(`[DanieDownload] ✅ WhatsApp H.264/AAC video re-encode applied to: ${filePath}`);
+            return true;
+        }
+    } catch (encodeErr) {
+        console.error(`[DanieDownload] ❌ FFmpeg video re-encode failed for ${filePath}:`, encodeErr.message);
+    } finally {
+        try { if (fs.existsSync(tmpFixed)) fs.unlinkSync(tmpFixed); } catch (_) {}
+    }
+
     return false;
 }
 

@@ -465,7 +465,7 @@ async function downloadYoutubeVideoUrl(ytUrl, quality = '720', format = 'mp4') {
 
         console.log(`[MovieScraper] Requesting cnv.cx API key for video ID: ${videoId || ytUrl}...`);
         const keyUrl = videoId ? `https://cnv.cx/v2/sanity/key?id=${videoId}` : 'https://cnv.cx/v2/sanity/key';
-        const keyRes = await axios.get(keyUrl, { headers: customHeaders, timeout: 10000 });
+        const keyRes = await axios.get(keyUrl, { headers: customHeaders, timeout: 25000 });
         if (!keyRes.data || !keyRes.data.key) throw new Error('Key fetch failed');
         const apiKey = keyRes.data.key;
 
@@ -487,7 +487,7 @@ async function downloadYoutubeVideoUrl(ytUrl, quality = '720', format = 'mp4') {
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'key': apiKey
             },
-            timeout: 15000
+            timeout: 25000
         });
 
         if (convRes.data && convRes.data.url) {
