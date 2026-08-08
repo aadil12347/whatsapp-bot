@@ -7,6 +7,7 @@ const envPath = path.join(__dirname, 'config.env');
 if (fs.existsSync(envPath)) {
     require('dotenv').config({ path: envPath });
 }
+const { uploadSessionToSupabase } = require('./src/Utils/supabaseSession');
 
 const SESSION_DIR = path.join(__dirname, 'session');
 const SESS_ALT_DIR = path.join(__dirname, 'sess');
@@ -136,6 +137,8 @@ async function startPairing(cleanStart = true) {
             console.log('=========================================');
             
             syncSessionFiles();
+            console.log('☁️ Uploading fresh paired session keys to Supabase...');
+            await uploadSessionToSupabase();
             await delay(2000);
             process.exit(0);
         }

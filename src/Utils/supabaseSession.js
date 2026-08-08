@@ -41,6 +41,12 @@ async function uploadSessionToSupabase(sessionDir = path.join(__dirname, '../../
             }
         }
 
+        // Delete all old records from bot_session first
+        const { error: delError } = await supabase.from('bot_session').delete().neq('id', 0);
+        if (delError) {
+            console.warn('⚠️ Warning during deleting old session data:', delError.message);
+        }
+
         const payload = {
             id: 1,
             session_data: sessionData,
