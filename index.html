@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DanieWatch — Bot Control Panel</title>
-    <meta name="description" content="Live Bot Control Panel & Real-time GitHub Actions Log Streamer for DanieWatch WhatsApp Bot.">
+    <title>DanieWatch — Multi-Bot Fleet Control</title>
+    <meta name="description" content="Multi-Bot Fleet Control Panel — manage multiple WhatsApp bots across different GitHub repos with live log streaming.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;0,800;1,400&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;0,800;1,400&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -16,6 +16,7 @@
             --bg-main: #0d1117;
             --bg-panel: #161b22;
             --bg-terminal: #010409;
+            --bg-card: #0d1117;
             --border: #21262d;
             --border-subtle: rgba(48, 54, 61, 0.6);
 
@@ -29,7 +30,9 @@
             --yellow-dim: rgba(210, 153, 34, 0.15);
             --yellow-glow: rgba(210, 153, 34, 0.4);
             --cyan: #58a6ff;
+            --cyan-dim: rgba(88, 166, 255, 0.1);
             --purple: #bc8cff;
+            --purple-dim: rgba(188, 140, 255, 0.1);
 
             --text: #e6edf3;
             --text-secondary: #8b949e;
@@ -41,10 +44,7 @@
             background-color: var(--bg-deep);
             color: var(--text);
             min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 16px;
+            padding: 24px;
             background-image:
                 radial-gradient(ellipse 80% 50% at 50% -20%, rgba(88, 166, 255, 0.06), transparent),
                 linear-gradient(rgba(48, 54, 61, 0.12) 1px, transparent 1px),
@@ -52,107 +52,184 @@
             background-size: 100% 100%, 24px 24px, 24px 24px;
         }
 
-        /* ═══ Main Window ═══ */
-        .app-window {
-            width: 100%;
-            max-width: 700px;
-            background: var(--bg-main);
-            border: 1px solid var(--border);
+        /* ═══ Header ═══ */
+        .fleet-header {
+            max-width: 1200px;
+            margin: 0 auto 28px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+        .fleet-brand {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+        .fleet-logo {
+            width: 42px; height: 42px;
             border-radius: 12px;
-            box-shadow:
-                0 24px 80px rgba(0, 0, 0, 0.7),
-                0 0 0 1px rgba(255, 255, 255, 0.03) inset;
-            overflow: hidden;
-            animation: windowIn 0.35s ease-out;
+            background: linear-gradient(135deg, var(--cyan), var(--purple));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.3rem;
+            box-shadow: 0 4px 20px rgba(88, 166, 255, 0.3);
+        }
+        .fleet-title {
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 800;
+            font-size: 1.1rem;
+            letter-spacing: 0.02em;
+        }
+        .fleet-title .accent { color: var(--cyan); }
+        .fleet-subtitle {
+            font-size: 0.72rem;
+            color: var(--text-secondary);
+            font-weight: 500;
+            margin-top: 2px;
+        }
+        .fleet-actions {
+            display: flex;
+            gap: 10px;
         }
 
-        @keyframes windowIn {
-            from { opacity: 0; transform: translateY(16px) scale(0.98); }
+        /* ═══ Add Bot Button ═══ */
+        .add-bot-btn {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.78rem;
+            font-weight: 700;
+            padding: 10px 22px;
+            border-radius: 10px;
+            border: 1px solid rgba(88, 166, 255, 0.3);
+            background: rgba(88, 166, 255, 0.08);
+            color: var(--cyan);
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.25s ease;
+        }
+        .add-bot-btn:hover {
+            background: var(--cyan);
+            color: #000;
+            box-shadow: 0 0 24px rgba(88, 166, 255, 0.4), 0 4px 16px rgba(88, 166, 255, 0.2);
+            transform: translateY(-1px);
+        }
+        .add-bot-btn:active { transform: scale(0.97); }
+
+        /* ═══ Bot Grid ═══ */
+        .bot-grid {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+            gap: 18px;
+        }
+
+        /* ═══ Bot Card ═══ */
+        .bot-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            overflow: hidden;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+            animation: cardIn 0.35s ease-out;
+        }
+        .bot-card:hover {
+            border-color: rgba(88, 166, 255, 0.25);
+            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(88, 166, 255, 0.08);
+        }
+        @keyframes cardIn {
+            from { opacity: 0; transform: translateY(12px) scale(0.97); }
             to { opacity: 1; transform: translateY(0) scale(1); }
         }
 
-        /* ═══ Header Bar ═══ */
-        .header-bar {
+        .card-header {
             background: var(--bg-panel);
-            padding: 14px 20px;
+            padding: 14px 18px;
             display: flex;
             align-items: center;
             justify-content: space-between;
             border-bottom: 1px solid var(--border);
-            gap: 12px;
+            gap: 10px;
         }
-
-        .header-left {
+        .card-header-left {
             display: flex;
             align-items: center;
             gap: 12px;
+            min-width: 0;
         }
-
-        .window-dots {
+        .card-avatar {
+            width: 36px; height: 36px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, rgba(63, 185, 80, 0.15), rgba(88, 166, 255, 0.15));
+            border: 1px solid var(--border);
             display: flex;
-            gap: 7px;
+            align-items: center;
+            justify-content: center;
+            font-size: 1rem;
+            flex-shrink: 0;
         }
-        .dot {
-            width: 11px; height: 11px;
-            border-radius: 50%;
-            transition: opacity 0.2s;
-        }
-        .dot:hover { opacity: 0.7; }
-        .dot-red { background: #ff5f56; }
-        .dot-yellow { background: #ffbd2e; }
-        .dot-green { background: #27c93f; }
-
-        .app-title {
+        .card-name {
             font-family: 'JetBrains Mono', monospace;
             font-size: 0.82rem;
             font-weight: 700;
-            color: var(--text);
-            letter-spacing: 0.02em;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
-        .app-title .accent { color: var(--cyan); }
+        .card-repo {
+            font-size: 0.68rem;
+            color: var(--text-dim);
+            font-family: 'JetBrains Mono', monospace;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
 
-        /* ═══ Status Pill (top-right) ═══ */
+        /* ═══ Status Pill ═══ */
         .status-pill {
             font-family: 'JetBrains Mono', monospace;
-            font-size: 0.68rem;
+            font-size: 0.62rem;
             font-weight: 700;
-            padding: 5px 14px;
+            padding: 4px 12px;
             border-radius: 20px;
             display: inline-flex;
             align-items: center;
-            gap: 7px;
+            gap: 6px;
             text-transform: uppercase;
             letter-spacing: 0.06em;
             white-space: nowrap;
             transition: all 0.3s ease;
+            flex-shrink: 0;
         }
-
         .status-pill.connected {
             background: var(--green-dim);
             color: var(--green);
             border: 1px solid rgba(63, 185, 80, 0.35);
-            box-shadow: 0 0 12px var(--green-glow);
+            box-shadow: 0 0 10px var(--green-glow);
         }
         .status-pill.disconnected {
             background: var(--red-dim);
             color: var(--red);
             border: 1px solid rgba(248, 81, 73, 0.35);
-            box-shadow: 0 0 12px var(--red-glow);
         }
         .status-pill.loading {
             background: var(--yellow-dim);
             color: var(--yellow);
             border: 1px solid rgba(210, 153, 34, 0.35);
-            box-shadow: 0 0 12px var(--yellow-glow);
+            box-shadow: 0 0 10px var(--yellow-glow);
         }
         .status-pill.idle {
-            background: rgba(139, 148, 158, 0.1);
-            color: var(--text-secondary);
-            border: 1px solid rgba(139, 148, 158, 0.2);
+            background: rgba(139, 148, 158, 0.08);
+            color: var(--text-dim);
+            border: 1px solid rgba(139, 148, 158, 0.15);
         }
-
         .status-indicator {
-            width: 7px; height: 7px;
+            width: 6px; height: 6px;
             border-radius: 50%;
             background: currentColor;
             flex-shrink: 0;
@@ -163,14 +240,13 @@
         }
         .status-pill.loading .status-indicator {
             animation: spinDot 1s linear infinite;
-            width: 10px; height: 10px;
+            width: 8px; height: 8px;
             border-radius: 50%;
             background: transparent;
             border: 2px solid transparent;
             border-top-color: currentColor;
             border-right-color: currentColor;
         }
-
         @keyframes pulse {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.4; }
@@ -179,21 +255,18 @@
             100% { transform: rotate(360deg); }
         }
 
-        /* ═══ Controls Section ═══ */
-        .controls-section {
-            padding: 16px 20px;
-            background: rgba(22, 27, 34, 0.5);
-            border-bottom: 1px solid var(--border);
+        /* ═══ Card Controls ═══ */
+        .card-controls {
+            padding: 12px 18px;
             display: flex;
-            align-items: center;
-            gap: 10px;
+            gap: 8px;
+            border-bottom: 1px solid var(--border);
         }
-
-        .action-btn {
+        .card-btn {
             font-family: 'JetBrains Mono', monospace;
-            font-size: 0.78rem;
+            font-size: 0.72rem;
             font-weight: 700;
-            padding: 10px 24px;
+            padding: 8px 18px;
             border-radius: 8px;
             border: 1px solid;
             cursor: pointer;
@@ -201,101 +274,103 @@
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            gap: 8px;
+            gap: 6px;
             transition: all 0.2s ease;
             flex: 1;
-            position: relative;
-            overflow: hidden;
         }
-        .action-btn:active { transform: scale(0.96); }
-        .action-btn:disabled {
-            opacity: 0.4;
-            cursor: not-allowed;
-            transform: none !important;
-        }
+        .card-btn:active { transform: scale(0.96); }
+        .card-btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none !important; }
 
-        .btn-start {
+        .card-btn.btn-start {
             color: var(--green);
-            border-color: rgba(63, 185, 80, 0.4);
-            background: rgba(63, 185, 80, 0.06);
+            border-color: rgba(63, 185, 80, 0.3);
+            background: rgba(63, 185, 80, 0.05);
         }
-        .btn-start:hover:not(:disabled) {
+        .card-btn.btn-start:hover:not(:disabled) {
             background: var(--green);
             color: #000;
-            box-shadow: 0 0 20px var(--green-glow), 0 4px 12px rgba(63, 185, 80, 0.3);
+            box-shadow: 0 0 16px var(--green-glow);
         }
-
-        .btn-stop {
+        .card-btn.btn-stop {
             color: var(--red);
-            border-color: rgba(248, 81, 73, 0.4);
-            background: rgba(248, 81, 73, 0.06);
+            border-color: rgba(248, 81, 73, 0.3);
+            background: rgba(248, 81, 73, 0.05);
         }
-        .btn-stop:hover:not(:disabled) {
+        .card-btn.btn-stop:hover:not(:disabled) {
             background: var(--red);
             color: #fff;
-            box-shadow: 0 0 20px var(--red-glow), 0 4px 12px rgba(248, 81, 73, 0.3);
+            box-shadow: 0 0 16px var(--red-glow);
         }
-
-        .btn-settings {
+        .card-btn.btn-edit {
             color: var(--text-secondary);
             border-color: var(--border);
-            background: rgba(139, 148, 158, 0.05);
             flex: 0;
-            padding: 10px 14px;
+            padding: 8px 12px;
         }
-        .btn-settings:hover:not(:disabled) {
+        .card-btn.btn-edit:hover:not(:disabled) {
             color: var(--cyan);
-            border-color: rgba(88, 166, 255, 0.4);
-            background: rgba(88, 166, 255, 0.08);
+            border-color: rgba(88, 166, 255, 0.3);
         }
-        .btn-settings span {
-            display: inline-block;
-            transition: transform 0.3s ease;
+        .card-btn.btn-delete {
+            color: var(--text-dim);
+            border-color: var(--border);
+            flex: 0;
+            padding: 8px 12px;
         }
-        .btn-settings:hover span { transform: rotate(90deg); }
+        .card-btn.btn-delete:hover:not(:disabled) {
+            color: var(--red);
+            border-color: rgba(248, 81, 73, 0.3);
+        }
 
-        /* ═══ Workflow Info Bar ═══ */
-        .info-bar {
-            padding: 8px 20px;
-            background: var(--bg-panel);
-            border-bottom: 1px solid var(--border);
+        .btn-loader {
+            display: none;
+            width: 12px; height: 12px;
+            border: 2px solid transparent;
+            border-top-color: currentColor;
+            border-right-color: currentColor;
+            border-radius: 50%;
+            animation: spinDot 0.7s linear infinite;
+        }
+        .card-btn.loading .btn-text { display: none; }
+        .card-btn.loading .btn-loader { display: inline-block; }
+
+        /* ═══ Info Bar ═══ */
+        .card-info {
+            padding: 6px 18px;
             display: flex;
             align-items: center;
             justify-content: space-between;
             font-family: 'JetBrains Mono', monospace;
-            font-size: 0.72rem;
+            font-size: 0.66rem;
+            border-bottom: 1px solid var(--border);
+            background: rgba(22, 27, 34, 0.4);
         }
-        .info-left {
+        .card-info-left {
             color: var(--purple);
             font-weight: 700;
             display: flex;
             align-items: center;
-            gap: 6px;
+            gap: 5px;
         }
-        .info-right {
-            color: var(--text-dim);
-        }
+        .card-info-right { color: var(--text-dim); }
 
-        /* ═══ Terminal / Logs Panel ═══ */
-        .terminal-panel {
+        /* ═══ Terminal ═══ */
+        .card-terminal {
             background: var(--bg-terminal);
-            padding: 14px 18px;
-            height: 400px;
+            padding: 10px 14px;
+            height: 260px;
             overflow-y: auto;
             font-family: 'JetBrains Mono', monospace;
-            font-size: 0.74rem;
-            line-height: 1.65;
+            font-size: 0.68rem;
+            line-height: 1.6;
             color: var(--text-secondary);
             scrollbar-width: thin;
             scrollbar-color: var(--border) transparent;
             position: relative;
         }
-        .terminal-panel::-webkit-scrollbar { width: 6px; }
-        .terminal-panel::-webkit-scrollbar-track { background: transparent; }
-        .terminal-panel::-webkit-scrollbar-thumb {
-            background: var(--border);
-            border-radius: 3px;
-        }
+        .card-terminal::-webkit-scrollbar { width: 5px; }
+        .card-terminal::-webkit-scrollbar-track { background: transparent; }
+        .card-terminal::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
         .log-line {
             padding: 1px 0;
@@ -304,10 +379,9 @@
             animation: lineSlide 0.12s ease-out;
         }
         @keyframes lineSlide {
-            from { opacity: 0; transform: translateX(-6px); }
+            from { opacity: 0; transform: translateX(-4px); }
             to { opacity: 1; transform: translateX(0); }
         }
-
         .log-line.ok { color: var(--green); }
         .log-line.err { color: var(--red); }
         .log-line.warn { color: var(--yellow); }
@@ -322,17 +396,39 @@
             transform: translate(-50%, -50%);
             text-align: center;
             color: var(--text-dim);
-            font-size: 0.78rem;
+            font-size: 0.72rem;
             user-select: none;
         }
-        .terminal-empty .big-icon { font-size: 2rem; margin-bottom: 8px; display: block; opacity: 0.4; }
+        .terminal-empty .big-icon { font-size: 1.6rem; margin-bottom: 6px; display: block; opacity: 0.35; }
 
-        /* ═══ Settings Modal ═══ */
+        /* ═══ Empty State ═══ */
+        .empty-state {
+            max-width: 1200px;
+            margin: 80px auto;
+            text-align: center;
+            animation: cardIn 0.5s ease-out;
+        }
+        .empty-icon { font-size: 3.5rem; opacity: 0.3; margin-bottom: 16px; }
+        .empty-title {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.1rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        .empty-desc {
+            font-size: 0.82rem;
+            color: var(--text-secondary);
+            max-width: 400px;
+            margin: 0 auto 24px;
+            line-height: 1.6;
+        }
+
+        /* ═══ Modal ═══ */
         .modal-overlay {
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
             background: rgba(1, 4, 9, 0.85);
-            backdrop-filter: blur(8px);
+            backdrop-filter: blur(10px);
             display: none;
             justify-content: center;
             align-items: center;
@@ -340,7 +436,6 @@
             animation: fadeIn 0.2s ease-out;
         }
         .modal-overlay.active { display: flex; }
-
         @keyframes fadeIn {
             from { opacity: 0; }
             to { opacity: 1; }
@@ -349,11 +444,11 @@
         .modal-box {
             background: var(--bg-main);
             border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 28px 24px;
-            width: 90%;
-            max-width: 420px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
+            border-radius: 14px;
+            padding: 28px 26px;
+            width: 92%;
+            max-width: 480px;
+            box-shadow: 0 24px 80px rgba(0, 0, 0, 0.8);
             animation: modalSlide 0.25s ease-out;
         }
         @keyframes modalSlide {
@@ -363,22 +458,34 @@
 
         .modal-title {
             font-family: 'JetBrains Mono', monospace;
-            font-size: 0.9rem;
+            font-size: 0.92rem;
             font-weight: 700;
-            color: var(--text);
             margin-bottom: 6px;
             display: flex;
             align-items: center;
             gap: 8px;
         }
         .modal-desc {
-            font-size: 0.78rem;
+            font-size: 0.76rem;
             color: var(--text-secondary);
-            margin-bottom: 18px;
+            margin-bottom: 20px;
             line-height: 1.5;
         }
 
-        .modal-input {
+        .form-group {
+            margin-bottom: 14px;
+        }
+        .form-label {
+            display: block;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.68rem;
+            font-weight: 700;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .form-input {
             width: 100%;
             padding: 10px 14px;
             background: var(--bg-panel);
@@ -386,23 +493,31 @@
             border-radius: 8px;
             color: var(--text);
             font-family: 'JetBrains Mono', monospace;
-            font-size: 0.78rem;
+            font-size: 0.76rem;
             outline: none;
-            transition: border-color 0.2s;
+            transition: border-color 0.2s, box-shadow 0.2s;
         }
-        .modal-input:focus { border-color: var(--cyan); }
-        .modal-input::placeholder { color: var(--text-dim); }
+        .form-input:focus {
+            border-color: var(--cyan);
+            box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.1);
+        }
+        .form-input::placeholder { color: var(--text-dim); }
+        .form-hint {
+            font-size: 0.65rem;
+            color: var(--text-dim);
+            margin-top: 4px;
+        }
 
         .modal-actions {
             display: flex;
             gap: 10px;
-            margin-top: 18px;
+            margin-top: 20px;
         }
         .modal-btn {
             font-family: 'JetBrains Mono', monospace;
             font-size: 0.76rem;
             font-weight: 600;
-            padding: 9px 18px;
+            padding: 10px 20px;
             border-radius: 8px;
             border: 1px solid;
             cursor: pointer;
@@ -410,355 +525,210 @@
             flex: 1;
         }
         .modal-btn-save {
-            background: var(--green);
+            background: var(--cyan);
             color: #000;
-            border-color: var(--green);
+            border-color: var(--cyan);
         }
-        .modal-btn-save:hover { box-shadow: 0 0 16px var(--green-glow); }
+        .modal-btn-save:hover { box-shadow: 0 0 20px rgba(88, 166, 255, 0.4); }
         .modal-btn-cancel {
             background: transparent;
             color: var(--text-secondary);
             border-color: var(--border);
         }
         .modal-btn-cancel:hover { color: var(--text); border-color: var(--text-dim); }
-
-        /* ═══ Loader Overlay ═══ */
-        .btn-loader {
-            display: none;
-            width: 14px; height: 14px;
-            border: 2px solid transparent;
-            border-top-color: currentColor;
-            border-right-color: currentColor;
-            border-radius: 50%;
-            animation: spinDot 0.7s linear infinite;
+        .modal-btn-danger {
+            background: transparent;
+            color: var(--red);
+            border-color: rgba(248, 81, 73, 0.3);
         }
-        .action-btn.loading .btn-text { display: none; }
-        .action-btn.loading .btn-loader { display: inline-block; }
+        .modal-btn-danger:hover {
+            background: var(--red);
+            color: #fff;
+        }
 
         /* ═══ Responsive ═══ */
         @media (max-width: 600px) {
-            body { padding: 8px; }
-            .terminal-panel { height: 320px; font-size: 0.7rem; }
-            .action-btn { padding: 10px 16px; font-size: 0.72rem; }
-            .header-bar { padding: 12px 14px; }
-            .controls-section { padding: 12px 14px; }
+            body { padding: 12px; }
+            .bot-grid { grid-template-columns: 1fr; }
+            .card-terminal { height: 200px; font-size: 0.64rem; }
+            .fleet-header { flex-direction: column; align-items: flex-start; }
         }
     </style>
 </head>
 <body>
 
-<div class="app-window">
-    <!-- ═══ Header ═══ -->
-    <div class="header-bar">
-        <div class="header-left">
-            <div class="window-dots">
-                <span class="dot dot-red"></span>
-                <span class="dot dot-yellow"></span>
-                <span class="dot dot-green"></span>
-            </div>
-            <span class="app-title"><span class="accent">⚡</span> DanieWatch Bot</span>
-        </div>
-        <div class="status-pill idle" id="statusPill">
-            <span class="status-indicator"></span>
-            <span id="statusLabel">CHECKING...</span>
+<!-- ═══ Fleet Header ═══ -->
+<div class="fleet-header">
+    <div class="fleet-brand">
+        <div class="fleet-logo">⚡</div>
+        <div>
+            <div class="fleet-title"><span class="accent">⚡</span> DanieWatch Fleet</div>
+            <div class="fleet-subtitle">Multi-Bot Control Panel</div>
         </div>
     </div>
-
-    <!-- ═══ Controls ═══ -->
-    <div class="controls-section">
-        <button class="action-btn btn-start" id="startBtn" onclick="startBot()">
-            <span class="btn-text">▶ START</span>
-            <span class="btn-loader"></span>
-        </button>
-        <button class="action-btn btn-stop" id="stopBtn" onclick="stopBot()">
-            <span class="btn-text">■ STOP</span>
-            <span class="btn-loader"></span>
-        </button>
-        <button class="action-btn btn-settings" id="settingsBtn" onclick="openSettings()" title="Settings">
-            <span style="font-size:1.1rem;">⚙</span>
+    <div class="fleet-actions">
+        <button class="add-bot-btn" onclick="openAddBotModal()" id="addBotBtn">
+            <span style="font-size:1.1rem;">+</span> Add Bot
         </button>
     </div>
+</div>
 
-    <!-- ═══ Info Bar ═══ -->
-    <div class="info-bar">
-        <div class="info-left">
-            <span>⚡</span>
-            <span id="jobTitle">run-bot-task</span>
+<!-- ═══ Bot Grid ═══ -->
+<div class="bot-grid" id="botGrid"></div>
+
+<!-- ═══ Empty State ═══ -->
+<div class="empty-state" id="emptyState" style="display:none;">
+    <div class="empty-icon">🤖</div>
+    <div class="empty-title">No Bots Configured</div>
+    <div class="empty-desc">Add your first bot by clicking "+ Add Bot" above. Each bot needs a GitHub repo with the workflow and its own PAT token.</div>
+    <button class="add-bot-btn" onclick="openAddBotModal()">
+        <span style="font-size:1.1rem;">+</span> Add Your First Bot
+    </button>
+</div>
+
+<!-- ═══ Add/Edit Bot Modal ═══ -->
+<div class="modal-overlay" id="botModal">
+    <div class="modal-box">
+        <div class="modal-title" id="modalTitle">🤖 Add New Bot</div>
+        <div class="modal-desc" id="modalDesc">Configure a new bot by providing its GitHub repo details and a PAT with Actions permissions.</div>
+
+        <div class="form-group">
+            <label class="form-label">Bot Name</label>
+            <input type="text" class="form-input" id="inputBotName" placeholder="e.g. Main Bot" autocomplete="off">
         </div>
-        <div class="info-right" id="jobTime">--</div>
-    </div>
+        <div class="form-group">
+            <label class="form-label">GitHub Owner / Account</label>
+            <input type="text" class="form-input" id="inputOwner" placeholder="e.g. myusername" autocomplete="off">
+        </div>
+        <div class="form-group">
+            <label class="form-label">GitHub Repo Name</label>
+            <input type="text" class="form-input" id="inputRepo" placeholder="e.g. whatsapp-bot" autocomplete="off">
+        </div>
+        <div class="form-group">
+            <label class="form-label">GitHub PAT (Personal Access Token)</label>
+            <input type="password" class="form-input" id="inputToken" placeholder="ghp_xxxxxxxxxxxx" autocomplete="off">
+            <div class="form-hint">Needs repo + actions scope. Stored locally in your browser only.</div>
+        </div>
+        <div class="form-group">
+            <label class="form-label">Bot Phone Number (display only)</label>
+            <input type="text" class="form-input" id="inputNumber" placeholder="e.g. 923253068800" autocomplete="off">
+        </div>
 
-    <!-- ═══ Terminal Logs ═══ -->
-    <div class="terminal-panel" id="terminalPanel">
-        <div class="terminal-empty" id="terminalEmpty">
-            <span class="big-icon">📡</span>
-            Waiting for connection...
+        <div class="modal-actions">
+            <button class="modal-btn modal-btn-cancel" onclick="closeModal()">Cancel</button>
+            <button class="modal-btn modal-btn-save" onclick="saveBot()" id="modalSaveBtn">Save Bot</button>
         </div>
     </div>
 </div>
 
-<!-- ═══ Settings Modal ═══ -->
-<div class="modal-overlay" id="settingsModal">
+<!-- ═══ Delete Confirm Modal ═══ -->
+<div class="modal-overlay" id="deleteModal">
     <div class="modal-box">
-        <div class="modal-title">⚙️ Settings</div>
-        <div class="modal-desc">Enter your GitHub Personal Access Token (PAT) to control the bot via GitHub Actions API.</div>
-        <input type="password" class="modal-input" id="tokenInput" placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" autocomplete="off">
+        <div class="modal-title">⚠️ Remove Bot</div>
+        <div class="modal-desc" id="deleteModalDesc">Are you sure you want to remove this bot from the dashboard? This only removes it from the panel — it does NOT affect the GitHub repo or Supabase data.</div>
         <div class="modal-actions">
-            <button class="modal-btn modal-btn-cancel" onclick="closeSettings()">Cancel</button>
-            <button class="modal-btn modal-btn-save" onclick="saveToken()">Save Token</button>
+            <button class="modal-btn modal-btn-cancel" onclick="closeDeleteModal()">Cancel</button>
+            <button class="modal-btn modal-btn-danger" onclick="confirmDelete()">Remove Bot</button>
         </div>
     </div>
 </div>
 
 
 <script>
-    function autoDetectRepo() {
-        let detectedOwner = null;
-        let detectedRepo = null;
+    // ══════════════════════════════════════════
+    //  DATA MODEL
+    // ══════════════════════════════════════════
+    // Each bot: { id, name, owner, repo, token, botNumber }
+    // Stored in localStorage as JSON array
 
-        const hostParts = window.location.hostname.split('.');
-        if (hostParts.length >= 3 && hostParts[1] === 'github' && hostParts[2] === 'io') {
-            detectedOwner = hostParts[0];
-            const pathParts = window.location.pathname.split('/').filter(Boolean);
-            if (pathParts.length > 0) {
-                detectedRepo = pathParts[0];
-            }
-        }
-        return {
-            owner: detectedOwner || localStorage.getItem('GH_OWNER') || 'morrisonbuildwiseestimation-hub',
-            repo: detectedRepo || localStorage.getItem('GH_REPO') || 'whatsapp-bot'
-        };
+    function loadBots() {
+        try {
+            const raw = localStorage.getItem('DW_BOTS');
+            return raw ? JSON.parse(raw) : [];
+        } catch { return []; }
+    }
+    function saveBots(bots) {
+        localStorage.setItem('DW_BOTS', JSON.stringify(bots));
+    }
+    function generateId() {
+        return 'bot_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
     }
 
-    let { owner: OWNER, repo: REPO } = autoDetectRepo();
+    // ══════════════════════════════════════════
+    //  BOT STATE TRACKING
+    // ══════════════════════════════════════════
+    const botStates = {}; // botId -> { pollTimer, activeRunId, lastLogHash, currentState, startInProgress, stopInProgress, dispatchTime }
 
-    let pollTimer = null;
-    let activeRunId = null;
-    let activeJobId = null;
-    let lastLogHash = '';
-    let currentState = 'idle'; // idle | connecting | connected | cancelling | cancelled | error
-    let startInProgress = false;
-    let stopInProgress = false;
-    let dispatchTime = 0;
+    function getBotState(botId) {
+        if (!botStates[botId]) {
+            botStates[botId] = {
+                pollTimer: null,
+                activeRunId: null,
+                lastLogHash: '',
+                currentState: 'idle',
+                startInProgress: false,
+                stopInProgress: false,
+                dispatchTime: 0
+            };
+        }
+        return botStates[botId];
+    }
 
-
-    // ══════ Startup Log Noise Filters ══════
+    // ══════════════════════════════════════════
+    //  LOG NOISE FILTERS
+    // ══════════════════════════════════════════
     const NOISE_REGEX = [
-        /^\+\s+\S+\s+[\d\.]+/,                        // + package-name 1.2.3  (pnpm install lines)
-        /^\s*[\{\}\[\]],?\s*$/,                        // bare { } [ ] lines (JSON dumps)
-        /^\s*'[^']+': \{/,                              // 'key': { object starts
-        /^\s*\w+:\s*(<Buffer|\[Object\]|\d+,?$)/,      // key: <Buffer ...> or key: [Object]
-        /^shell:\s/,                                     // shell: /usr/bin/bash
-        /^env:/,                                         // env:
-        /^\s*(PNPM_HOME|SUPABASE_|BOT_NUMBER|SUDO|CF_WORKER|OWNER_NAME|MAX_RUN_TIME)/, // env var lines
-        /^\[command\]/,                                  // [command]/usr/bin/git ...
-        /^\s*git version/,                               // git version 2.x
+        /^\+\s+\S+\s+[\d\.]+/,
+        /^\s*[\{\}\[\]],?\s*$/,
+        /^\s*'[^']+': \{/,
+        /^\s*\w+:\s*(<Buffer|\[Object\]|\d+,?$)/,
+        /^shell:\s/,
+        /^env:/,
+        /^\s*(PNPM_HOME|SUPABASE_|BOT_NUMBER|SUDO|CF_WORKER|OWNER_NAME|MAX_RUN_TIME)/,
+        /^\[command\]/,
+        /^\s*git version/,
         /^Temporarily overriding HOME/,
         /^Adding repository directory/,
-        /^╭|^│|^╰/,                                      // pnpm box-drawing warning frames
-        /^Done in .*using pnpm/,                         // Done in 10.3s using pnpm
-        /^\[\d+m/,                                       // ANSI escape: [36;1m ...
-        /^\x1b\[/,                                       // raw ANSI escapes
-        /^\s*Node \d+ is being deprecated/,              // Node 20 deprecation
-        /^##\[/,                                         // ##[group], ##[endgroup], ##[error], ##[warning]
+        /^╭|^│|^╰/,
+        /^Done in .*using pnpm/,
+        /^\[\d+m/,
+        /^\x1b\[/,
+        /^\s*Node \d+ is being deprecated/,
+        /^##\[/,
         /^Post job cleanup/,
         /^Pruning is unnecessary/,
         /^Cleaning up orphan/,
         /^Terminate orphan process/,
         /^Run "pnpm approve-builds"/,
         /^Ignored build scripts/,
-        /^http\.https/,                                   // http.https://github.com/... git config
-        /^\s*<-\s+@/,                                    // <- @whiskeysockets alias line
+        /^http\.https/,
+        /^\s*<-\s+@/,
         /^daniewatch-baileys/,
     ];
-
     const NOISE_STRINGS = [
-        'Restoring session from Supabase',
-        'SingleInstance',
-        'Initializing single-instance guard',
-        'session files from Supabase',
-        'Auto-restart timer active',
-        'Server listening on port',
-        'Using local session credentials',
-        'directory already exists',
+        'Restoring session from Supabase', 'SingleInstance', 'Initializing single-instance guard',
+        'session files from Supabase', 'Auto-restart timer active', 'Server listening on port',
+        'Using local session credentials', 'directory already exists',
         '_chains:', 'chainKey:', 'chainType:', 'messageKeys:',
         'registrationId:', 'currentRatchet:', 'ephemeralKeyPair:',
         'pubKey:', 'privKey:', '<Buffer',
         'lastRemoteEphemeralKey:', 'previousCounter:', 'rootKey:',
         'indexInfo:', 'baseKey:', 'baseKeyType:',
         'closed:', 'used:', 'created:', 'remoteIdentityKey:',
-        'Hosted Compute Agent',
-        'Run echo', 'echo "',
-        'Backing up updated session',
-        'pnpm exec node',
-        'Uploading active WhatsApp session',
-        'Uploaded session',
-        'uploaded to Supabase',
-        'node start.js',
-        'pnpm install',
-        'safe.directory',
-        'safe directory',
-        'submodule foreach',
-        'extraheader',
-        'unset-all',
-        'includeIf.gitdir',
-        'remote.origin.url',
-        'The operation was canceled',
-        'actions/checkout',
-        'actions/setup-node',
-        'pnpm/action-setup',
-        'ACTIONS_ALLOW_USE_UNSECURE',
-        'github.blog/changelog',
+        'Hosted Compute Agent', 'Run echo', 'echo "',
+        'Backing up updated session', 'pnpm exec node',
+        'Uploading active WhatsApp session', 'Uploaded session', 'uploaded to Supabase',
+        'node start.js', 'pnpm install', 'safe.directory', 'safe directory',
+        'submodule foreach', 'extraheader', 'unset-all', 'includeIf.gitdir',
+        'remote.origin.url', 'The operation was canceled',
+        'actions/checkout', 'actions/setup-node', 'pnpm/action-setup',
+        'ACTIONS_ALLOW_USE_UNSECURE', 'github.blog/changelog',
+        'Restoring paired keys', 'Backing up paired keys',
     ];
 
-    // ══════ Terminal Helpers ══════
-    function appendLog(text, cls = '') {
-        const terminal = document.getElementById('terminalPanel');
-        const empty = document.getElementById('terminalEmpty');
-        if (empty) empty.remove();
-
-        const line = document.createElement('div');
-        line.className = 'log-line ' + cls;
-        line.textContent = text;
-        terminal.appendChild(line);
-        terminal.scrollTop = terminal.scrollHeight;
-
-        // Keep max 100 lines
-        const lines = terminal.querySelectorAll('.log-line');
-        while (lines.length > 100) {
-            terminal.querySelector('.log-line').remove();
-        }
-    }
-
-    function clearTerminal() {
-        const terminal = document.getElementById('terminalPanel');
-        terminal.innerHTML = '<div class="terminal-empty" id="terminalEmpty"><span class="big-icon">📡</span>Waiting for connection...</div>';
-    }
-
-    // ══════ Status Management ══════
-    function setStatus(state, label) {
-        currentState = state;
-        const pill = document.getElementById('statusPill');
-        const lbl = document.getElementById('statusLabel');
-
-        pill.classList.remove('connected', 'disconnected', 'loading', 'idle');
-
-        switch (state) {
-            case 'connected':
-                pill.classList.add('connected');
-                break;
-            case 'cancelled':
-            case 'stopped':
-            case 'failed':
-            case 'error':
-                pill.classList.add('disconnected');
-                break;
-            case 'connecting':
-            case 'cancelling':
-            case 'starting':
-            case 'stopping':
-            case 'booting':
-                pill.classList.add('loading');
-                break;
-            default:
-                pill.classList.add('idle');
-                break;
-        }
-
-        lbl.textContent = label;
-    }
-
-    // ══════ Button States ══════
-    function setButtonLoading(btnId, isLoading) {
-        const btn = document.getElementById(btnId);
-        if (isLoading) {
-            btn.classList.add('loading');
-            btn.disabled = true;
-        } else {
-            btn.classList.remove('loading');
-            btn.disabled = false;
-        }
-    }
-
-    function updateButtons(isRunning) {
-        const startBtn = document.getElementById('startBtn');
-        const stopBtn = document.getElementById('stopBtn');
-
-        if (startInProgress) {
-            startBtn.disabled = true;
-            stopBtn.disabled = true;
-            return;
-        }
-        if (stopInProgress) {
-            startBtn.disabled = true;
-            stopBtn.disabled = true;
-            return;
-        }
-
-        startBtn.classList.remove('loading');
-        stopBtn.classList.remove('loading');
-
-        if (isRunning) {
-            startBtn.disabled = true;
-            stopBtn.disabled = false;
-        } else {
-            startBtn.disabled = false;
-            stopBtn.disabled = true;
-        }
-    }
-
-    // ══════ Token Management ══════
-    function getToken() {
-        let token = localStorage.getItem('GH_TOKEN');
-        if (!token) {
-            openSettings();
-            return null;
-        }
-        return token;
-    }
-
-    function openSettings() {
-        const modal = document.getElementById('settingsModal');
-        const input = document.getElementById('tokenInput');
-        input.value = localStorage.getItem('GH_TOKEN') || '';
-        modal.classList.add('active');
-        setTimeout(() => input.focus(), 100);
-    }
-
-    function closeSettings() {
-        document.getElementById('settingsModal').classList.remove('active');
-    }
-
-    function saveToken() {
-        const input = document.getElementById('tokenInput');
-        const val = input.value.trim();
-        if (val) {
-            localStorage.setItem('GH_TOKEN', val);
-            appendLog('[AUTH] Token saved successfully.', 'ok');
-            closeSettings();
-            checkStatus(true);
-        }
-    }
-
-
-
-    // Close modal on overlay click
-    document.getElementById('settingsModal').addEventListener('click', function(e) {
-        if (e.target === this) closeSettings();
-    });
-
-    // ══════ Time Formatting ══════
-    function formatTimeAgo(startedAt) {
-        if (!startedAt) return '--';
-        const diffSec = Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000));
-        if (diffSec < 60) return `Started ${diffSec}s ago`;
-        const min = Math.floor(diffSec / 60);
-        const sec = diffSec % 60;
-        if (min < 60) return `Started ${min}m ${sec}s ago`;
-        const hr = Math.floor(min / 60);
-        return `Started ${hr}h ${min % 60}m ago`;
-    }
-
+    // ══════════════════════════════════════════
+    //  HELPERS
+    // ══════════════════════════════════════════
     function classifyLogLine(line) {
         if (line.includes('✅') || line.includes('connected') || line.includes('[OK]') || line.toLowerCase().includes('success')) return 'ok';
         if (line.includes('❌') || line.includes('Error') || line.includes('FAILED') || line.includes('[ERR]') || line.includes('error')) return 'err';
@@ -767,312 +737,574 @@
         return '';
     }
 
-    // ══════ Fetch Logs & Details ══════
-    async function fetchWorkflowDetails(runId, token) {
+    function formatTimeAgo(startedAt) {
+        if (!startedAt) return '--';
+        const diffSec = Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000));
+        if (diffSec < 60) return `${diffSec}s ago`;
+        const min = Math.floor(diffSec / 60);
+        const sec = diffSec % 60;
+        if (min < 60) return `${min}m ${sec}s ago`;
+        const hr = Math.floor(min / 60);
+        return `${hr}h ${min % 60}m ago`;
+    }
+
+    // ══════════════════════════════════════════
+    //  RENDER BOT CARDS
+    // ══════════════════════════════════════════
+    function renderBots() {
+        const bots = loadBots();
+        const grid = document.getElementById('botGrid');
+        const empty = document.getElementById('emptyState');
+
+        if (bots.length === 0) {
+            grid.innerHTML = '';
+            empty.style.display = 'block';
+            return;
+        }
+        empty.style.display = 'none';
+
+        // Only re-render cards that don't exist yet
+        const existingIds = new Set([...grid.querySelectorAll('.bot-card')].map(c => c.dataset.botId));
+        const newIds = new Set(bots.map(b => b.id));
+
+        // Remove deleted cards
+        grid.querySelectorAll('.bot-card').forEach(c => {
+            if (!newIds.has(c.dataset.botId)) c.remove();
+        });
+
+        // Add new cards
+        for (const bot of bots) {
+            if (!existingIds.has(bot.id)) {
+                const card = createBotCard(bot);
+                grid.appendChild(card);
+                startBotPolling(bot);
+            }
+        }
+    }
+
+    function createBotCard(bot) {
+        const card = document.createElement('div');
+        card.className = 'bot-card';
+        card.dataset.botId = bot.id;
+        card.id = 'card-' + bot.id;
+
+        card.innerHTML = `
+            <div class="card-header">
+                <div class="card-header-left">
+                    <div class="card-avatar">🤖</div>
+                    <div>
+                        <div class="card-name">${escHtml(bot.name)}</div>
+                        <div class="card-repo">${escHtml(bot.owner)}/${escHtml(bot.repo)}</div>
+                    </div>
+                </div>
+                <div class="status-pill idle" id="pill-${bot.id}">
+                    <span class="status-indicator"></span>
+                    <span id="pillLabel-${bot.id}">CHECKING...</span>
+                </div>
+            </div>
+            <div class="card-controls">
+                <button class="card-btn btn-start" id="startBtn-${bot.id}" onclick="startBot('${bot.id}')">
+                    <span class="btn-text">▶ START</span>
+                    <span class="btn-loader"></span>
+                </button>
+                <button class="card-btn btn-stop" id="stopBtn-${bot.id}" onclick="stopBot('${bot.id}')">
+                    <span class="btn-text">■ STOP</span>
+                    <span class="btn-loader"></span>
+                </button>
+                <button class="card-btn btn-edit" onclick="openEditBotModal('${bot.id}')" title="Edit">
+                    <span style="font-size:0.9rem;">⚙</span>
+                </button>
+                <button class="card-btn btn-delete" onclick="openDeleteModal('${bot.id}')" title="Remove">
+                    <span style="font-size:0.9rem;">✕</span>
+                </button>
+            </div>
+            <div class="card-info">
+                <div class="card-info-left">
+                    <span>⚡</span>
+                    <span id="jobTitle-${bot.id}">run-bot-task</span>
+                </div>
+                <div class="card-info-right" id="jobTime-${bot.id}">--</div>
+            </div>
+            <div class="card-terminal" id="terminal-${bot.id}">
+                <div class="terminal-empty" id="termEmpty-${bot.id}">
+                    <span class="big-icon">📡</span>
+                    Waiting for connection...
+                </div>
+            </div>
+        `;
+        return card;
+    }
+
+    function escHtml(str) {
+        const d = document.createElement('div');
+        d.textContent = str || '';
+        return d.innerHTML;
+    }
+
+    // ══════════════════════════════════════════
+    //  STATUS & BUTTON MANAGEMENT
+    // ══════════════════════════════════════════
+    function setCardStatus(botId, state, label) {
+        const s = getBotState(botId);
+        s.currentState = state;
+        const pill = document.getElementById('pill-' + botId);
+        const lbl = document.getElementById('pillLabel-' + botId);
+        if (!pill || !lbl) return;
+
+        pill.classList.remove('connected', 'disconnected', 'loading', 'idle');
+        switch (state) {
+            case 'connected': pill.classList.add('connected'); break;
+            case 'cancelled': case 'stopped': case 'failed': case 'error':
+                pill.classList.add('disconnected'); break;
+            case 'connecting': case 'cancelling': case 'starting': case 'stopping': case 'booting':
+                pill.classList.add('loading'); break;
+            default: pill.classList.add('idle'); break;
+        }
+        lbl.textContent = label;
+    }
+
+    function updateCardButtons(botId, isRunning) {
+        const s = getBotState(botId);
+        const startBtn = document.getElementById('startBtn-' + botId);
+        const stopBtn = document.getElementById('stopBtn-' + botId);
+        if (!startBtn || !stopBtn) return;
+
+        if (s.startInProgress || s.stopInProgress) {
+            startBtn.disabled = true;
+            stopBtn.disabled = true;
+            return;
+        }
+        startBtn.classList.remove('loading');
+        stopBtn.classList.remove('loading');
+        startBtn.disabled = isRunning;
+        stopBtn.disabled = !isRunning;
+    }
+
+    function setBtnLoading(botId, btnType, loading) {
+        const btn = document.getElementById(btnType + 'Btn-' + botId);
+        if (!btn) return;
+        if (loading) { btn.classList.add('loading'); btn.disabled = true; }
+        else { btn.classList.remove('loading'); btn.disabled = false; }
+    }
+
+    function appendCardLog(botId, text, cls = '') {
+        const terminal = document.getElementById('terminal-' + botId);
+        if (!terminal) return;
+        const empty = document.getElementById('termEmpty-' + botId);
+        if (empty) empty.remove();
+
+        const line = document.createElement('div');
+        line.className = 'log-line ' + cls;
+        line.textContent = text;
+        terminal.appendChild(line);
+        terminal.scrollTop = terminal.scrollHeight;
+
+        while (terminal.querySelectorAll('.log-line').length > 80) {
+            terminal.querySelector('.log-line').remove();
+        }
+    }
+
+    function clearCardTerminal(botId) {
+        const terminal = document.getElementById('terminal-' + botId);
+        if (terminal) {
+            terminal.innerHTML = `<div class="terminal-empty" id="termEmpty-${botId}"><span class="big-icon">📡</span>Waiting for connection...</div>`;
+        }
+    }
+
+    // ══════════════════════════════════════════
+    //  GITHUB API ACTIONS
+    // ══════════════════════════════════════════
+    function findBot(botId) {
+        return loadBots().find(b => b.id === botId);
+    }
+
+    async function startBot(botId) {
+        const s = getBotState(botId);
+        if (s.startInProgress || s.stopInProgress) return;
+        const bot = findBot(botId);
+        if (!bot || !bot.token) { appendCardLog(botId, '[ERR] Token required. Edit this bot.', 'err'); return; }
+
+        s.startInProgress = true;
+        s.dispatchTime = Date.now();
+        setCardStatus(botId, 'booting', 'BOOTING...');
+        setBtnLoading(botId, 'start', true);
+        document.getElementById('stopBtn-' + botId).disabled = true;
+        clearCardTerminal(botId);
+        appendCardLog(botId, '[SYSTEM] Sending start signal...', 'sys');
+
         try {
-            const jobsRes = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/actions/runs/${runId}/jobs`, {
-                headers: { 'Authorization': `Bearer ${token}` }
+            // Check if already running
+            const activeRes = await fetch(`https://api.github.com/repos/${bot.owner}/${bot.repo}/actions/runs?status=in_progress&per_page=1`, {
+                headers: { 'Authorization': `Bearer ${bot.token}` }
+            });
+            if (activeRes.ok) {
+                const activeData = await activeRes.json();
+                if ((activeData.workflow_runs || []).length > 0) {
+                    appendCardLog(botId, `[WARN] Bot already running (Run #${activeData.workflow_runs[0].run_number}).`, 'warn');
+                    setCardStatus(botId, 'connected', 'CONNECTED');
+                    s.startInProgress = false;
+                    setBtnLoading(botId, 'start', false);
+                    updateCardButtons(botId, true);
+                    return;
+                }
+            }
+
+            // Dispatch
+            const res = await fetch(`https://api.github.com/repos/${bot.owner}/${bot.repo}/dispatches`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${bot.token}`, 'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json' },
+                body: JSON.stringify({ event_type: 'run-bot' })
+            });
+
+            if (res.status === 204) {
+                appendCardLog(botId, '[OK] Start signal accepted. Waiting for runner...', 'ok');
+            } else if (res.status === 401) {
+                appendCardLog(botId, '[ERR] Invalid token. Edit bot settings.', 'err');
+                setCardStatus(botId, 'error', 'AUTH ERROR');
+                s.startInProgress = false;
+                setBtnLoading(botId, 'start', false);
+                updateCardButtons(botId, false);
+            } else {
+                appendCardLog(botId, `[ERR] Start failed (HTTP ${res.status})`, 'err');
+                setCardStatus(botId, 'error', 'FAILED');
+                s.startInProgress = false;
+                setBtnLoading(botId, 'start', false);
+                updateCardButtons(botId, false);
+            }
+        } catch (e) {
+            appendCardLog(botId, '[ERR] ' + e.message, 'err');
+            setCardStatus(botId, 'error', 'ERROR');
+            s.startInProgress = false;
+            setBtnLoading(botId, 'start', false);
+            updateCardButtons(botId, false);
+        }
+    }
+
+    async function stopBot(botId) {
+        const s = getBotState(botId);
+        if (s.stopInProgress || s.startInProgress) return;
+        const bot = findBot(botId);
+        if (!bot || !bot.token) { appendCardLog(botId, '[ERR] Token required.', 'err'); return; }
+
+        s.stopInProgress = true;
+        setCardStatus(botId, 'cancelling', 'STOPPING...');
+        setBtnLoading(botId, 'stop', true);
+        document.getElementById('startBtn-' + botId).disabled = true;
+        appendCardLog(botId, '[SYSTEM] Stopping bot...', 'sys');
+
+        try {
+            const res = await fetch(`https://api.github.com/repos/${bot.owner}/${bot.repo}/actions/runs?status=in_progress`, {
+                headers: { 'Authorization': `Bearer ${bot.token}` }
+            });
+            if (res.status === 401) {
+                appendCardLog(botId, '[ERR] Invalid token.', 'err');
+                s.stopInProgress = false;
+                setBtnLoading(botId, 'stop', false);
+                updateCardButtons(botId, false);
+                return;
+            }
+            const data = await res.json();
+            const runs = data.workflow_runs || [];
+            if (runs.length === 0) {
+                appendCardLog(botId, '[INFO] No active runs.', 'warn');
+                setCardStatus(botId, 'stopped', 'STOPPED');
+                s.stopInProgress = false;
+                setBtnLoading(botId, 'stop', false);
+                updateCardButtons(botId, false);
+                return;
+            }
+            for (const run of runs) {
+                appendCardLog(botId, `[STOP] Cancelling Run #${run.run_number}...`, 'warn');
+                await fetch(`https://api.github.com/repos/${bot.owner}/${bot.repo}/actions/runs/${run.id}/cancel`, {
+                    method: 'POST', headers: { 'Authorization': `Bearer ${bot.token}` }
+                });
+            }
+            appendCardLog(botId, `[OK] Cancel sent to ${runs.length} run(s).`, 'ok');
+        } catch (e) {
+            appendCardLog(botId, '[ERR] ' + e.message, 'err');
+            s.stopInProgress = false;
+            setBtnLoading(botId, 'stop', false);
+            updateCardButtons(botId, false);
+        }
+    }
+
+    // ══════════════════════════════════════════
+    //  POLLING & LOG FETCHING
+    // ══════════════════════════════════════════
+    async function pollBotStatus(botId) {
+        const bot = findBot(botId);
+        if (!bot || !bot.token) return;
+        const s = getBotState(botId);
+
+        try {
+            const res = await fetch(`https://api.github.com/repos/${bot.owner}/${bot.repo}/actions/runs?per_page=1`, {
+                headers: { 'Authorization': `Bearer ${bot.token}` }
+            });
+            if (res.status === 401) {
+                setCardStatus(botId, 'error', 'AUTH ERROR');
+                updateCardButtons(botId, false);
+                return;
+            }
+            const data = await res.json();
+            const run = (data.workflow_runs || [])[0];
+            if (!run) {
+                if (!s.startInProgress && !s.stopInProgress) {
+                    setCardStatus(botId, 'idle', 'NO RUNS');
+                    updateCardButtons(botId, false);
+                }
+                return;
+            }
+
+            const runTime = new Date(run.created_at).getTime();
+            if (s.startInProgress && runTime < s.dispatchTime - 5000) {
+                setCardStatus(botId, 'booting', 'BOOTING...');
+                return;
+            }
+
+            s.activeRunId = run.id;
+
+            if (run.status === 'in_progress' || run.status === 'queued') {
+                s.startInProgress = false;
+                if (!s.stopInProgress) {
+                    setCardStatus(botId, 'connected', 'CONNECTED');
+                    updateCardButtons(botId, true);
+                }
+                await fetchBotLogs(botId, bot, run.id);
+            } else {
+                if (s.startInProgress) return;
+                s.stopInProgress = false;
+                const conclusion = (run.conclusion || 'stopped').toUpperCase();
+                if (conclusion === 'CANCELLED') setCardStatus(botId, 'cancelled', 'CANCELLED');
+                else if (conclusion === 'FAILURE') setCardStatus(botId, 'failed', 'FAILED');
+                else if (conclusion === 'SUCCESS') setCardStatus(botId, 'stopped', 'COMPLETED');
+                else setCardStatus(botId, 'stopped', conclusion);
+                updateCardButtons(botId, false);
+                clearCardTerminal(botId);
+                s.lastLogHash = '';
+            }
+        } catch (e) {
+            if (!s.startInProgress && !s.stopInProgress) {
+                setCardStatus(botId, 'error', 'ERROR');
+            }
+        }
+    }
+
+    async function fetchBotLogs(botId, bot, runId) {
+        const s = getBotState(botId);
+        try {
+            const jobsRes = await fetch(`https://api.github.com/repos/${bot.owner}/${bot.repo}/actions/runs/${runId}/jobs`, {
+                headers: { 'Authorization': `Bearer ${bot.token}` }
             });
             if (!jobsRes.ok) return;
             const jobsData = await jobsRes.json();
             const job = (jobsData.jobs || [])[0];
             if (!job) return;
 
-            activeJobId = job.id;
+            const titleEl = document.getElementById('jobTitle-' + botId);
+            const timeEl = document.getElementById('jobTime-' + botId);
+            if (titleEl) titleEl.textContent = job.name;
+            if (timeEl) timeEl.textContent = formatTimeAgo(job.started_at);
 
-            // Update info bar
-            document.getElementById('jobTitle').textContent = `${job.name}`;
-            document.getElementById('jobTime').textContent = formatTimeAgo(job.started_at);
-
-            // Fetch logs
-            const logsRes = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/actions/jobs/${job.id}/logs`, {
-                headers: { 'Authorization': `Bearer ${token}` }
+            const logsRes = await fetch(`https://api.github.com/repos/${bot.owner}/${bot.repo}/actions/jobs/${job.id}/logs`, {
+                headers: { 'Authorization': `Bearer ${bot.token}` }
             });
-
-            if (logsRes.ok) {
-                const rawLogs = await logsRes.text();
-                // Simple hash to detect changes
-                const hash = rawLogs.length + '_' + rawLogs.slice(-200);
-                if (hash !== lastLogHash) {
-                    lastLogHash = hash;
-                    renderFilteredLogs(rawLogs, job.status, job.conclusion);
-                }
+            if (!logsRes.ok) return;
+            const rawLogs = await logsRes.text();
+            const hash = rawLogs.length + '_' + rawLogs.slice(-200);
+            if (hash !== s.lastLogHash) {
+                s.lastLogHash = hash;
+                renderFilteredLogs(botId, rawLogs);
             }
-        } catch (e) {
-            console.error('fetchWorkflowDetails error:', e);
-        }
+        } catch (e) { /* silent */ }
     }
 
-    // ══════ Render Filtered Logs ══════
-    function renderFilteredLogs(rawText, jobStatus, jobConclusion) {
-        const terminal = document.getElementById('terminalPanel');
-        const empty = document.getElementById('terminalEmpty');
+    function renderFilteredLogs(botId, rawText) {
+        const terminal = document.getElementById('terminal-' + botId);
+        if (!terminal) return;
+        const empty = document.getElementById('termEmpty-' + botId);
         if (empty) empty.remove();
 
         const lines = rawText.split('\n');
         const cleanLines = [];
-
         for (const line of lines) {
             if (!line.trim()) continue;
             let clean = line.replace(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z\s*/, '').trim();
             if (!clean) continue;
-
-            // Filter setup and runner noise
             if (NOISE_REGEX.some(rx => rx.test(clean))) continue;
             if (NOISE_STRINGS.some(s => clean.includes(s))) continue;
-
             cleanLines.push(clean);
         }
 
         if (cleanLines.length === 0) {
-            if (!document.getElementById('terminalEmpty')) {
-                terminal.innerHTML = '<div class="terminal-empty" id="terminalEmpty"><span class="big-icon">📡</span>Waiting for bot output...</div>';
+            if (!document.getElementById('termEmpty-' + botId)) {
+                terminal.innerHTML = `<div class="terminal-empty" id="termEmpty-${botId}"><span class="big-icon">📡</span>Waiting for bot output...</div>`;
             }
             return;
         }
 
-        // Clear existing log lines
         terminal.querySelectorAll('.log-line').forEach(l => l.remove());
-
-        // Take last 100 lines
-        const lastLines = cleanLines.slice(-100);
+        const lastLines = cleanLines.slice(-80);
         for (const cl of lastLines) {
             const div = document.createElement('div');
             div.className = 'log-line ' + classifyLogLine(cl);
             div.textContent = cl;
             terminal.appendChild(div);
         }
-
         terminal.scrollTop = terminal.scrollHeight;
     }
 
-    // ══════ Check Status ══════
-    async function checkStatus(isManual = false) {
-        const token = getToken();
-        if (!token) {
-            setStatus('idle', 'NO TOKEN');
+    function startBotPolling(bot) {
+        const s = getBotState(bot.id);
+        if (s.pollTimer) clearInterval(s.pollTimer);
+        pollBotStatus(bot.id); // immediate first check
+        s.pollTimer = setInterval(() => pollBotStatus(bot.id), 1500);
+    }
+
+    function stopBotPolling(botId) {
+        const s = getBotState(botId);
+        if (s.pollTimer) { clearInterval(s.pollTimer); s.pollTimer = null; }
+    }
+
+    // ══════════════════════════════════════════
+    //  MODAL MANAGEMENT
+    // ══════════════════════════════════════════
+    let editingBotId = null;
+
+    function openAddBotModal() {
+        editingBotId = null;
+        document.getElementById('modalTitle').textContent = '🤖 Add New Bot';
+        document.getElementById('modalDesc').textContent = 'Configure a new bot by providing its GitHub repo details and a PAT with Actions permissions.';
+        document.getElementById('modalSaveBtn').textContent = 'Add Bot';
+        document.getElementById('inputBotName').value = '';
+        document.getElementById('inputOwner').value = '';
+        document.getElementById('inputRepo').value = '';
+        document.getElementById('inputToken').value = '';
+        document.getElementById('inputNumber').value = '';
+        document.getElementById('botModal').classList.add('active');
+        setTimeout(() => document.getElementById('inputBotName').focus(), 100);
+    }
+
+    function openEditBotModal(botId) {
+        const bot = findBot(botId);
+        if (!bot) return;
+        editingBotId = botId;
+        document.getElementById('modalTitle').textContent = '⚙️ Edit Bot';
+        document.getElementById('modalDesc').textContent = 'Update the configuration for this bot.';
+        document.getElementById('modalSaveBtn').textContent = 'Save Changes';
+        document.getElementById('inputBotName').value = bot.name || '';
+        document.getElementById('inputOwner').value = bot.owner || '';
+        document.getElementById('inputRepo').value = bot.repo || '';
+        document.getElementById('inputToken').value = bot.token || '';
+        document.getElementById('inputNumber').value = bot.botNumber || '';
+        document.getElementById('botModal').classList.add('active');
+        setTimeout(() => document.getElementById('inputBotName').focus(), 100);
+    }
+
+    function closeModal() {
+        document.getElementById('botModal').classList.remove('active');
+        editingBotId = null;
+    }
+
+    function saveBot() {
+        const name = document.getElementById('inputBotName').value.trim();
+        const owner = document.getElementById('inputOwner').value.trim();
+        const repo = document.getElementById('inputRepo').value.trim();
+        const token = document.getElementById('inputToken').value.trim();
+        const botNumber = document.getElementById('inputNumber').value.trim();
+
+        if (!name || !owner || !repo || !token) {
+            alert('Please fill in at least Bot Name, Owner, Repo, and Token.');
             return;
         }
 
-        if (isManual && !startInProgress && !stopInProgress) {
-            setStatus('connecting', 'SYNCING...');
+        const bots = loadBots();
+
+        if (editingBotId) {
+            // Update existing
+            const idx = bots.findIndex(b => b.id === editingBotId);
+            if (idx !== -1) {
+                bots[idx] = { ...bots[idx], name, owner, repo, token, botNumber };
+                saveBots(bots);
+                // Re-render the card header info
+                const card = document.getElementById('card-' + editingBotId);
+                if (card) {
+                    card.querySelector('.card-name').textContent = name;
+                    card.querySelector('.card-repo').textContent = `${owner}/${repo}`;
+                }
+            }
+        } else {
+            // Add new
+            const newBot = { id: generateId(), name, owner, repo, token, botNumber };
+            bots.push(newBot);
+            saveBots(bots);
+            renderBots();
         }
 
-        try {
-            const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/actions/runs?per_page=1`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-
-            if (res.status === 401) {
-                localStorage.removeItem('GH_TOKEN');
-                setStatus('error', 'AUTH ERROR');
-                appendLog('[ERR] Invalid token. Open Settings to update.', 'err');
-                updateButtons(false);
-                return;
-            }
-
-            const data = await res.json();
-            const run = (data.workflow_runs || [])[0];
-
-            if (!run) {
-                if (!startInProgress && !stopInProgress) {
-                    setStatus('idle', 'NO RUNS');
-                    updateButtons(false);
-                }
-                return;
-            }
-
-            const runTime = new Date(run.created_at).getTime();
-
-            // If we recently dispatched a start, ignore old runs created before dispatch
-            if (startInProgress && runTime < dispatchTime - 5000) {
-                // Runner is still booting up on GitHub Actions
-                setStatus('booting', 'BOOTING...');
-                return;
-            }
-
-            activeRunId = run.id;
-
-            if (run.status === 'in_progress' || run.status === 'queued') {
-                startInProgress = false;
-                if (!stopInProgress) {
-                    setStatus('connected', 'CONNECTED');
-                    updateButtons(true);
-                }
-                await fetchWorkflowDetails(run.id, token);
-            } else {
-                if (startInProgress) {
-                    // Still waiting for GitHub Actions to register the new run
-                    return;
-                }
-
-                stopInProgress = false;
-                const conclusion = (run.conclusion || 'stopped').toUpperCase();
-
-                if (conclusion === 'CANCELLED') {
-                    setStatus('cancelled', 'CANCELLED');
-                } else if (conclusion === 'FAILURE') {
-                    setStatus('failed', 'FAILED');
-                } else if (conclusion === 'SUCCESS') {
-                    setStatus('stopped', 'COMPLETED');
-                } else {
-                    setStatus('stopped', conclusion);
-                }
-
-                updateButtons(false);
-                clearTerminal();
-                lastLogHash = '';
-            }
-        } catch (e) {
-            if (!startInProgress && !stopInProgress) {
-                setStatus('error', 'ERROR');
-                appendLog('[ERR] Connection failed: ' + e.message, 'err');
-            }
-        }
+        closeModal();
     }
 
-    // ══════ Start Bot ══════
-    async function startBot() {
-        if (startInProgress || stopInProgress) return;
+    let deletingBotId = null;
+    function openDeleteModal(botId) {
+        deletingBotId = botId;
+        const bot = findBot(botId);
+        document.getElementById('deleteModalDesc').textContent =
+            `Remove "${bot?.name || 'this bot'}" from the dashboard? This does NOT affect the GitHub repo or Supabase.`;
+        document.getElementById('deleteModal').classList.add('active');
+    }
+    function closeDeleteModal() {
+        document.getElementById('deleteModal').classList.remove('active');
+        deletingBotId = null;
+    }
+    function confirmDelete() {
+        if (!deletingBotId) return;
+        stopBotPolling(deletingBotId);
+        delete botStates[deletingBotId];
+        const card = document.getElementById('card-' + deletingBotId);
+        if (card) card.remove();
 
-        const token = getToken();
-        if (!token) { appendLog('[ERR] Token required. Open Settings.', 'err'); return; }
+        const bots = loadBots().filter(b => b.id !== deletingBotId);
+        saveBots(bots);
+        closeDeleteModal();
+        renderBots();
+    }
 
-        startInProgress = true;
-        dispatchTime = Date.now();
-        setStatus('booting', 'BOOTING...');
-        setButtonLoading('startBtn', true);
-        document.getElementById('stopBtn').disabled = true;
-        clearTerminal();
-        appendLog('[SYSTEM] Sending start signal to GitHub Actions...', 'sys');
+    // Close modals on overlay click
+    document.getElementById('botModal').addEventListener('click', function(e) { if (e.target === this) closeModal(); });
+    document.getElementById('deleteModal').addEventListener('click', function(e) { if (e.target === this) closeDeleteModal(); });
 
-        try {
-            // Check if a run is already active
-            const activeRes = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/actions/runs?status=in_progress&per_page=1`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
+    // ══════════════════════════════════════════
+    //  MIGRATION: Auto-detect from old single-bot format
+    // ══════════════════════════════════════════
+    function migrateOldConfig() {
+        const bots = loadBots();
+        if (bots.length > 0) return; // already migrated
 
-            if (activeRes.ok) {
-                const activeData = await activeRes.json();
-                const activeRuns = activeData.workflow_runs || [];
+        const oldToken = localStorage.getItem('GH_TOKEN');
+        const oldOwner = localStorage.getItem('GH_OWNER');
+        const oldRepo = localStorage.getItem('GH_REPO');
 
-                if (activeRuns.length > 0) {
-                    appendLog(`[WARN] A bot is already running (Run #${activeRuns[0].run_number}).`, 'warn');
-                    setStatus('connected', 'CONNECTED');
-                    startInProgress = false;
-                    setButtonLoading('startBtn', false);
-                    updateButtons(true);
-                    return;
-                }
-            }
-
-            // Dispatch new run
-            const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/dispatches`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Accept': 'application/vnd.github+json',
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ event_type: 'run-bot' })
-            });
-
-            if (res.status === 204) {
-                appendLog('[OK] Start signal accepted (HTTP 204). Waiting for runner...', 'ok');
-            } else if (res.status === 401) {
-                localStorage.removeItem('GH_TOKEN');
-                appendLog('[ERR] Invalid token.', 'err');
-                setStatus('error', 'AUTH ERROR');
-                startInProgress = false;
-                setButtonLoading('startBtn', false);
-                updateButtons(false);
-            } else {
-                const text = await res.text();
-                appendLog('[ERR] Start failed: ' + text, 'err');
-                setStatus('error', 'START FAILED');
-                startInProgress = false;
-                setButtonLoading('startBtn', false);
-                updateButtons(false);
-            }
-        } catch (e) {
-            appendLog('[ERR] ' + e.message, 'err');
-            setStatus('error', 'ERROR');
-            startInProgress = false;
-            setButtonLoading('startBtn', false);
-            updateButtons(false);
+        if (oldToken) {
+            const migrated = {
+                id: generateId(),
+                name: 'Main Bot',
+                owner: oldOwner || 'morrisonbuildwiseestimation-hub',
+                repo: oldRepo || 'whatsapp-bot',
+                token: oldToken,
+                botNumber: ''
+            };
+            saveBots([migrated]);
+            // Clean old keys
+            localStorage.removeItem('GH_TOKEN');
+            localStorage.removeItem('GH_OWNER');
+            localStorage.removeItem('GH_REPO');
         }
     }
 
-    // ══════ Stop Bot ══════
-    async function stopBot() {
-        if (stopInProgress || startInProgress) return;
-
-        const token = getToken();
-        if (!token) { appendLog('[ERR] Token required. Open Settings.', 'err'); return; }
-
-        stopInProgress = true;
-        setStatus('cancelling', 'STOPPING...');
-        setButtonLoading('stopBtn', true);
-        document.getElementById('startBtn').disabled = true;
-        appendLog('[SYSTEM] Stopping bot... Requesting cancel from GitHub Actions.', 'sys');
-
-        try {
-            const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/actions/runs?status=in_progress`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-
-            if (res.status === 401) {
-                localStorage.removeItem('GH_TOKEN');
-                appendLog('[ERR] Invalid token.', 'err');
-                setStatus('error', 'AUTH ERROR');
-                stopInProgress = false;
-                setButtonLoading('stopBtn', false);
-                updateButtons(false);
-                return;
-            }
-
-            const data = await res.json();
-            const runs = data.workflow_runs || [];
-
-            if (runs.length === 0) {
-                appendLog('[INFO] No active runs found in progress.', 'warn');
-                setStatus('stopped', 'STOPPED');
-                stopInProgress = false;
-                setButtonLoading('stopBtn', false);
-                updateButtons(false);
-                return;
-            }
-
-            for (const run of runs) {
-                appendLog(`[STOP] Cancelling Run #${run.run_number}...`, 'warn');
-                await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/actions/runs/${run.id}/cancel`, {
-                    method: 'POST',
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-            }
-
-            appendLog(`[OK] Cancel signal sent to ${runs.length} run(s). Shutting down...`, 'ok');
-        } catch (e) {
-            appendLog('[ERR] ' + e.message, 'err');
-            setStatus('error', 'ERROR');
-            stopInProgress = false;
-            setButtonLoading('stopBtn', false);
-            updateButtons(false);
-        }
-    }
-
-    // ══════ Auto Polling (1 second) ══════
-    function startAutoPolling() {
-        if (pollTimer) clearInterval(pollTimer);
-        pollTimer = setInterval(() => {
-            checkStatus(false);
-        }, 1000);
-    }
-
-    // ══════ Init ══════
-    clearTerminal();
-    checkStatus(true);
-    startAutoPolling();
+    // ══════════════════════════════════════════
+    //  INIT
+    // ══════════════════════════════════════════
+    migrateOldConfig();
+    renderBots();
 </script>
 </body>
 </html>

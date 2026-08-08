@@ -1,6 +1,5 @@
 node_modules/
 config.env
-session/
 sess/
 .env
 *.log

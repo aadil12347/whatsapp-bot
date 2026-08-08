@@ -2,12 +2,12 @@ const fs = require('fs');
 const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
 
-const SUPABASE_URL = process.env.SUPABASE_URL || 'https://huehhcytptarqtemqlky.supabase.co';
-const SUPABASE_KEY = process.env.SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh1ZWhoY3l0cHRhcnF0ZW1xbGt5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYxMDY1NTAsImV4cCI6MjEwMTY4MjU1MH0.8gFBazTKSMkuZ_R9XKrb0oKavXahRNKCoiWkEHaT43M';
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_KEY;
 
 function getSupabaseClient() {
     if (!SUPABASE_URL || !SUPABASE_KEY) {
-        console.warn('⚠️ Supabase URL or Key missing. Session sync disabled.');
+        console.warn('⚠️ SUPABASE_URL or SUPABASE_KEY missing from environment variables. Session sync disabled.');
         return null;
     }
     return createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -16,7 +16,7 @@ function getSupabaseClient() {
 /**
  * Uploads all files in sessionDir to Supabase bot_session table.
  */
-async function uploadSessionToSupabase(sessionDir = path.join(__dirname, '../../session')) {
+async function uploadSessionToSupabase(sessionDir = path.join(__dirname, '../../sess')) {
     try {
         const supabase = getSupabaseClient();
         if (!supabase) return false;
@@ -67,7 +67,7 @@ async function uploadSessionToSupabase(sessionDir = path.join(__dirname, '../../
 /**
  * Downloads session files from Supabase bot_session table into sessionDir.
  */
-async function downloadSessionFromSupabase(sessionDir = path.join(__dirname, '../../session')) {
+async function downloadSessionFromSupabase(sessionDir = path.join(__dirname, '../../sess')) {
     try {
         const supabase = getSupabaseClient();
         if (!supabase) return false;

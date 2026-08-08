@@ -8,8 +8,8 @@ if (fs.existsSync(envPath)) {
 const { uploadSessionToSupabase } = require('../src/Utils/supabaseSession');
 
 async function run() {
-    console.log('🚀 Uploading active WhatsApp session to Supabase...');
-    const sessionDir = path.join(__dirname, '../session');
+    console.log('🚀 Uploading WhatsApp paired keys (sess/) to Supabase...');
+    const sessionDir = path.join(__dirname, '../sess');
     const success = await uploadSessionToSupabase(sessionDir);
     if (success) {
         console.log('🎉 Current session uploaded to Supabase successfully!');

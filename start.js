@@ -2,6 +2,11 @@ const { fork, execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
+const envPath = path.join(__dirname, 'config.env');
+if (fs.existsSync(envPath)) {
+    require('dotenv').config({ path: envPath });
+}
+
 const { killPreviousInstances } = require('./src/Utils/singleInstance');
 killPreviousInstances();
 
@@ -12,7 +17,7 @@ async function startBot() {
 
     // Auto-download latest session from Supabase if available
     try {
-        await downloadSessionFromSupabase(path.join(__dirname, 'session'));
+        await downloadSessionFromSupabase(path.join(__dirname, 'sess'));
     } catch (e) {
         console.warn('⚠️ Note: Supabase session sync skipped or failed:', e.message || e);
     }
