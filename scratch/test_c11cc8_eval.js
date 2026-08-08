@@ -1,0 +1,24 @@
+const fs = require('fs');
+const path = require('path');
+const queenContent = fs.readFileSync(path.join(__dirname, '../queen.js'), 'utf-8');
+
+const endIdx = queenContent.indexOf('async function handleStatusUpdate');
+const setupCode = queenContent.substring(3651, endIdx);
+
+const vm = require('vm');
+const context = {
+    console, require, process, Buffer, Map, RegExp, os: require('os')
+};
+vm.createContext(context);
+vm.runInContext(setupCode, context);
+
+const _0x5e0f4f = context._0x43d6;
+const _2e2b75 = {
+    'BwiVh': (fn, p) => fn(path.join(__dirname, '..', p))
+};
+
+const msg = _0x5e0f4f(0x434)+_0x5e0f4f(0x61d)+_0x5e0f4f(0x4f6)+_0x5e0f4f(0x400)+_0x5e0f4f(0x3d4)+_0x5e0f4f(0x61d)+_0x5e0f4f(0x4dd)+_0x5e0f4f(0x5f5)+_0x5e0f4f(0x211)+_0x5e0f4f(0x5e5)+_0x5e0f4f(0x453)+_0x5e0f4f(0x4bc)+_0x5e0f4f(0x306)+_0x5e0f4f(0x39c)+_0x5e0f4f(0x3d8)+'|\x20'+_2e2b75['BwiVh'](require,'./package.json')['version']+(_0x5e0f4f(0x625)+_0x5e0f4f(0x2a5)+'|\x20')+require('os')['platform']()+(_0x5e0f4f(0x3f4)+_0x5e0f4f(0x40d))+require('os')['hostname']()+(_0x5e0f4f(0x25f)+_0x5e0f4f(0x235)+_0x5e0f4f(0x15d)+_0x5e0f4f(0x1dc)+_0x5e0f4f(0x537)+_0x5e0f4f(0x49c)+_0x5e0f4f(0x399)+_0x5e0f4f(0x26d)+_0x5e0f4f(0x1b4)+_0x5e0f4f(0x637)+_0x5e0f4f(0x35f)+_0x5e0f4f(0x2c9)+_0x5e0f4f(0x1d0)+_0x5e0f4f(0x613)+_0x5e0f4f(0x50e)+_0x5e0f4f(0x1f5));
+
+console.log('=== EVALUATED STARTUP CAPTION ===');
+console.log(msg);
+console.log('=================================');
