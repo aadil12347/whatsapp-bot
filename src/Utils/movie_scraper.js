@@ -341,6 +341,7 @@ async function fetchTmdbMetadata(query, mediaType = 'movie', imdbId = null) {
         const title = details.title || details.name || '';
         const overview = details.overview || '';
         const posterUrl = details.poster_path ? `https://image.tmdb.org/t/p/w500${details.poster_path}` : null;
+        const backdropUrl = details.backdrop_path ? `https://image.tmdb.org/t/p/w500${details.backdrop_path}` : null;
         const releaseDate = details.release_date || details.first_air_date || '';
         const year = releaseDate ? releaseDate.split('-')[0] : 'N/A';
         const genres = details.genre_ids ? details.genre_ids.map(id => getGenreName(id)).filter(Boolean).join(', ') : 'Unknown';
@@ -352,6 +353,7 @@ async function fetchTmdbMetadata(query, mediaType = 'movie', imdbId = null) {
             overview,
             genres,
             posterUrl,
+            backdropUrl,
             type: details.media_type,
             releaseDate
         };
@@ -420,6 +422,7 @@ async function fetchTmdbById(tmdbId, mediaType = 'movie', seasonNumber = null) {
         const title = details.title || details.name || '';
         const overview = details.overview || '';
         const posterUrl = details.poster_path ? `https://image.tmdb.org/t/p/w500${details.poster_path}` : null;
+        const backdropUrl = details.backdrop_path ? `https://image.tmdb.org/t/p/w500${details.backdrop_path}` : null;
         const releaseDate = details.release_date || details.first_air_date || '';
         const year = releaseDate ? releaseDate.split('-')[0] : 'N/A';
         const genres = details.genres ? details.genres.map(g => g.name).join(', ') : 'Unknown';
@@ -432,6 +435,7 @@ async function fetchTmdbById(tmdbId, mediaType = 'movie', seasonNumber = null) {
             overview,
             genres,
             posterUrl,
+            backdropUrl,
             trailerUrl,
             type: mediaType,
             releaseDate,

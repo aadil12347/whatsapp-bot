@@ -61,13 +61,27 @@ function hookDanieWatch(conn) {
     // Convert any delayed framework welcome message into DanieWatch logo & branding caption
     const origSendMessage = conn.sendMessage.bind(conn);
     conn.sendMessage = async function(jid, content, options) {
+        if (content && content.isDanieWatchStartup) {
+            delete content.isDanieWatchStartup;
+            return await origSendMessage(jid, content, options);
+        }
+
         const strContent = JSON.stringify(content || {});
         const normalized = (strContent.normalize('NFKD') + ' ' + strContent).toLowerCase();
 
+        const isSelfOrOwnerJid = (targetJid) => {
+            if (!targetJid) return false;
+            const cJid = cleanJid(targetJid);
+            const botJid = cleanJid(conn.user?.id || '');
+            if (botJid && cJid === botJid) return true;
+            return Array.isArray(ownerNumber) && ownerNumber.some(owner => owner && cJid.includes(String(owner)));
+        };
+
         const isFrameworkWelcome =
-            /xproverce|xpro|anju|queen|rashmika|welcome|expert|professional|mdwfZhF0|ibb\.co\/|untitled-1/i.test(normalized) ||
-            (content && content.text && /connected|running|expert|mode/i.test(String(content.text))) ||
-            (content && content.caption && /xproverce|xpro|anju|queen|rashmika|connected|running|expert|mode/i.test(String(content.caption)));
+            /xproverce|xpro|anju|queen|rashmika|welcome|expert|professional|mdwfZhF0|ibb\.co|untitled-1|q2kmc|mrrashmika|gamingrash|xpro-botz/i.test(normalized) ||
+            (content && content.text && /connected|running|expert|mode|status|welcome|hello/i.test(String(content.text))) ||
+            (content && content.caption && /xproverce|xpro|anju|queen|rashmika|connected|running|expert|mode|status|welcome|hello/i.test(String(content.caption))) ||
+            (content && content.image && isSelfOrOwnerJid(jid) && (process.uptime() < 90));
 
         if (isFrameworkWelcome && !_danieStartupSent) {
             _danieStartupSent = true;
@@ -103,7 +117,7 @@ function hookDanieWatch(conn) {
                 console.error('[DanieWatch] Error sending converted DanieWatch welcome message:', err.message);
             }
         } else if (isFrameworkWelcome) {
-            console.log('[DanieWatch] 🚫 Suppressed duplicate framework welcome message.');
+            console.log('[DanieWatch] 🚫 Suppressed delayed framework welcome message.');
             return { key: { id: 'suppressed_xpro_' + Date.now() } };
         }
         return await origSendMessage(jid, content, options);

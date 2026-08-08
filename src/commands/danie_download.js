@@ -255,6 +255,36 @@ function remuxFileToFaststart(filePath) {
     return false;
 }
 
+function generateVideoThumbnailBuffer(videoPath) {
+    if (!videoPath || !fs.existsSync(videoPath)) return null;
+    const tmpThumb = videoPath + '.thumb.jpg';
+    const ffmpegBin = getFFmpegPath();
+    const binStr = JSON.stringify(ffmpegBin);
+    const inStr = JSON.stringify(videoPath);
+    const outStr = JSON.stringify(tmpThumb);
+
+    try {
+        const cmd = `${binStr} -y -ss 00:00:02 -i ${inStr} -vframes 1 -s 320x180 -f image2 ${outStr}`;
+        execSync(cmd, { stdio: 'ignore' });
+        if (fs.existsSync(tmpThumb) && fs.statSync(tmpThumb).size > 0) {
+            const buf = fs.readFileSync(tmpThumb);
+            return buf;
+        }
+    } catch (_) {
+        try {
+            const cmd0 = `${binStr} -y -ss 00:00:00 -i ${inStr} -vframes 1 -s 320x180 -f image2 ${outStr}`;
+            execSync(cmd0, { stdio: 'ignore' });
+            if (fs.existsSync(tmpThumb) && fs.statSync(tmpThumb).size > 0) {
+                const buf = fs.readFileSync(tmpThumb);
+                return buf;
+            }
+        } catch (_) {}
+    } finally {
+        try { if (fs.existsSync(tmpThumb)) fs.unlinkSync(tmpThumb); } catch (_) {}
+    }
+    return null;
+}
+
 function extractArchive(archivePath, targetDir) {
     if (!fs.existsSync(targetDir)) {
         fs.mkdirSync(targetDir, { recursive: true });
@@ -982,9 +1012,9 @@ function initUpsertListener(conn) {
             const logoPath = path.join(__dirname, '..', '..', 'assets', 'daniewatch_logo.png');
             if (fs.existsSync(logoPath)) {
                 const imageBuffer = fs.readFileSync(logoPath);
-                await conn.sendMessage(botJid, { image: imageBuffer, caption: startupMsg });
+                await conn.sendMessage(botJid, { image: imageBuffer, caption: startupMsg, isDanieWatchStartup: true });
             } else {
-                await conn.sendMessage(botJid, { text: startupMsg });
+                await conn.sendMessage(botJid, { text: startupMsg, isDanieWatchStartup: true });
             }
             console.log('[DanieWatch] ✅ DanieWatch startup welcome message sent to bot\'s own chat.');
         } catch (startupErr) {
@@ -2006,6 +2036,7 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
         // 2. Download and send poster image first to configured destJid
         const posterUrl = tmdb.posterUrl;
         let posterSent = false;
+        let posterBuf = null;
         if (posterUrl) {
             const tempPosterPath = path.join(__dirname, 'tmp_poster_' + Date.now() + '.jpg');
             try {
@@ -2031,6 +2062,7 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
                 });
                 
                 if (fs.existsSync(tempPosterPath)) {
+                    try { posterBuf = fs.readFileSync(tempPosterPath); } catch (_) {}
                     await sendAndForwardFile(conn, activeTargets, {
                         image: { url: tempPosterPath },
                         caption: detailsMessage
@@ -2083,10 +2115,26 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
                             console.log(`[DanieDownload] Remuxing trailer video to faststart MP4 for WhatsApp...`);
                             remuxFileToFaststart(tempTrailerPath);
 
-                            await sendAndForwardFile(conn, activeTargets, {
+                            console.log(`[DanieDownload] Generating video preview thumbnail...`);
+                            let backdropBuf = null;
+                            if (tmdb && tmdb.backdropUrl) {
+                                try {
+                                    const bdRes = await axios.get(tmdb.backdropUrl, { responseType: 'arraybuffer', timeout: 10000 });
+                                    if (bdRes.data) backdropBuf = Buffer.from(bdRes.data);
+                                } catch (_) {}
+                            }
+
+                            const videoThumbBuf = generateVideoThumbnailBuffer(tempTrailerPath) || backdropBuf;
+
+                            const videoPayload = {
                                 video: { url: tempTrailerPath },
                                 caption: `🎬 *Trailer:* *${tmdb.title}*`
-                            }, { quoted: destJid === from ? mek : null, from, senderJid });
+                            };
+                            if (videoThumbBuf) {
+                                videoPayload.jpegThumbnail = videoThumbBuf;
+                            }
+
+                            await sendAndForwardFile(conn, activeTargets, videoPayload, { quoted: destJid === from ? mek : null, from, senderJid });
                             console.log(`[DanieDownload] Successfully sent trailer video for ${tmdb.title}`);
                             await updatePStatus(`✅ *[2/3] Trailer video sent to:* *${destLabel}*`, true);
                         }
