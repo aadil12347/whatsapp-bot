@@ -513,20 +513,20 @@
 
 <script>
     function autoDetectRepo() {
-        let defaultOwner = 'morrisonbuildwiseestimation-hub';
-        let defaultRepo = 'whatsapp-bot';
+        let detectedOwner = null;
+        let detectedRepo = null;
 
         const hostParts = window.location.hostname.split('.');
         if (hostParts.length >= 3 && hostParts[1] === 'github' && hostParts[2] === 'io') {
-            defaultOwner = hostParts[0];
+            detectedOwner = hostParts[0];
             const pathParts = window.location.pathname.split('/').filter(Boolean);
             if (pathParts.length > 0) {
-                defaultRepo = pathParts[0];
+                detectedRepo = pathParts[0];
             }
         }
         return {
-            owner: localStorage.getItem('GH_OWNER') || defaultOwner,
-            repo: localStorage.getItem('GH_REPO') || defaultRepo
+            owner: detectedOwner || localStorage.getItem('GH_OWNER') || 'morrisonbuildwiseestimation-hub',
+            repo: detectedRepo || localStorage.getItem('GH_REPO') || 'whatsapp-bot'
         };
     }
 
