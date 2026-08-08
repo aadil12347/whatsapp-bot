@@ -90,8 +90,7 @@ function hookDanieWatch(conn) {
         const isFrameworkWelcome =
             /xproverce|xpro|anju|queen|rashmika|welcome|expert|professional|mdwfZhF0|ibb\.co|untitled-1|q2kmc|mrrashmika|gamingrash|xpro-botz/i.test(normalized) ||
             (content && content.text && /connected|running|expert|mode|status|welcome|hello/i.test(String(content.text))) ||
-            (content && content.caption && /xproverce|xpro|anju|queen|rashmika|connected|running|expert|mode|status|welcome|hello/i.test(String(content.caption))) ||
-            (content && content.image && isSelfOrOwnerJid(jid) && (process.uptime() < 90));
+            (content && content.caption && /xproverce|xpro|anju|queen|rashmika|connected|running|expert|mode|status|welcome|hello/i.test(String(content.caption)));
 
         if (isFrameworkWelcome && !_danieStartupSent) {
             console.log('[DanieWatch] 🎯 Intercepted framework delayed welcome message! Converting to text startup message...');

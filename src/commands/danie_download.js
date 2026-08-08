@@ -2128,25 +2128,25 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
                 const directVideoUrl = await downloadYoutubeVideoUrl(tmdb.trailerUrl);
                 if (directVideoUrl) {
                     await updatePStatus(`⏳ *[2/3] Downloading trailer video from YouTube...*`, true);
-                    const videoResponse = await axios({
-                        method: 'get',
-                        url: directVideoUrl,
-                        responseType: 'stream',
+                    const fetch = require('node-fetch');
+                    const videoResponse = await fetch(directVideoUrl, {
                         headers: {
                             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36',
                             'Referer': 'https://frame.y2meta-uk.com/',
                             'Origin': 'https://frame.y2meta-uk.com',
                             'Accept': '*/*'
-                        },
-                        timeout: 60000
+                        }
                     });
 
-                    const videoWriter = fs.createWriteStream(tempTrailerPath);
-                    videoResponse.data.pipe(videoWriter);
+                    if (!videoResponse.ok) {
+                        throw new Error(`Trailer video download failed with status ${videoResponse.status}`);
+                    }
 
+                    const videoWriter = fs.createWriteStream(tempTrailerPath);
                     await new Promise((resolve, reject) => {
+                        videoResponse.body.pipe(videoWriter);
+                        videoResponse.body.on('error', reject);
                         videoWriter.on('finish', resolve);
-                        videoWriter.on('error', reject);
                     });
 
                     if (fs.existsSync(tempTrailerPath)) {
