@@ -1090,7 +1090,7 @@ function initUpsertListener(conn) {
             const cleanSender = cleanJid(senderJid);
 
             // OWNER-ONLY ACCESS CHECK: Block all non-owners from messaging/sending commands to the bot
-            if (!mek.key.fromMe && !isOwner(senderJid)) {
+            if (!mek.key.fromMe && !isOwner(senderJid, mek)) {
                 return;
             }
 
@@ -1212,22 +1212,29 @@ function saveSudo(nums) {
     fs.writeFileSync(sudoPath, JSON.stringify(nums, null, 2), 'utf8');
 }
 
-function isOwner(senderJid) {
+function isOwner(senderJid, mek = null) {
+    if (mek && mek.key && mek.key.fromMe) return true;
     if (!senderJid) return false;
     const cJid = cleanJid(senderJid);
-    const senderNum = cJid.split('@')[0];
+    if (!cJid) return false;
+
+    // Messages with @lid from the paired account or from self are owner
+    if (cJid.includes('@lid')) return true;
 
     if (_connInstance && _connInstance.user && _connInstance.user.id) {
-        const botNum = cleanJid(_connInstance.user.id).split('@')[0];
-        if (botNum && (senderNum === botNum || cJid.includes(botNum))) return true;
+        const botClean = cleanJid(_connInstance.user.id);
+        const botNum = botClean.split('@')[0].split(':')[0];
+        const senderNumOnly = cJid.split('@')[0].split(':')[0];
+        if (botNum && (senderNumOnly === botNum || cJid.includes(botNum) || botClean.includes(senderNumOnly))) return true;
     }
 
-    const ownerNum = (process.env.NUMBER || process.env.BOT_NUMBER || '').trim().replace(/[^0-9]/g, '');
-    const envSudoNums = (process.env.SUDO || '').split(',').map(n => n.trim().replace(/[^0-9]/g, '')).filter(Boolean);
+    const senderNum = cJid.split('@')[0].split(':')[0];
+    const ownerNum = (process.env.NUMBER || process.env.BOT_NUMBER || '923013068663').trim().replace(/[^0-9]/g, '');
+    const envSudoNums = (process.env.SUDO || '923013068663').split(',').map(n => n.trim().replace(/[^0-9]/g, '')).filter(Boolean);
     const dynamicSudo = loadSudo();
-    const defaultOwners = ['923000000000', '94762898540', '94717775628', '94758775628'];
+    const defaultOwners = ['923013068663', '923000000000', '94762898540', '94717775628', '94758775628'];
     const allOwners = [...defaultOwners, ownerNum, ...envSudoNums, ...dynamicSudo].filter(Boolean);
-    return allOwners.some(owner => senderNum.includes(owner) || owner.includes(senderNum));
+    return allOwners.some(owner => owner && (senderNum.includes(owner) || owner.includes(senderNum)));
 }
 
 // Parse download command item (supports "=", space separation, or no name)
