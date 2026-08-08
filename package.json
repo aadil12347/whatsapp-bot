@@ -78,6 +78,7 @@
       "@ffmpeg-installer/ffmpeg",
       "@ffmpeg-installer/linux-x64",
       "@ffmpeg-installer/win32-x64",
+      "@whiskeysockets/baileys",
       "sharp",
       "puppeteer",
       "protobufjs",
