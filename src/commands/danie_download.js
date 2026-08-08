@@ -2067,7 +2067,6 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
         // 2. Download and send poster image first to configured destJid
         const posterUrl = tmdb.posterUrl;
         let posterSent = false;
-        let posterBuf = null;
         if (posterUrl) {
             const tempPosterPath = path.join(__dirname, 'tmp_poster_' + Date.now() + '.jpg');
             try {
@@ -2093,7 +2092,6 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
                 });
                 
                 if (fs.existsSync(tempPosterPath)) {
-                    try { posterBuf = fs.readFileSync(tempPosterPath); } catch (_) {}
                     await sendAndForwardFile(conn, activeTargets, {
                         image: { url: tempPosterPath },
                         caption: detailsMessage
@@ -2106,6 +2104,17 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
                 if (fs.existsSync(tempPosterPath)) {
                     try { if (fs.existsSync(tempPosterPath)) fs.unlinkSync(tempPosterPath); } catch (_) {}
                 }
+            }
+        }
+
+        if (!posterSent) {
+            console.log('[DanieDownload] Sending TMDB details caption as text fallback...');
+            try {
+                await sendAndForwardFile(conn, activeTargets, {
+                    text: detailsMessage
+                }, { quoted: destJid === from ? mek : null, from, senderJid });
+            } catch (txtErr) {
+                console.error('[DanieDownload] Failed to send TMDB text details fallback:', txtErr.message);
             }
         }
         

@@ -323,50 +323,49 @@ cmd({
 
 cmd({
     pattern: "video",
-    desc: "To download videos.",
+    alias: ["ytv", "yt"],
+    desc: "To download videos from YouTube.",
     react: "🎥",
     category: "download",
-    use: ".video alone part 2",
+    use: ".video <query or link>",
     filename: __filename
 }, async (conn, mek, m, { from, q, reply, pushname, config }) => {
+    let dl = null;
     try {
-        const prefix = config.PREFIX;
-        if (!q) return reply("Please give me a URL or title.");
+        if (!q) return reply("Please give me a YouTube URL or video title.");
 
         const cleanUrl = normalizeYtUrl(q);
         const searchRes = await yts(cleanUrl);
-        const info = searchRes.videos[0];
+        const info = (searchRes && searchRes.videos && searchRes.videos.length > 0) ? searchRes.videos[0] : null;
+        if (!info) return reply("❌ No YouTube video found.");
+
         const videoUrl = info.url;
+        await reply(`⏳ *Downloading & converting YouTube video:* "${info.title}"...`);
 
-        const captionText = configExtra.VIDEO
-            ? configExtra.VIDEO(info, pushname, backtick)
-            : `\n${configExtra.SIGNATURE(config)}\n> 𝙷𝚎𝚕𝚕𝚘 𝚃𝚑𝚎𝚛𝚎 *${pushname}*\n> ==========================\n> ${backtick}[  V  I  D  E  O    D  L  ]${backtick}\n> >>>>>>>>>>>>>>>>>>>>>>>>>>\n> 🎶 *Title:* ${info.title}\n> ⏱️ *Duration:* ${info.timestamp}\n> 👁️ *Views:* ${info.views}\n> 📅 *Uploaded On:* ${info.ago}\n> 🔗 *Link:* ${info.url}\n> >>>>>>>>>>>>>>>>>>>>>>>>>>\n> ==========================`;
+        m.react("⬇️");
+        dl = await convertYtMedia(videoUrl, "128", "720", "mp4");
+        if (!dl || !dl.filePath || !fs.existsSync(dl.filePath)) {
+            throw new Error("YouTube video download/conversion failed.");
+        }
 
-        const buttons = [
-            { buttonId: prefix + `yt2s ${videoUrl} & 144`, buttonText: { displayText: "*Video File* 144p" }, type: 1 },
-            { buttonId: prefix + `yt2s ${videoUrl} & 360`, buttonText: { displayText: "*Video File* 360p" }, type: 1 },
-            { buttonId: prefix + `yt2s ${videoUrl} & 480`, buttonText: { displayText: "*Video File* 480p" }, type: 1 },
-            { buttonId: prefix + `yt2s ${videoUrl} & 720`, buttonText: { displayText: "*Video File* 720p" }, type: 1 },
-            { buttonId: prefix + `yt2s ${videoUrl} & 1080`, buttonText: { displayText: "*Video File* 1080p" }, type: 1 },
-            { buttonId: prefix + `yt3s ${videoUrl} & 144`, buttonText: { displayText: "*Document File* 144p" }, type: 1 },
-            { buttonId: prefix + `yt3s ${videoUrl} & 360`, buttonText: { displayText: "*Document File* 360p" }, type: 1 },
-            { buttonId: prefix + `yt3s ${videoUrl} & 480`, buttonText: { displayText: "*Document File* 480p" }, type: 1 },
-            { buttonId: prefix + `yt3s ${videoUrl} & 720`, buttonText: { displayText: "*Document File* 720p" }, type: 1 },
-            { buttonId: prefix + `yt3s ${videoUrl} & 1080`, buttonText: { displayText: "*Document File* 1080p" }, type: 1 }
-        ];
+        const captionText = `🎥 *${info.title}*\n⏱️ *Duration:* ${info.timestamp}\n👁️ *Views:* ${info.views}\n📅 *Uploaded:* ${info.ago}\n🔗 ${info.url}`;
 
-        const payload = {
-            image: { url: info.thumbnail },
+        m.react("⬆️");
+        await conn.sendMessage(from, {
+            video: { url: dl.filePath },
+            mimetype: "video/mp4",
             caption: captionText,
-            footer: config.FOOTER,
-            buttons: buttons,
-            headerType: 4
-        };
+            fileName: `${info.title}.mp4`
+        }, { quoted: mek });
 
-        return await conn.nonbuttonMessage(from, payload);
+        m.react("✅");
     } catch (err) {
-        console.error(err);
-        reply(`${err.message || err}`);
+        console.error('[YouTube Video Command Error]:', err);
+        reply(`❌ Failed to download/send video: ${err.message || err}`);
+    } finally {
+        if (dl && dl.filePath && fs.existsSync(dl.filePath)) {
+            try { fs.unlinkSync(dl.filePath); } catch (_) {}
+        }
     }
 });
 
