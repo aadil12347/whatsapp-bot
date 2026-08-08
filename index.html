@@ -3,361 +3,509 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DanieWatch — Live Bot IDE & Log Streamer</title>
-    <meta name="description" content="Live Cyberpunk IDE & Real-time GitHub Actions Log Streamer for DanieWatch WhatsApp Bot.">
+    <title>DanieWatch — Bot Control Panel</title>
+    <meta name="description" content="Live Bot Control Panel & Real-time GitHub Actions Log Streamer for DanieWatch WhatsApp Bot.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;0,800;1,400&family=Fira+Code:wght@400;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;0,800;1,400&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
         :root {
-            --ide-bg: #0d1117;
-            --ide-panel: #161b22;
-            --ide-border: #30363d;
-            --ide-line-num: #484f58;
-            
-            --neon-green: #3fb950;
-            --neon-green-glow: rgba(63, 185, 80, 0.4);
-            --neon-red: #f85149;
-            --neon-red-glow: rgba(248, 81, 73, 0.4);
-            --neon-cyan: #58a6ff;
-            --neon-cyan-glow: rgba(88, 166, 255, 0.4);
-            --neon-amber: #d29922;
-            --neon-amber-glow: rgba(210, 153, 34, 0.4);
-            --neon-purple: #bc8cff;
-            
-            --text-main: #c9d1d9;
-            --text-dim: #8b949e;
+            --bg-deep: #06090f;
+            --bg-main: #0d1117;
+            --bg-panel: #161b22;
+            --bg-terminal: #010409;
+            --border: #21262d;
+            --border-subtle: rgba(48, 54, 61, 0.6);
+
+            --green: #3fb950;
+            --green-dim: rgba(63, 185, 80, 0.15);
+            --green-glow: rgba(63, 185, 80, 0.5);
+            --red: #f85149;
+            --red-dim: rgba(248, 81, 73, 0.15);
+            --red-glow: rgba(248, 81, 73, 0.5);
+            --yellow: #d29922;
+            --yellow-dim: rgba(210, 153, 34, 0.15);
+            --yellow-glow: rgba(210, 153, 34, 0.4);
+            --cyan: #58a6ff;
+            --purple: #bc8cff;
+
+            --text: #e6edf3;
+            --text-secondary: #8b949e;
+            --text-dim: #484f58;
         }
 
         body {
-            font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
-            background-color: #010409;
-            color: var(--text-main);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: var(--bg-deep);
+            color: var(--text);
             min-height: 100vh;
             display: flex;
             justify-content: center;
             align-items: center;
             padding: 16px;
-            background-image: 
-                linear-gradient(rgba(48, 54, 61, 0.2) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(48, 54, 61, 0.2) 1px, transparent 1px);
-            background-size: 28px 28px;
+            background-image:
+                radial-gradient(ellipse 80% 50% at 50% -20%, rgba(88, 166, 255, 0.06), transparent),
+                linear-gradient(rgba(48, 54, 61, 0.12) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(48, 54, 61, 0.12) 1px, transparent 1px);
+            background-size: 100% 100%, 24px 24px, 24px 24px;
         }
 
-        /* Main IDE Window */
-        .ide-window {
+        /* ═══ Main Window ═══ */
+        .app-window {
             width: 100%;
-            max-width: 720px;
-            background: var(--ide-bg);
-            border: 1px solid var(--ide-border);
-            border-radius: 10px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8), 0 0 20px rgba(88, 166, 255, 0.08);
+            max-width: 700px;
+            background: var(--bg-main);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            box-shadow:
+                0 24px 80px rgba(0, 0, 0, 0.7),
+                0 0 0 1px rgba(255, 255, 255, 0.03) inset;
             overflow: hidden;
-            animation: ideScan 0.4s ease-out;
+            animation: windowIn 0.35s ease-out;
         }
 
-        @keyframes ideScan {
-            from { opacity: 0; transform: translateY(12px); }
-            to { opacity: 1; transform: translateY(0); }
+        @keyframes windowIn {
+            from { opacity: 0; transform: translateY(16px) scale(0.98); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
         }
 
-        /* Title Bar */
-        .ide-titlebar {
-            background: var(--ide-panel);
-            padding: 10px 16px;
+        /* ═══ Header Bar ═══ */
+        .header-bar {
+            background: var(--bg-panel);
+            padding: 14px 20px;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            border-bottom: 1px solid var(--ide-border);
-            user-select: none;
+            border-bottom: 1px solid var(--border);
+            gap: 12px;
         }
-        .window-controls { display: flex; gap: 8px; }
-        .win-btn { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
-        .win-close { background: #ff5f56; }
-        .win-min { background: #ffbd2e; }
-        .win-max { background: #27c93f; }
 
-        .ide-breadcrumbs {
-            font-size: 0.76rem;
-            color: var(--text-dim);
+        .header-left {
             display: flex;
             align-items: center;
-            gap: 6px;
+            gap: 12px;
         }
-        .ide-breadcrumbs span.path { color: var(--neon-cyan); }
-        .ide-breadcrumbs span.file { color: #a5d6ff; font-weight: 600; }
 
+        .window-dots {
+            display: flex;
+            gap: 7px;
+        }
+        .dot {
+            width: 11px; height: 11px;
+            border-radius: 50%;
+            transition: opacity 0.2s;
+        }
+        .dot:hover { opacity: 0.7; }
+        .dot-red { background: #ff5f56; }
+        .dot-yellow { background: #ffbd2e; }
+        .dot-green { background: #27c93f; }
+
+        .app-title {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.82rem;
+            font-weight: 700;
+            color: var(--text);
+            letter-spacing: 0.02em;
+        }
+        .app-title .accent { color: var(--cyan); }
+
+        /* ═══ Status Pill (top-right) ═══ */
         .status-pill {
-            font-size: 0.7rem;
-            padding: 3px 10px;
-            border-radius: 12px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.68rem;
+            font-weight: 700;
+            padding: 5px 14px;
+            border-radius: 20px;
             display: inline-flex;
             align-items: center;
-            gap: 6px;
-            font-weight: 700;
-            background: rgba(63, 185, 80, 0.15);
-            color: var(--neon-green);
-            border: 1px solid rgba(63, 185, 80, 0.3);
+            gap: 7px;
             text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-        .status-pill.offline {
-            background: rgba(248, 81, 73, 0.15);
-            color: var(--neon-red);
-            border-color: rgba(248, 81, 73, 0.3);
-        }
-        .status-pill.checking {
-            background: rgba(88, 166, 255, 0.15);
-            color: var(--neon-cyan);
-            border-color: rgba(88, 166, 255, 0.3);
-        }
-        .status-pill .pulse-dot {
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-            background: currentColor;
-            box-shadow: 0 0 8px currentColor;
-            animation: pulseGlow 1.5s infinite alternate;
-        }
-        @keyframes pulseGlow {
-            0% { opacity: 0.4; }
-            100% { opacity: 1; }
+            letter-spacing: 0.06em;
+            white-space: nowrap;
+            transition: all 0.3s ease;
         }
 
-        /* Controls Section */
-        .controls-section {
-            padding: 16px;
-            background: rgba(22, 27, 34, 0.6);
-            border-bottom: 1px solid var(--ide-border);
+        .status-pill.connected {
+            background: var(--green-dim);
+            color: var(--green);
+            border: 1px solid rgba(63, 185, 80, 0.35);
+            box-shadow: 0 0 12px var(--green-glow);
         }
-        .btn-grid {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
+        .status-pill.disconnected {
+            background: var(--red-dim);
+            color: var(--red);
+            border: 1px solid rgba(248, 81, 73, 0.35);
+            box-shadow: 0 0 12px var(--red-glow);
+        }
+        .status-pill.loading {
+            background: var(--yellow-dim);
+            color: var(--yellow);
+            border: 1px solid rgba(210, 153, 34, 0.35);
+            box-shadow: 0 0 12px var(--yellow-glow);
+        }
+        .status-pill.idle {
+            background: rgba(139, 148, 158, 0.1);
+            color: var(--text-secondary);
+            border: 1px solid rgba(139, 148, 158, 0.2);
+        }
+
+        .status-indicator {
+            width: 7px; height: 7px;
+            border-radius: 50%;
+            background: currentColor;
+            flex-shrink: 0;
+        }
+        .status-pill.connected .status-indicator {
+            box-shadow: 0 0 6px currentColor;
+            animation: pulse 2s infinite ease-in-out;
+        }
+        .status-pill.loading .status-indicator {
+            animation: spinDot 1s linear infinite;
+            width: 10px; height: 10px;
+            border-radius: 50%;
+            background: transparent;
+            border: 2px solid transparent;
+            border-top-color: currentColor;
+            border-right-color: currentColor;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+        @keyframes spinDot {
+            100% { transform: rotate(360deg); }
+        }
+
+        /* ═══ Controls Section ═══ */
+        .controls-section {
+            padding: 16px 20px;
+            background: rgba(22, 27, 34, 0.5);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
             gap: 10px;
         }
 
-        .run-btn {
+        .action-btn {
             font-family: 'JetBrains Mono', monospace;
-            font-size: 0.76rem;
+            font-size: 0.78rem;
             font-weight: 700;
-            padding: 10px 14px;
-            border-radius: 6px;
-            border: 1px solid currentColor;
+            padding: 10px 24px;
+            border-radius: 8px;
+            border: 1px solid;
             cursor: pointer;
             background: transparent;
-            white-space: nowrap;
-            transition: all 0.2s ease;
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            gap: 6px;
+            gap: 8px;
+            transition: all 0.2s ease;
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+        }
+        .action-btn:active { transform: scale(0.96); }
+        .action-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            transform: none !important;
         }
 
-        .run-btn-start {
-            color: var(--neon-green);
+        .btn-start {
+            color: var(--green);
             border-color: rgba(63, 185, 80, 0.4);
-            background: rgba(63, 185, 80, 0.08);
+            background: rgba(63, 185, 80, 0.06);
         }
-        .run-btn-start:hover {
-            background: var(--neon-green);
+        .btn-start:hover:not(:disabled) {
+            background: var(--green);
             color: #000;
-            box-shadow: 0 0 15px var(--neon-green-glow);
+            box-shadow: 0 0 20px var(--green-glow), 0 4px 12px rgba(63, 185, 80, 0.3);
         }
 
-        .run-btn-stop {
-            color: var(--neon-red);
+        .btn-stop {
+            color: var(--red);
             border-color: rgba(248, 81, 73, 0.4);
-            background: rgba(248, 81, 73, 0.08);
+            background: rgba(248, 81, 73, 0.06);
         }
-        .run-btn-stop:hover {
-            background: var(--neon-red);
+        .btn-stop:hover:not(:disabled) {
+            background: var(--red);
             color: #fff;
-            box-shadow: 0 0 15px var(--neon-red-glow);
+            box-shadow: 0 0 20px var(--red-glow), 0 4px 12px rgba(248, 81, 73, 0.3);
         }
 
-        .run-btn-sync {
-            color: var(--neon-cyan);
+        .btn-settings {
+            color: var(--text-secondary);
+            border-color: var(--border);
+            background: rgba(139, 148, 158, 0.05);
+            flex: 0;
+            padding: 10px 14px;
+        }
+        .btn-settings:hover:not(:disabled) {
+            color: var(--cyan);
             border-color: rgba(88, 166, 255, 0.4);
             background: rgba(88, 166, 255, 0.08);
         }
-        .run-btn-sync:hover {
-            background: var(--neon-cyan);
-            color: #000;
-            box-shadow: 0 0 15px var(--neon-cyan-glow);
+        .btn-settings span {
+            display: inline-block;
+            transition: transform 0.3s ease;
         }
+        .btn-settings:hover span { transform: rotate(90deg); }
 
-        .run-btn-auth {
-            color: var(--neon-amber);
-            border-color: rgba(210, 153, 34, 0.4);
-            background: rgba(210, 153, 34, 0.08);
-        }
-        .run-btn-auth:hover {
-            background: var(--neon-amber);
-            color: #000;
-            box-shadow: 0 0 15px var(--neon-amber-glow);
-        }
-
-        .run-btn:active { transform: scale(0.96); }
-
-        /* GitHub Actions Workflow Section */
-        .workflow-header {
-            background: #161b22;
-            padding: 10px 16px;
-            font-size: 0.76rem;
-            border-bottom: 1px solid var(--ide-border);
+        /* ═══ Workflow Info Bar ═══ */
+        .info-bar {
+            padding: 8px 20px;
+            background: var(--bg-panel);
+            border-bottom: 1px solid var(--border);
             display: flex;
             align-items: center;
             justify-content: space-between;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.72rem;
         }
-        .workflow-title {
-            color: var(--neon-purple);
+        .info-left {
+            color: var(--purple);
             font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .info-right {
+            color: var(--text-dim);
+        }
+
+        /* ═══ Terminal / Logs Panel ═══ */
+        .terminal-panel {
+            background: var(--bg-terminal);
+            padding: 14px 18px;
+            height: 400px;
+            overflow-y: auto;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.74rem;
+            line-height: 1.65;
+            color: var(--text-secondary);
+            scrollbar-width: thin;
+            scrollbar-color: var(--border) transparent;
+            position: relative;
+        }
+        .terminal-panel::-webkit-scrollbar { width: 6px; }
+        .terminal-panel::-webkit-scrollbar-track { background: transparent; }
+        .terminal-panel::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 3px;
+        }
+
+        .log-line {
+            padding: 1px 0;
+            word-break: break-all;
+            white-space: pre-wrap;
+            animation: lineSlide 0.12s ease-out;
+        }
+        @keyframes lineSlide {
+            from { opacity: 0; transform: translateX(-6px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        .log-line.ok { color: var(--green); }
+        .log-line.err { color: var(--red); }
+        .log-line.warn { color: var(--yellow); }
+        .log-line.sys { color: var(--purple); }
+        .log-line.cmd { color: var(--cyan); font-weight: 600; }
+        .log-line.dim { color: var(--text-dim); }
+
+        .terminal-empty {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: var(--text-dim);
+            font-size: 0.78rem;
+            user-select: none;
+        }
+        .terminal-empty .big-icon { font-size: 2rem; margin-bottom: 8px; display: block; opacity: 0.4; }
+
+        /* ═══ Settings Modal ═══ */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(1, 4, 9, 0.85);
+            backdrop-filter: blur(8px);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            animation: fadeIn 0.2s ease-out;
+        }
+        .modal-overlay.active { display: flex; }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .modal-box {
+            background: var(--bg-main);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 28px 24px;
+            width: 90%;
+            max-width: 420px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
+            animation: modalSlide 0.25s ease-out;
+        }
+        @keyframes modalSlide {
+            from { opacity: 0; transform: translateY(20px) scale(0.95); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        .modal-title {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+            font-weight: 700;
+            color: var(--text);
+            margin-bottom: 6px;
             display: flex;
             align-items: center;
             gap: 8px;
         }
-        .workflow-time { color: var(--text-dim); font-size: 0.72rem; }
-
-        /* Workflow Steps Breakdown */
-        .steps-container {
-            padding: 10px 16px;
-            background: #0d1117;
-            border-bottom: 1px solid var(--ide-border);
-            font-size: 0.74rem;
+        .modal-desc {
+            font-size: 0.78rem;
+            color: var(--text-secondary);
+            margin-bottom: 18px;
+            line-height: 1.5;
         }
-        .step-item {
+
+        .modal-input {
+            width: 100%;
+            padding: 10px 14px;
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.78rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .modal-input:focus { border-color: var(--cyan); }
+        .modal-input::placeholder { color: var(--text-dim); }
+
+        .modal-actions {
             display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 4px 0;
-            border-bottom: 1px dashed rgba(48, 54, 61, 0.5);
+            gap: 10px;
+            margin-top: 18px;
         }
-        .step-item:last-child { border-bottom: none; }
-        .step-name { display: flex; align-items: center; gap: 8px; }
-        .step-icon-success { color: var(--neon-green); }
-        .step-icon-running { color: var(--neon-cyan); animation: spin 1.2s linear infinite; display: inline-block; }
-        .step-icon-pending { color: var(--text-dim); }
-        .step-icon-failed { color: var(--neon-red); }
-        .step-duration { color: var(--text-dim); font-size: 0.7rem; }
-
-        @keyframes spin { 100% { transform: rotate(360deg); } }
-
-        /* Terminal Window */
-        .terminal-panel {
-            background: #040d14;
-            padding: 16px;
-            height: 320px;
-            overflow-y: auto;
+        .modal-btn {
+            font-family: 'JetBrains Mono', monospace;
             font-size: 0.76rem;
-            line-height: 1.6;
-            color: #c9d1d9;
-            scrollbar-width: thin;
-            scrollbar-color: var(--ide-border) transparent;
+            font-weight: 600;
+            padding: 9px 18px;
+            border-radius: 8px;
+            border: 1px solid;
+            cursor: pointer;
+            transition: all 0.2s;
+            flex: 1;
         }
-
-        .log-line {
-            padding: 2px 0;
-            word-break: break-all;
-            white-space: pre-wrap;
-            animation: lineFade 0.15s ease-out;
+        .modal-btn-save {
+            background: var(--green);
+            color: #000;
+            border-color: var(--green);
         }
-        @keyframes lineFade {
-            from { opacity: 0; transform: translateX(-4px); }
-            to { opacity: 1; transform: translateX(0); }
+        .modal-btn-save:hover { box-shadow: 0 0 16px var(--green-glow); }
+        .modal-btn-cancel {
+            background: transparent;
+            color: var(--text-secondary);
+            border-color: var(--border);
         }
+        .modal-btn-cancel:hover { color: var(--text); border-color: var(--text-dim); }
 
-        .log-line.cmd { color: var(--neon-cyan); font-weight: bold; }
-        .log-line.ok { color: var(--neon-green); }
-        .log-line.err { color: var(--neon-red); }
-        .log-line.warn { color: var(--neon-amber); }
-        .log-line.sys { color: var(--neon-purple); }
-
-        /* IDE Status Bar at Bottom */
-        .ide-statusbar {
-            background: var(--ide-panel);
-            border-top: 1px solid var(--ide-border);
-            padding: 6px 14px;
-            font-size: 0.7rem;
-            color: var(--text-dim);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            user-select: none;
+        /* ═══ Loader Overlay ═══ */
+        .btn-loader {
+            display: none;
+            width: 14px; height: 14px;
+            border: 2px solid transparent;
+            border-top-color: currentColor;
+            border-right-color: currentColor;
+            border-radius: 50%;
+            animation: spinDot 0.7s linear infinite;
         }
-        .statusbar-left, .statusbar-right { display: flex; align-items: center; gap: 14px; }
-        .statusbar-item { display: flex; align-items: center; gap: 4px; }
-        .statusbar-item.branch { color: var(--neon-cyan); }
+        .action-btn.loading .btn-text { display: none; }
+        .action-btn.loading .btn-loader { display: inline-block; }
 
-        /* Responsive */
-        @media (max-width: 640px) {
+        /* ═══ Responsive ═══ */
+        @media (max-width: 600px) {
             body { padding: 8px; }
-            .btn-grid { grid-template-columns: repeat(2, 1fr); }
-            .terminal-panel { height: 280px; font-size: 0.72rem; }
+            .terminal-panel { height: 320px; font-size: 0.7rem; }
+            .action-btn { padding: 10px 16px; font-size: 0.72rem; }
+            .header-bar { padding: 12px 14px; }
+            .controls-section { padding: 12px 14px; }
         }
     </style>
 </head>
 <body>
 
-<div class="ide-window">
-    <!-- Window Header -->
-    <div class="ide-titlebar">
-        <div class="window-controls">
-            <span class="win-btn win-close"></span>
-            <span class="win-btn win-min"></span>
-            <span class="win-btn win-max"></span>
+<div class="app-window">
+    <!-- ═══ Header ═══ -->
+    <div class="header-bar">
+        <div class="header-left">
+            <div class="window-dots">
+                <span class="dot dot-red"></span>
+                <span class="dot dot-yellow"></span>
+                <span class="dot dot-green"></span>
+            </div>
+            <span class="app-title"><span class="accent">⚡</span> DanieWatch Bot</span>
         </div>
-        <div class="ide-breadcrumbs">
-            <span class="path">actions</span> / <span class="file">run-bot-task</span>
-        </div>
-        <div class="status-pill checking" id="statusPill">
-            <span class="pulse-dot"></span>
-            <span id="statusLabel">SYNCING...</span>
+        <div class="status-pill idle" id="statusPill">
+            <span class="status-indicator"></span>
+            <span id="statusLabel">CHECKING...</span>
         </div>
     </div>
 
-    <!-- Controls Bar -->
+    <!-- ═══ Controls ═══ -->
     <div class="controls-section">
-        <div class="btn-grid">
-            <button class="run-btn run-btn-start" id="startBtn" onclick="startBot()">▶ START</button>
-            <button class="run-btn run-btn-stop" id="stopBtn" onclick="stopBot()">■ STOP</button>
-            <button class="run-btn run-btn-sync" onclick="checkStatus(true)">↻ REFRESH</button>
-            <button class="run-btn run-btn-auth" onclick="resetToken()">🔑 TOKEN</button>
-        </div>
+        <button class="action-btn btn-start" id="startBtn" onclick="startBot()">
+            <span class="btn-text">▶ START</span>
+            <span class="btn-loader"></span>
+        </button>
+        <button class="action-btn btn-stop" id="stopBtn" onclick="stopBot()">
+            <span class="btn-text">■ STOP</span>
+            <span class="btn-loader"></span>
+        </button>
+        <button class="action-btn btn-settings" id="settingsBtn" onclick="openSettings()" title="Settings">
+            <span style="font-size:1.1rem;">⚙</span>
+        </button>
     </div>
 
-    <!-- GitHub Actions Job & Steps Progress Header -->
-    <div class="workflow-header">
-        <div class="workflow-title" id="jobTitle">
-            ⚡ run-bot-task
+    <!-- ═══ Info Bar ═══ -->
+    <div class="info-bar">
+        <div class="info-left">
+            <span>⚡</span>
+            <span id="jobTitle">run-bot-task</span>
         </div>
-        <div class="workflow-time" id="jobTime">
-            Started -- ago
-        </div>
+        <div class="info-right" id="jobTime">--</div>
     </div>
 
-    <div class="steps-container" id="stepsContainer">
-        <div class="step-item">
-            <span class="step-name"><span class="step-icon-pending">⏳</span> Loading GitHub Actions pipeline...</span>
-            <span class="step-duration">--</span>
-        </div>
-    </div>
-
-    <!-- Live Execution Terminal -->
+    <!-- ═══ Terminal Logs ═══ -->
     <div class="terminal-panel" id="terminalPanel">
-        <div class="log-line sys">[SYSTEM] Connecting to GitHub Actions runner...</div>
-    </div>
-
-    <!-- IDE Status Bar -->
-    <div class="ide-statusbar">
-        <div class="statusbar-left">
-            <div class="statusbar-item branch"> main</div>
-            <div class="statusbar-item" id="runInfo">Run #--</div>
+        <div class="terminal-empty" id="terminalEmpty">
+            <span class="big-icon">📡</span>
+            Waiting for connection...
         </div>
-        <div class="statusbar-right">
-            <div class="statusbar-item">GitHub Actions</div>
-            <div class="statusbar-item" style="color: var(--neon-green)">● Live Sync</div>
+    </div>
+</div>
+
+<!-- ═══ Settings Modal ═══ -->
+<div class="modal-overlay" id="settingsModal">
+    <div class="modal-box">
+        <div class="modal-title">⚙️ Settings</div>
+        <div class="modal-desc">Enter your GitHub Personal Access Token (PAT) to control the bot via GitHub Actions API.</div>
+        <input type="password" class="modal-input" id="tokenInput" placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" autocomplete="off">
+        <div class="modal-actions">
+            <button class="modal-btn modal-btn-cancel" onclick="closeSettings()">Cancel</button>
+            <button class="modal-btn modal-btn-save" onclick="saveToken()">Save Token</button>
         </div>
     </div>
 </div>
@@ -365,84 +513,240 @@
 <script>
     const OWNER = 'griffithbuildwiseestimation-cmd';
     const REPO = 'whatsapp-bot';
+
     let pollTimer = null;
     let activeRunId = null;
     let activeJobId = null;
-    let lastFetchedLogs = '';
+    let lastLogHash = '';
+    let currentState = 'idle'; // idle | connecting | connected | cancelling | cancelled | error
+    let startInProgress = false;
+    let stopInProgress = false;
+    let dispatchTime = 0;
 
-    // ── Log Line Streamer ──
-    function appendTerminalLog(text, styleClass = '') {
+    // ══════ Startup Log Noise Filters ══════
+    const NOISE_REGEX = [
+        /^\+\s+\S+\s+[\d\.]+/,                        // + package-name 1.2.3  (pnpm install lines)
+        /^\s*[\{\}\[\]],?\s*$/,                        // bare { } [ ] lines (JSON dumps)
+        /^\s*'[^']+': \{/,                              // 'key': { object starts
+        /^\s*\w+:\s*(<Buffer|\[Object\]|\d+,?$)/,      // key: <Buffer ...> or key: [Object]
+        /^shell:\s/,                                     // shell: /usr/bin/bash
+        /^env:/,                                         // env:
+        /^\s*(PNPM_HOME|SUPABASE_|BOT_NUMBER|SUDO|CF_WORKER|OWNER_NAME|MAX_RUN_TIME)/, // env var lines
+        /^\[command\]/,                                  // [command]/usr/bin/git ...
+        /^\s*git version/,                               // git version 2.x
+        /^Temporarily overriding HOME/,
+        /^Adding repository directory/,
+        /^╭|^│|^╰/,                                      // pnpm box-drawing warning frames
+        /^Done in .*using pnpm/,                         // Done in 10.3s using pnpm
+        /^\[\d+m/,                                       // ANSI escape: [36;1m ...
+        /^\x1b\[/,                                       // raw ANSI escapes
+        /^\s*Node \d+ is being deprecated/,              // Node 20 deprecation
+        /^##\[/,                                         // ##[group], ##[endgroup], ##[error], ##[warning]
+        /^Post job cleanup/,
+        /^Pruning is unnecessary/,
+        /^Cleaning up orphan/,
+        /^Terminate orphan process/,
+        /^Run "pnpm approve-builds"/,
+        /^Ignored build scripts/,
+        /^http\.https/,                                   // http.https://github.com/... git config
+        /^\s*<-\s+@/,                                    // <- @whiskeysockets alias line
+        /^daniewatch-baileys/,
+    ];
+
+    const NOISE_STRINGS = [
+        'Restoring session from Supabase',
+        'SingleInstance',
+        'Initializing single-instance guard',
+        'session files from Supabase',
+        'Auto-restart timer active',
+        'Server listening on port',
+        'Using local session credentials',
+        'directory already exists',
+        '_chains:', 'chainKey:', 'chainType:', 'messageKeys:',
+        'registrationId:', 'currentRatchet:', 'ephemeralKeyPair:',
+        'pubKey:', 'privKey:', '<Buffer',
+        'lastRemoteEphemeralKey:', 'previousCounter:', 'rootKey:',
+        'indexInfo:', 'baseKey:', 'baseKeyType:',
+        'closed:', 'used:', 'created:', 'remoteIdentityKey:',
+        'Hosted Compute Agent',
+        'Run echo', 'echo "',
+        'Backing up updated session',
+        'pnpm exec node',
+        'Uploading active WhatsApp session',
+        'Uploaded session',
+        'uploaded to Supabase',
+        'node start.js',
+        'pnpm install',
+        'safe.directory',
+        'safe directory',
+        'submodule foreach',
+        'extraheader',
+        'unset-all',
+        'includeIf.gitdir',
+        'remote.origin.url',
+        'The operation was canceled',
+        'actions/checkout',
+        'actions/setup-node',
+        'pnpm/action-setup',
+        'ACTIONS_ALLOW_USE_UNSECURE',
+        'github.blog/changelog',
+    ];
+
+    // ══════ Terminal Helpers ══════
+    function appendLog(text, cls = '') {
         const terminal = document.getElementById('terminalPanel');
+        const empty = document.getElementById('terminalEmpty');
+        if (empty) empty.remove();
+
         const line = document.createElement('div');
-        line.className = 'log-line ' + styleClass;
+        line.className = 'log-line ' + cls;
         line.textContent = text;
         terminal.appendChild(line);
         terminal.scrollTop = terminal.scrollHeight;
 
-        while (terminal.querySelectorAll('.log-line').length > 120) {
+        // Keep max 100 lines
+        const lines = terminal.querySelectorAll('.log-line');
+        while (lines.length > 100) {
             terminal.querySelector('.log-line').remove();
         }
     }
 
     function clearTerminal() {
-        document.getElementById('terminalPanel').innerHTML = '';
+        const terminal = document.getElementById('terminalPanel');
+        terminal.innerHTML = '<div class="terminal-empty" id="terminalEmpty"><span class="big-icon">📡</span>Waiting for connection...</div>';
     }
 
-    // ── Status Pill Setter ──
-    function setStatusPill(state, text) {
+    // ══════ Status Management ══════
+    function setStatus(state, label) {
+        currentState = state;
         const pill = document.getElementById('statusPill');
-        const label = document.getElementById('statusLabel');
-        pill.className = 'status-pill ' + state;
-        label.textContent = text;
+        const lbl = document.getElementById('statusLabel');
+
+        pill.classList.remove('connected', 'disconnected', 'loading', 'idle');
+
+        switch (state) {
+            case 'connected':
+                pill.classList.add('connected');
+                break;
+            case 'cancelled':
+            case 'stopped':
+            case 'failed':
+            case 'error':
+                pill.classList.add('disconnected');
+                break;
+            case 'connecting':
+            case 'cancelling':
+            case 'starting':
+            case 'stopping':
+            case 'booting':
+                pill.classList.add('loading');
+                break;
+            default:
+                pill.classList.add('idle');
+                break;
+        }
+
+        lbl.textContent = label;
     }
 
-    // ── Token Management ──
+    // ══════ Button States ══════
+    function setButtonLoading(btnId, isLoading) {
+        const btn = document.getElementById(btnId);
+        if (isLoading) {
+            btn.classList.add('loading');
+            btn.disabled = true;
+        } else {
+            btn.classList.remove('loading');
+            btn.disabled = false;
+        }
+    }
+
+    function updateButtons(isRunning) {
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+
+        if (startInProgress) {
+            startBtn.disabled = true;
+            stopBtn.disabled = true;
+            return;
+        }
+        if (stopInProgress) {
+            startBtn.disabled = true;
+            stopBtn.disabled = true;
+            return;
+        }
+
+        startBtn.classList.remove('loading');
+        stopBtn.classList.remove('loading');
+
+        if (isRunning) {
+            startBtn.disabled = true;
+            stopBtn.disabled = false;
+        } else {
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+        }
+    }
+
+    // ══════ Token Management ══════
     function getToken() {
         let token = localStorage.getItem('GH_TOKEN');
         if (!token) {
-            token = prompt('Enter your GitHub Personal Access Token (PAT):');
-            if (token) {
-                token = token.trim();
-                localStorage.setItem('GH_TOKEN', token);
-                appendTerminalLog('[AUTH] PAT Token saved to local storage.', 'ok');
-            }
+            openSettings();
+            return null;
         }
         return token;
     }
 
-    function resetToken() {
-        localStorage.removeItem('GH_TOKEN');
-        const newToken = prompt('Enter new GitHub Personal Access Token (PAT):');
-        if (newToken) {
-            localStorage.setItem('GH_TOKEN', newToken.trim());
-            appendTerminalLog('[AUTH] PAT Token updated successfully.', 'ok');
+    function openSettings() {
+        const modal = document.getElementById('settingsModal');
+        const input = document.getElementById('tokenInput');
+        input.value = localStorage.getItem('GH_TOKEN') || '';
+        modal.classList.add('active');
+        setTimeout(() => input.focus(), 100);
+    }
+
+    function closeSettings() {
+        document.getElementById('settingsModal').classList.remove('active');
+    }
+
+    function saveToken() {
+        const input = document.getElementById('tokenInput');
+        const val = input.value.trim();
+        if (val) {
+            localStorage.setItem('GH_TOKEN', val);
+            appendLog('[AUTH] Token saved successfully.', 'ok');
+            closeSettings();
             checkStatus(true);
         }
     }
 
-    // ── Format Duration ──
-    function formatStepDuration(startedAt, completedAt) {
-        if (!startedAt) return '--';
-        const start = new Date(startedAt).getTime();
-        const end = completedAt ? new Date(completedAt).getTime() : Date.now();
-        const diffSec = Math.max(0, Math.floor((end - start) / 1000));
-        if (diffSec < 60) return diffSec + 's';
-        const min = Math.floor(diffSec / 60);
-        const sec = diffSec % 60;
-        return `${min}m ${sec}s`;
-    }
+    // Close modal on overlay click
+    document.getElementById('settingsModal').addEventListener('click', function(e) {
+        if (e.target === this) closeSettings();
+    });
 
+    // ══════ Time Formatting ══════
     function formatTimeAgo(startedAt) {
-        if (!startedAt) return 'Started -- ago';
-        const start = new Date(startedAt).getTime();
-        const diffSec = Math.max(0, Math.floor((Date.now() - start) / 1000));
+        if (!startedAt) return '--';
+        const diffSec = Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000));
         if (diffSec < 60) return `Started ${diffSec}s ago`;
         const min = Math.floor(diffSec / 60);
         const sec = diffSec % 60;
-        return `Started ${min}m ${sec}s ago`;
+        if (min < 60) return `Started ${min}m ${sec}s ago`;
+        const hr = Math.floor(min / 60);
+        return `Started ${hr}h ${min % 60}m ago`;
     }
 
-    // ── Fetch Steps & Live Console Logs ──
+    function classifyLogLine(line) {
+        if (line.includes('✅') || line.includes('connected') || line.includes('[OK]') || line.toLowerCase().includes('success')) return 'ok';
+        if (line.includes('❌') || line.includes('Error') || line.includes('FAILED') || line.includes('[ERR]') || line.includes('error')) return 'err';
+        if (line.includes('⚠️') || line.includes('warn') || line.includes('[WARN]')) return 'warn';
+        if (line.startsWith('[') || line.includes('Run ')) return 'cmd';
+        return '';
+    }
+
+    // ══════ Fetch Logs & Details ══════
     async function fetchWorkflowDetails(runId, token) {
         try {
             const jobsRes = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/actions/runs/${runId}/jobs`, {
@@ -455,89 +759,94 @@
 
             activeJobId = job.id;
 
-            // Render Job Title & Time
-            document.getElementById('jobTitle').innerHTML = `⚡ ${job.name} <span style="font-size:0.7rem; color:var(--text-dim);">(${job.status})</span>`;
+            // Update info bar
+            document.getElementById('jobTitle').textContent = `${job.name}`;
             document.getElementById('jobTime').textContent = formatTimeAgo(job.started_at);
 
-            // Render Steps List
-            const stepsContainer = document.getElementById('stepsContainer');
-            stepsContainer.innerHTML = '';
-
-            if (job.steps && job.steps.length > 0) {
-                job.steps.forEach(step => {
-                    let iconHtml = '<span class="step-icon-pending">⏳</span>';
-                    if (step.status === 'completed') {
-                        if (step.conclusion === 'success') iconHtml = '<span class="step-icon-success">✓</span>';
-                        else iconHtml = '<span class="step-icon-failed">✗</span>';
-                    } else if (step.status === 'in_progress') {
-                        iconHtml = '<span class="step-icon-running">⚙</span>';
-                    }
-
-                    const dur = formatStepDuration(step.started_at, step.completed_at);
-                    const item = document.createElement('div');
-                    item.className = 'step-item';
-                    item.innerHTML = `
-                        <span class="step-name">${iconHtml} ${step.name}</span>
-                        <span class="step-duration">${dur}</span>
-                    `;
-                    stepsContainer.appendChild(item);
-                });
-            }
-
-            // Fetch Live Raw Logs if job has started
+            // Fetch logs
             const logsRes = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/actions/jobs/${job.id}/logs`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
 
             if (logsRes.ok) {
                 const rawLogs = await logsRes.text();
-                if (rawLogs && rawLogs !== lastFetchedLogs) {
-                    lastFetchedLogs = rawLogs;
-                    renderCleanRawLogs(rawLogs);
+                // Simple hash to detect changes
+                const hash = rawLogs.length + '_' + rawLogs.slice(-200);
+                if (hash !== lastLogHash) {
+                    lastLogHash = hash;
+                    renderFilteredLogs(rawLogs, job.status, job.conclusion);
                 }
             }
         } catch (e) {
-            console.error('Fetch Workflow Details error:', e);
+            console.error('fetchWorkflowDetails error:', e);
         }
     }
 
-    // ── Parse & Clean Raw GitHub Logs ──
-    function renderCleanRawLogs(rawLogsText) {
-        clearTerminal();
-        const lines = rawLogsText.split('\n');
-        lines.forEach(line => {
-            if (!line.trim()) return;
-            // Remove GitHub ISO timestamp prefix (e.g. 2026-08-07T22:27:18.7631839Z )
+    // ══════ Render Filtered Logs ══════
+    function renderFilteredLogs(rawText, jobStatus, jobConclusion) {
+        const terminal = document.getElementById('terminalPanel');
+        const empty = document.getElementById('terminalEmpty');
+        if (empty) empty.remove();
+
+        const lines = rawText.split('\n');
+        const cleanLines = [];
+
+        for (const line of lines) {
+            if (!line.trim()) continue;
             let clean = line.replace(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z\s*/, '').trim();
-            if (!clean) return;
+            if (!clean) continue;
 
-            // Skip GitHub runner noise groups & legacy framework welcome log lines
-            if (clean.startsWith('##[group]') || clean.startsWith('##[endgroup]') || clean.includes('Hosted Compute Agent') || clean.includes('Welcome message sent')) return;
+            // Filter setup and runner noise
+            if (NOISE_REGEX.some(rx => rx.test(clean))) continue;
+            if (NOISE_STRINGS.some(s => clean.includes(s))) continue;
 
-            let styleClass = '';
-            if (clean.includes('🚀') || clean.includes('📁') || clean.includes('✅') || clean.includes('connected')) styleClass = 'ok';
-            else if (clean.includes('❌') || clean.includes('Error') || clean.includes('FAILED')) styleClass = 'err';
-            else if (clean.includes('⚠️') || clean.includes('warn') || clean.includes('Closing session')) styleClass = 'warn';
-            else if (clean.startsWith('Run ') || clean.startsWith('echo')) styleClass = 'cmd';
+            cleanLines.push(clean);
+        }
 
-            appendTerminalLog(clean, styleClass);
-        });
+        if (cleanLines.length === 0) {
+            if (!document.getElementById('terminalEmpty')) {
+                terminal.innerHTML = '<div class="terminal-empty" id="terminalEmpty"><span class="big-icon">📡</span>Waiting for bot output...</div>';
+            }
+            return;
+        }
+
+        // Clear existing log lines
+        terminal.querySelectorAll('.log-line').forEach(l => l.remove());
+
+        // Take last 100 lines
+        const lastLines = cleanLines.slice(-100);
+        for (const cl of lastLines) {
+            const div = document.createElement('div');
+            div.className = 'log-line ' + classifyLogLine(cl);
+            div.textContent = cl;
+            terminal.appendChild(div);
+        }
+
+        terminal.scrollTop = terminal.scrollHeight;
     }
 
-    // ── Status Check Function ──
+    // ══════ Check Status ══════
     async function checkStatus(isManual = false) {
         const token = getToken();
-        if (!token) { setStatusPill('checking', 'NO TOKEN'); return; }
-        if (isManual) setStatusPill('checking', 'SYNCING...');
+        if (!token) {
+            setStatus('idle', 'NO TOKEN');
+            return;
+        }
+
+        if (isManual && !startInProgress && !stopInProgress) {
+            setStatus('connecting', 'SYNCING...');
+        }
 
         try {
             const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/actions/runs?per_page=1`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
+
             if (res.status === 401) {
                 localStorage.removeItem('GH_TOKEN');
-                setStatusPill('offline', 'AUTH ERR');
-                appendTerminalLog('[ERR] 401 Unauthorized — bad PAT token. Click TOKEN to update.', 'err');
+                setStatus('error', 'AUTH ERROR');
+                appendLog('[ERR] Invalid token. Open Settings to update.', 'err');
+                updateButtons(false);
                 return;
             }
 
@@ -545,38 +854,98 @@
             const run = (data.workflow_runs || [])[0];
 
             if (!run) {
-                setStatusPill('offline', 'NO RUNS');
-                if (isManual) appendTerminalLog('[INFO] No workflow runs recorded yet.', 'sys');
+                if (!startInProgress && !stopInProgress) {
+                    setStatus('idle', 'NO RUNS');
+                    updateButtons(false);
+                }
+                return;
+            }
+
+            const runTime = new Date(run.created_at).getTime();
+
+            // If we recently dispatched a start, ignore old runs created before dispatch
+            if (startInProgress && runTime < dispatchTime - 5000) {
+                // Runner is still booting up on GitHub Actions
+                setStatus('booting', 'BOOTING...');
                 return;
             }
 
             activeRunId = run.id;
-            document.getElementById('runInfo').textContent = `Run #${run.run_number}`;
 
             if (run.status === 'in_progress' || run.status === 'queued') {
-                setStatusPill('', `RUNNING #${run.run_number}`);
-                if (isManual) appendTerminalLog(`[STATUS] Workflow RUNNING (Run #${run.run_number})`, 'ok');
-                fetchWorkflowDetails(run.id, token);
+                startInProgress = false;
+                if (!stopInProgress) {
+                    setStatus('connected', 'CONNECTED');
+                    updateButtons(true);
+                }
+                await fetchWorkflowDetails(run.id, token);
             } else {
-                setStatusPill('offline', (run.conclusion || run.status).toUpperCase());
-                if (isManual) appendTerminalLog(`[STATUS] Workflow STOPPED (${run.conclusion || run.status})`, 'warn');
-                fetchWorkflowDetails(run.id, token);
+                if (startInProgress) {
+                    // Still waiting for GitHub Actions to register the new run
+                    return;
+                }
+
+                stopInProgress = false;
+                const conclusion = (run.conclusion || 'stopped').toUpperCase();
+
+                if (conclusion === 'CANCELLED') {
+                    setStatus('cancelled', 'CANCELLED');
+                } else if (conclusion === 'FAILURE') {
+                    setStatus('failed', 'FAILED');
+                } else if (conclusion === 'SUCCESS') {
+                    setStatus('stopped', 'COMPLETED');
+                } else {
+                    setStatus('stopped', conclusion);
+                }
+
+                updateButtons(false);
+                clearTerminal();
+                lastLogHash = '';
             }
         } catch (e) {
-            setStatusPill('offline', 'ERR');
-            appendTerminalLog('[ERR] Status sync failed: ' + e.message, 'err');
+            if (!startInProgress && !stopInProgress) {
+                setStatus('error', 'ERROR');
+                appendLog('[ERR] Connection failed: ' + e.message, 'err');
+            }
         }
     }
 
-    // ── Start Bot Command ──
+    // ══════ Start Bot ══════
     async function startBot() {
-        const token = getToken();
-        if (!token) { appendTerminalLog('[ERR] Token required to start bot.', 'err'); return; }
+        if (startInProgress || stopInProgress) return;
 
-        setStatusPill('checking', 'STARTING...');
-        appendTerminalLog('[START] Dispatching run-bot event to GitHub Actions...', 'cmd');
+        const token = getToken();
+        if (!token) { appendLog('[ERR] Token required. Open Settings.', 'err'); return; }
+
+        startInProgress = true;
+        dispatchTime = Date.now();
+        setStatus('booting', 'BOOTING...');
+        setButtonLoading('startBtn', true);
+        document.getElementById('stopBtn').disabled = true;
+        clearTerminal();
+        appendLog('[SYSTEM] Sending start signal to GitHub Actions...', 'sys');
 
         try {
+            // Check if a run is already active
+            const activeRes = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/actions/runs?status=in_progress&per_page=1`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (activeRes.ok) {
+                const activeData = await activeRes.json();
+                const activeRuns = activeData.workflow_runs || [];
+
+                if (activeRuns.length > 0) {
+                    appendLog(`[WARN] A bot is already running (Run #${activeRuns[0].run_number}).`, 'warn');
+                    setStatus('connected', 'CONNECTED');
+                    startInProgress = false;
+                    setButtonLoading('startBtn', false);
+                    updateButtons(true);
+                    return;
+                }
+            }
+
+            // Dispatch new run
             const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/dispatches`, {
                 method: 'POST',
                 headers: {
@@ -588,38 +957,43 @@
             });
 
             if (res.status === 204) {
-                appendTerminalLog('[OK] Dispatch signal accepted (Status 204). Waiting for runner to boot...', 'ok');
-                setStatusPill('checking', 'BOOTING...');
-                
-                // Fast poll for 15s to detect boot
-                let checks = 0;
-                const fastPoll = setInterval(async () => {
-                    checks++;
-                    await checkStatus(false);
-                    if (checks > 5) clearInterval(fastPoll);
-                }, 3000);
+                appendLog('[OK] Start signal accepted (HTTP 204). Waiting for runner...', 'ok');
             } else if (res.status === 401) {
                 localStorage.removeItem('GH_TOKEN');
-                appendTerminalLog('[ERR] 401 Unauthorized — invalid token.', 'err');
-                setStatusPill('offline', 'AUTH ERR');
+                appendLog('[ERR] Invalid token.', 'err');
+                setStatus('error', 'AUTH ERROR');
+                startInProgress = false;
+                setButtonLoading('startBtn', false);
+                updateButtons(false);
             } else {
                 const text = await res.text();
-                appendTerminalLog('[ERR] Start failed: ' + text, 'err');
-                setStatusPill('offline', 'ERR');
+                appendLog('[ERR] Start failed: ' + text, 'err');
+                setStatus('error', 'START FAILED');
+                startInProgress = false;
+                setButtonLoading('startBtn', false);
+                updateButtons(false);
             }
         } catch (e) {
-            appendTerminalLog('[ERR] Exception: ' + e.message, 'err');
-            setStatusPill('offline', 'ERR');
+            appendLog('[ERR] ' + e.message, 'err');
+            setStatus('error', 'ERROR');
+            startInProgress = false;
+            setButtonLoading('startBtn', false);
+            updateButtons(false);
         }
     }
 
-    // ── Stop Bot Command ──
+    // ══════ Stop Bot ══════
     async function stopBot() {
-        const token = getToken();
-        if (!token) { appendTerminalLog('[ERR] Token required to stop bot.', 'err'); return; }
+        if (stopInProgress || startInProgress) return;
 
-        setStatusPill('checking', 'STOPPING...');
-        appendTerminalLog('[STOP] Querying active workflow runs...', 'cmd');
+        const token = getToken();
+        if (!token) { appendLog('[ERR] Token required. Open Settings.', 'err'); return; }
+
+        stopInProgress = true;
+        setStatus('cancelling', 'STOPPING...');
+        setButtonLoading('stopBtn', true);
+        document.getElementById('startBtn').disabled = true;
+        appendLog('[SYSTEM] Stopping bot... Requesting cancel from GitHub Actions.', 'sys');
 
         try {
             const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/actions/runs?status=in_progress`, {
@@ -628,8 +1002,11 @@
 
             if (res.status === 401) {
                 localStorage.removeItem('GH_TOKEN');
-                appendTerminalLog('[ERR] 401 Unauthorized — invalid token.', 'err');
-                setStatusPill('offline', 'AUTH ERR');
+                appendLog('[ERR] Invalid token.', 'err');
+                setStatus('error', 'AUTH ERROR');
+                stopInProgress = false;
+                setButtonLoading('stopBtn', false);
+                updateButtons(false);
                 return;
             }
 
@@ -637,38 +1014,42 @@
             const runs = data.workflow_runs || [];
 
             if (runs.length === 0) {
-                appendTerminalLog('[INFO] No active runs found in progress.', 'sys');
-                setStatusPill('offline', 'STOPPED');
+                appendLog('[INFO] No active runs found in progress.', 'warn');
+                setStatus('stopped', 'STOPPED');
+                stopInProgress = false;
+                setButtonLoading('stopBtn', false);
+                updateButtons(false);
                 return;
             }
 
             for (const run of runs) {
-                appendTerminalLog(`[STOP] Cancelling Run #${run.run_number} (ID: ${run.id})...`, 'warn');
+                appendLog(`[STOP] Cancelling Run #${run.run_number}...`, 'warn');
                 await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/actions/runs/${run.id}/cancel`, {
                     method: 'POST',
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
             }
 
-            appendTerminalLog(`[OK] Cancel signal sent to ${runs.length} run(s). Waiting for shutdown...`, 'ok');
-            setStatusPill('offline', 'CANCELLING');
-            
-            setTimeout(() => checkStatus(true), 4000);
+            appendLog(`[OK] Cancel signal sent to ${runs.length} run(s). Shutting down...`, 'ok');
         } catch (e) {
-            appendTerminalLog('[ERR] Exception: ' + e.message, 'err');
-            setStatusPill('offline', 'ERR');
+            appendLog('[ERR] ' + e.message, 'err');
+            setStatus('error', 'ERROR');
+            stopInProgress = false;
+            setButtonLoading('stopBtn', false);
+            updateButtons(false);
         }
     }
 
-    // ── Auto Polling Loop (Every 4 seconds) ──
+    // ══════ Auto Polling (1 second) ══════
     function startAutoPolling() {
         if (pollTimer) clearInterval(pollTimer);
         pollTimer = setInterval(() => {
             checkStatus(false);
-        }, 4000);
+        }, 1000);
     }
 
-    // ── Init ──
+    // ══════ Init ══════
+    clearTerminal();
     checkStatus(true);
     startAutoPolling();
 </script>
