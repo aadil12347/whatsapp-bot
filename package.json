@@ -72,5 +72,16 @@
   },
   "overrides": {
     "jsonpath-plus": "^10.0.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@ffmpeg-installer/ffmpeg",
+      "@ffmpeg-installer/linux-x64",
+      "@ffmpeg-installer/win32-x64",
+      "sharp",
+      "puppeteer",
+      "protobufjs",
+      "es5-ext"
+    ]
   }
 }
