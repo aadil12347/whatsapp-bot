@@ -142,34 +142,16 @@ async function startBot() {
 
     // Create a preload script that suppresses Baileys' noisy "Closing session" dumps
     const preloadPath = path.join(__dirname, '_suppress_session_logs.js');
-    if (!fs.existsSync(preloadPath)) {
-        fs.writeFileSync(preloadPath, `
+    fs.writeFileSync(preloadPath, `
 // Auto-generated: Suppress Baileys "Closing session" spam on reconnect
 const _origLog = console.log;
 const _origWarn = console.warn;
-const _suppressed = [
-    'Closing session: SessionEntry',
-    '_chains:',
-    'chainKey:',
-    'chainType:',
-    'registrationId:',
-    'currentRatchet:',
-    'ephemeralKeyPair:',
-    'lastRemoteEphemeralKey:',
-    'previousCounter:',
-    'rootKey:',
-    'indexInfo:',
-    'baseKey:',
-    'baseKeyType:',
-    'remoteIdentityKey:',
-    'pendingPreKey:',
-    'signedKeyId:',
-    'preKeyId:',
-    '<Buffer'
-];
 function _isSuppressed(args) {
-    const str = args.map(a => typeof a === 'string' ? a : '').join(' ');
-    return _suppressed.some(p => str.includes(p));
+    for (const a of args) {
+        const str = typeof a === 'string' ? a : (a && typeof a === 'object' ? JSON.stringify(a).slice(0, 200) : String(a));
+        if (str.includes('Closing session') || str.includes('SessionEntry') || str.includes('_chains') || str.includes('currentRatchet') || str.includes('ephemeralKeyPair') || str.includes('indexInfo') || str.includes('pendingPreKey')) return true;
+    }
+    return false;
 }
 console.log = function(...args) {
     if (!_isSuppressed(args)) _origLog.apply(console, args);
@@ -178,7 +160,6 @@ console.warn = function(...args) {
     if (!_isSuppressed(args)) _origWarn.apply(console, args);
 };
 `, 'utf-8');
-    }
 
     // Start the bot process with the log suppression preload
     const child = fork(botBrainPath, [], {

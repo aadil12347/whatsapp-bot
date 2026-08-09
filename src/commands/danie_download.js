@@ -497,9 +497,9 @@ async function sendAndForwardFile(conn, targets, filePayload, sendOptions = {}) 
         }
     }
     
-    // --- FIX 2: Send media with silent-failure detection ---
+    // --- FIX 2: Send media with silent-failure detection + connection recovery ---
     let sentMsg = null;
-    const maxUploadAttempts = 3;
+    const maxUploadAttempts = 5;
     for (let attempt = 1; attempt <= maxUploadAttempts; attempt++) {
         try {
             sentMsg = await conn.sendMessage(primaryJid, filePayload, sendOptions.quoted ? { quoted: sendOptions.quoted } : {});
@@ -509,7 +509,7 @@ async function sendAndForwardFile(conn, targets, filePayload, sendOptions = {}) 
                 console.warn(`[DanieWatch] Upload attempt ${attempt}: sendMessage returned no valid key (silent failure). Retrying...`);
                 sentMsg = null;
                 if (attempt < maxUploadAttempts) {
-                    await new Promise(r => setTimeout(r, attempt * 3000));
+                    await new Promise(r => setTimeout(r, attempt * 5000));
                     continue;
                 }
             } else {
@@ -517,10 +517,13 @@ async function sendAndForwardFile(conn, targets, filePayload, sendOptions = {}) 
                 break;
             }
         } catch (uploadErr) {
-            console.error(`[DanieWatch] Upload attempt ${attempt}/${maxUploadAttempts} failed for ${primaryJid}:`, uploadErr.message);
+            const errMsg = uploadErr.message || '';
+            const isConnectionError = errMsg.includes('Connection Closed') || errMsg.includes('Connection was lost') || errMsg.includes('Timed Out') || (uploadErr.output && uploadErr.output.statusCode === 408);
+            console.error(`[DanieWatch] Upload attempt ${attempt}/${maxUploadAttempts} failed for ${primaryJid}:`, errMsg);
             if (attempt < maxUploadAttempts) {
-                const delayMs = attempt * 3000;
-                console.log(`[DanieWatch] Retrying upload in ${delayMs / 1000}s...`);
+                // Wait longer for connection errors to allow Baileys to fully reconnect
+                const delayMs = isConnectionError ? 20000 : attempt * 5000;
+                console.log(`[DanieWatch] ${isConnectionError ? '⏳ Connection lost — waiting 20s for reconnection...' : `Retrying upload in ${delayMs / 1000}s...`}`);
                 await new Promise(r => setTimeout(r, delayMs));
             }
         }
