@@ -11,17 +11,33 @@ async function run() {
     console.log('🚀 Uploading WhatsApp paired keys to Supabase...');
     const sessionDir = path.join(__dirname, '../session');
     const sessDir = path.join(__dirname, '../sess');
-    if (fs.existsSync(sessionDir)) {
-        if (!fs.existsSync(sessDir)) fs.mkdirSync(sessDir, { recursive: true });
-        const files = fs.readdirSync(sessionDir);
-        for (const file of files) {
-            const srcFile = path.join(sessionDir, file);
-            const destFile = path.join(sessDir, file);
-            if (fs.statSync(srcFile).isFile()) {
-                fs.copyFileSync(srcFile, destFile);
-            }
-        }
+
+    // Check if session directory exists and has files
+    if (!fs.existsSync(sessionDir)) {
+        console.warn('⚠️ session/ directory does not exist. Nothing to upload.');
+        return;
     }
+
+    const sessionFiles = fs.readdirSync(sessionDir).filter(f => {
+        const fp = path.join(sessionDir, f);
+        return fs.statSync(fp).isFile() && fs.statSync(fp).size > 0;
+    });
+
+    if (sessionFiles.length === 0) {
+        console.warn('⚠️ session/ directory is empty. Nothing to upload.');
+        return;
+    }
+
+    console.log(`📁 Found ${sessionFiles.length} session file(s) to upload.`);
+
+    // Copy session/ → sess/ for upload
+    if (!fs.existsSync(sessDir)) fs.mkdirSync(sessDir, { recursive: true });
+    for (const file of sessionFiles) {
+        const srcFile = path.join(sessionDir, file);
+        const destFile = path.join(sessDir, file);
+        fs.copyFileSync(srcFile, destFile);
+    }
+
     const success = await uploadSessionToSupabase(sessDir);
     if (success) {
         console.log('🎉 Current session uploaded to Supabase successfully!');
