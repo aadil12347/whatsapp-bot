@@ -483,7 +483,7 @@
     <div class="info-bar">
         <div class="info-left">
             <span>⚡</span>
-            <span id="jobTitle">run-bot-task</span>
+            <span id="jobTitle">DanieWatch Bot</span>
         </div>
         <div class="info-right" id="jobTime">--</div>
     </div>
@@ -501,8 +501,8 @@
 <div class="modal-overlay" id="settingsModal">
     <div class="modal-box">
         <div class="modal-title">⚙️ Settings</div>
-        <div class="modal-desc">Enter your GitHub Personal Access Token (PAT) to control the bot via GitHub Actions API.</div>
-        <input type="password" class="modal-input" id="tokenInput" placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" autocomplete="off">
+        <div class="modal-desc">Enter your Bot Access Token to connect and control the bot remotely.</div>
+        <input type="password" class="modal-input" id="tokenInput" placeholder="Enter your access token..." autocomplete="off">
         <div class="modal-actions">
             <button class="modal-btn modal-btn-cancel" onclick="closeSettings()">Cancel</button>
             <button class="modal-btn modal-btn-save" onclick="saveToken()">Save Token</button>
@@ -760,11 +760,23 @@
         return `Started ${hr}h ${min % 60}m ago`;
     }
 
-    function classifyLogLine(line) {
+    function __unused_classifyLogLine(line) {
         if (line.includes('✅') || line.includes('connected') || line.includes('[OK]') || line.toLowerCase().includes('success')) return 'ok';
         if (line.includes('❌') || line.includes('Error') || line.includes('FAILED') || line.includes('[ERR]') || line.includes('error')) return 'err';
         if (line.includes('⚠️') || line.includes('warn') || line.includes('[WARN]')) return 'warn';
         if (line.startsWith('[') || line.includes('Run ')) return 'cmd';
+        return '';
+    }
+
+    function classifyLogLine(line) {
+        const lower = line.toLowerCase();
+        if (line.includes('✅') || line.includes('[OK]') || lower.includes('success') || (lower.includes('connected') && !lower.includes('disconnect'))) return 'ok';
+        if (line.includes('❌') || line.includes('[ERR]') || lower.includes('failed') || lower.includes('crash')) return 'err';
+        if (line.includes('⚠️') || line.includes('[WARN]') || lower.includes('⚠')) return 'warn';
+        if (line.includes('🚀') || line.includes('🔄') || line.includes('🤖') || line.includes('⏰') || line.includes('🔥') || line.includes('🧹') || line.includes('📁')) return 'sys';
+        if (line.includes('[DanieWatch]') || line.includes('DanieWatch') || line.includes('[COMMAND') || line.includes('[PLUGIN') || line.includes('FOUND CMD')) return 'cmd';
+        if (line.startsWith('[') || line.includes('📥') || line.includes('📤')) return 'cmd';
+        if (lower.includes('error') || lower.includes('err:')) return 'err';
         return '';
     }
 
@@ -782,7 +794,7 @@
             activeJobId = job.id;
 
             // Update info bar
-            document.getElementById('jobTitle').textContent = `${job.name}`;
+            document.getElementById('jobTitle').textContent = 'DanieWatch Bot';
             document.getElementById('jobTime').textContent = formatTimeAgo(job.started_at);
 
             // Fetch logs
@@ -804,8 +816,8 @@
         }
     }
 
-    // ══════ Render Filtered Logs ══════
-    function renderFilteredLogs(rawText, jobStatus, jobConclusion) {
+    // ══════ [Legacy] Old Log Renderer ══════
+    function __unused_renderFilteredLogs(rawText, jobStatus, jobConclusion) {
         const terminal = document.getElementById('terminalPanel');
         const empty = document.getElementById('terminalEmpty');
         if (empty) empty.remove();
@@ -838,6 +850,128 @@
         // Take last 100 lines
         const lastLines = cleanLines.slice(-100);
         for (const cl of lastLines) {
+            const div = document.createElement('div');
+            div.className = 'log-line ' + classifyLogLine(cl);
+            div.textContent = cl;
+            terminal.appendChild(div);
+        }
+
+        terminal.scrollTop = terminal.scrollHeight;
+    }
+
+    // ══════ Bot Task Log Extraction ══════
+    const BOT_NOISE_PATTERNS = [
+        /^\+\s+\S+\s+[\d\.]+/,
+        /^\s*[\{\}\[\]],?\s*$/,
+        /^\s*'[^']+': \{/,
+        /^\s*\w+:\s*(<Buffer|\[Object\]|\d+,?$)/,
+        /^╭|^│|^╰/,
+        /^\[\d+m/,
+        /^\x1b\[/,
+    ];
+
+    const BOT_NOISE_WORDS = [
+        '_chains:', 'chainKey:', 'chainType:', 'messageKeys:',
+        'registrationId:', 'currentRatchet:', 'ephemeralKeyPair:',
+        'pubKey:', 'privKey:', '<Buffer',
+        'lastRemoteEphemeralKey:', 'previousCounter:', 'rootKey:',
+        'indexInfo:', 'baseKey:', 'baseKeyType:',
+        'closed:', 'used:', 'created:', 'remoteIdentityKey:',
+        'Hosted Compute Agent', 'Post job cleanup',
+        'Terminate orphan process', 'Cleaning up orphan',
+        'The operation was canceled',
+        'echo "', 'Run echo',
+    ];
+
+    function isBotNoiseLine(line) {
+        if (BOT_NOISE_PATTERNS.some(rx => rx.test(line))) return true;
+        if (BOT_NOISE_WORDS.some(s => line.includes(s))) return true;
+        return false;
+    }
+
+    function extractBotTaskSection(rawText) {
+        const lines = rawText.split('\n');
+        const botLines = [];
+        let phase = 'scanning';
+
+        for (const line of lines) {
+            let clean = line.replace(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z\s*/, '').trim();
+            if (!clean) continue;
+
+            if (clean.startsWith('##[group]')) {
+                if (phase === 'scanning') {
+                    if (clean.includes('node start.js') ||
+                        clean.includes('Restoring paired keys') ||
+                        clean.includes('Execute Bot') ||
+                        clean.includes('pnpm exec node')) {
+                        phase = 'in_bot_step';
+                    }
+                } else if (phase === 'in_bot_step') {
+                    phase = 'done';
+                    break;
+                }
+                continue;
+            }
+
+            if (clean.startsWith('##[')) continue;
+
+            if (phase === 'scanning') {
+                if (clean.includes('Starting your custom DanieWatch') ||
+                    clean.includes('DanieWatch Bot is') ||
+                    clean.includes('DanieWatch Downloader Bot')) {
+                    phase = 'in_bot_step';
+                    botLines.push(clean);
+                }
+                continue;
+            }
+
+            if (phase === 'in_bot_step') {
+                if (isBotNoiseLine(clean)) continue;
+                botLines.push(clean);
+            }
+        }
+
+        return botLines;
+    }
+
+    function renderFilteredLogs(rawText, jobStatus, jobConclusion) {
+        const terminal = document.getElementById('terminalPanel');
+        const empty = document.getElementById('terminalEmpty');
+        if (empty) empty.remove();
+
+        const allBotLines = extractBotTaskSection(rawText);
+
+        if (allBotLines.length === 0) {
+            if (!document.getElementById('terminalEmpty')) {
+                terminal.innerHTML = '<div class="terminal-empty" id="terminalEmpty"><span class="big-icon">⏳</span>Bot is booting up...</div>';
+            }
+            return;
+        }
+
+        let connectionIdx = -1;
+        for (let i = 0; i < allBotLines.length; i++) {
+            const lower = allBotLines[i].toLowerCase();
+            if ((lower.includes('daniewatch') && (lower.includes('connected') || lower.includes('is running') || lower.includes('is online'))) ||
+                (lower.includes('✅') && lower.includes('connect'))) {
+                connectionIdx = i;
+                break;
+            }
+        }
+
+        let displayLines;
+        if (connectionIdx >= 0) {
+            displayLines = allBotLines.slice(connectionIdx);
+        } else {
+            displayLines = allBotLines;
+        }
+
+        if (displayLines.length > 500) {
+            displayLines = displayLines.slice(-500);
+        }
+
+        terminal.querySelectorAll('.log-line').forEach(l => l.remove());
+
+        for (const cl of displayLines) {
             const div = document.createElement('div');
             div.className = 'log-line ' + classifyLogLine(cl);
             div.textContent = cl;
@@ -945,7 +1079,7 @@
         setButtonLoading('startBtn', true);
         document.getElementById('stopBtn').disabled = true;
         clearTerminal();
-        appendLog('[SYSTEM] Sending start signal to GitHub Actions...', 'sys');
+        appendLog('[SYSTEM] Sending start signal...', 'sys');
 
         try {
             // Check if a run is already active
@@ -958,7 +1092,7 @@
                 const activeRuns = activeData.workflow_runs || [];
 
                 if (activeRuns.length > 0) {
-                    appendLog(`[WARN] A bot is already running (Run #${activeRuns[0].run_number}).`, 'warn');
+                    appendLog('[WARN] Bot is already running.', 'warn');
                     setStatus('connected', 'CONNECTED');
                     startInProgress = false;
                     setButtonLoading('startBtn', false);
@@ -979,7 +1113,7 @@
             });
 
             if (res.status === 204) {
-                appendLog('[OK] Start signal accepted (HTTP 204). Waiting for runner...', 'ok');
+                appendLog('[OK] Start signal accepted. Booting up...', 'ok');
             } else if (res.status === 401) {
                 localStorage.removeItem('GH_TOKEN');
                 appendLog('[ERR] Invalid token.', 'err');
@@ -1015,7 +1149,7 @@
         setStatus('cancelling', 'STOPPING...');
         setButtonLoading('stopBtn', true);
         document.getElementById('startBtn').disabled = true;
-        appendLog('[SYSTEM] Stopping bot... Requesting cancel from GitHub Actions.', 'sys');
+        appendLog('[SYSTEM] Stopping bot...', 'sys');
 
         try {
             const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/actions/runs?status=in_progress`, {
@@ -1045,14 +1179,14 @@
             }
 
             for (const run of runs) {
-                appendLog(`[STOP] Cancelling Run #${run.run_number}...`, 'warn');
+                appendLog('[STOP] Stopping active bot session...', 'warn');
                 await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/actions/runs/${run.id}/cancel`, {
                     method: 'POST',
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
             }
 
-            appendLog(`[OK] Cancel signal sent to ${runs.length} run(s). Shutting down...`, 'ok');
+            appendLog('[OK] Stop signal sent. Shutting down...', 'ok');
         } catch (e) {
             appendLog('[ERR] ' + e.message, 'err');
             setStatus('error', 'ERROR');
