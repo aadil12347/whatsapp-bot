@@ -1801,12 +1801,6 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
             const sizeInBytes = stats.size;
             const sizeInMB = (sizeInBytes / (1024 * 1024)).toFixed(2);
 
-            if (sizeInBytes > 2000 * 1024 * 1024) {
-                try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch (_) {}
-                await reply(`❌ File ${tempFilename} is too large (${sizeInMB} MB). Max upload limit is 2 GB.`);
-                continue;
-            }
-
             // Determine extension from URL path, tempFilename, or Content-Disposition
             let ext = '';
             try {
@@ -1840,6 +1834,14 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
             const extLower = ext.toLowerCase();
             const isArchive = ['zip', 'tar', 'gz', 'tgz', 'rar', 'rar5', '7z'].includes(extLower) ||
                               ['application/zip', 'application/x-tar', 'application/x-rar-compressed', 'application/x-gzip', 'application/x-zip-compressed'].includes(mime.toLowerCase());
+
+            // 2GB size limit applies ONLY to non-archive files.
+            // Archives can be any size — individual files inside are checked after extraction.
+            if (!isArchive && sizeInBytes > 2000 * 1024 * 1024) {
+                try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch (_) {}
+                await reply(`❌ File ${tempFilename} is too large (${sizeInMB} MB). Max upload limit is 2 GB.`);
+                continue;
+            }
 
             if (isArchive) {
                 let FolderName = '';
@@ -1885,6 +1887,9 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
                     
                     let uploadedCount = 0;
                     let skippedCount = 0;
+                    let failedCount = 0;
+                    const failedFiles = [];
+                    const uploadedFiles = [];
 
                     for (let fi = 0; fi < validFiles.length; fi++) {
                         const extractedFilePath = validFiles[fi];
@@ -1933,21 +1938,35 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
                         
                         await reply(`📤 Uploading *${fi + 1}/${totalFiles}*: *${path.basename(finalFileName)}* (${fileSizeInMB} MB)`);
                         
-                        await sendAndForwardFile(conn, activeTargets, {
-                            document: { url: extractedFilePath },
-                            mimetype: fileMime,
-                            fileName: finalFileName
-                        }, { quoted: destJid === from ? mek : null, from, senderJid });
-                        
-                        uploadedCount++;
+                        try {
+                            await sendAndForwardFile(conn, activeTargets, {
+                                document: { url: extractedFilePath },
+                                mimetype: fileMime,
+                                fileName: finalFileName
+                            }, { quoted: destJid === from ? mek : null, from, senderJid });
+                            
+                            uploadedCount++;
+                            uploadedFiles.push(path.basename(finalFileName));
+                            console.log(`[DanieDownload] ✅ Uploaded & deleted: ${finalFileName} (${fileSizeInMB} MB)`);
+                        } catch (uploadErr) {
+                            failedCount++;
+                            failedFiles.push({ name: path.basename(finalFileName), error: uploadErr.message });
+                            console.error(`[DanieDownload] ❌ Upload failed for ${finalFileName}: ${uploadErr.message}`);
+                            await reply(`❌ Failed to upload *${path.basename(finalFileName)}*: ${uploadErr.message}`);
+                        }
 
-                        // Delete file immediately after successful upload to free disk space
+                        // Delete file immediately after upload attempt (success or fail) to free disk space
                         try { if (fs.existsSync(extractedFilePath)) fs.unlinkSync(extractedFilePath); } catch (_) {}
-                        console.log(`[DanieDownload] ✅ Uploaded & deleted: ${finalFileName} (${fileSizeInMB} MB)`);
                     }
                     
-                    let summaryMsg = `✅ *Archive Complete!*\n📦 Extracted: *${totalFiles}* file(s)\n📤 Uploaded: *${uploadedCount}*`;
-                    if (skippedCount > 0) summaryMsg += `\n⚠️ Skipped: *${skippedCount}* (too large)`;
+                    let summaryMsg = `✅ *Archive Complete!*\n📦 Total files: *${totalFiles}*\n📤 Uploaded: *${uploadedCount}*`;
+                    if (skippedCount > 0) summaryMsg += `\n⚠️ Skipped (too large): *${skippedCount}*`;
+                    if (failedCount > 0) {
+                        summaryMsg += `\n❌ Failed: *${failedCount}*`;
+                        failedFiles.forEach(f => {
+                            summaryMsg += `\n   • ${f.name}: ${f.error}`;
+                        });
+                    }
                     summaryMsg += `\n🎯 *Sent to:* ${destLabel}`;
                     await reply(summaryMsg);
                 } catch (err) {
