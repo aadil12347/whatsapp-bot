@@ -71,8 +71,20 @@ function hookDanieWatch(conn) {
     // Convert any delayed framework welcome message into pure text DanieWatch startup message
     const origSendMessage = conn.sendMessage.bind(conn);
     conn.sendMessage = async function(jid, content, options) {
+        // Always pass through DanieWatch's own messages (startup or command responses)
         if (content && content.isDanieWatchStartup) {
             delete content.isDanieWatchStartup;
+            return await origSendMessage(jid, content, options);
+        }
+
+        // Skip framework detection for DanieWatch command responses
+        // DanieWatch commands use reply() which goes through conn.sendMessage
+        // We mark them by checking if the content is a plain text/quoted response (not an image welcome)
+        const isDanieWatchResponse = content && (
+            (content.text && /DANIEWATCH|DanieWatch|📊|📖|⚙️|✅ \*Download|🛑 \*All Operations|╭─── ⋆/i.test(String(content.text))) ||
+            (content.caption && /DANIEWATCH|DanieWatch/i.test(String(content.caption)))
+        );
+        if (isDanieWatchResponse) {
             return await origSendMessage(jid, content, options);
         }
 
@@ -87,10 +99,11 @@ function hookDanieWatch(conn) {
             return Array.isArray(ownerNumber) && ownerNumber.some(owner => owner && cJid.includes(String(owner)));
         };
 
+        // Only detect framework-specific branding patterns, NOT generic words like 'status', 'mode', 'connected'
         const isFrameworkWelcome =
-            /xproverce|xpro|anju|queen|rashmika|welcome|expert|professional|mdwfZhF0|ibb\.co|untitled-1|q2kmc|mrrashmika|gamingrash|xpro-botz/i.test(normalized) ||
-            (content && content.text && /connected|running|expert|mode|status|welcome|hello/i.test(String(content.text))) ||
-            (content && content.caption && /xproverce|xpro|anju|queen|rashmika|connected|running|expert|mode|status|welcome|hello/i.test(String(content.caption)));
+            /xproverce|xpro|anju|queen|rashmika|expert|professional|mdwfZhF0|ibb\.co|untitled-1|q2kmc|mrrashmika|gamingrash|xpro-botz/i.test(normalized) ||
+            (content && content.image && /xpro|anju|queen|rashmika|ibb\.co|q2kmc/i.test(normalized)) ||
+            (content && content.caption && /xproverce|xpro|anju|queen|rashmika|expert|professional|mrrashmika|gamingrash|xpro-botz/i.test(String(content.caption)));
 
         if (isFrameworkWelcome && !_danieStartupSent) {
             console.log('[DanieWatch] 🎯 Intercepted framework delayed welcome message! Converting to text startup message...');
