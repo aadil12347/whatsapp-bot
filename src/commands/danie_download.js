@@ -369,21 +369,37 @@ function extractArchive(archivePath, targetDir) {
         fs.mkdirSync(targetDir, { recursive: true });
     }
     const ext = path.extname(archivePath).toLowerCase();
-    
-    // 1. ZIP — via adm-zip (Node.js, no external dependency)
+    const fileSize = fs.existsSync(archivePath) ? fs.statSync(archivePath).size : 0;
+    const TWO_GIB = 2 * 1024 * 1024 * 1024; // adm-zip limit
+
+    // 1. ZIP — adm-zip for small files, system unzip for large files
     if (ext === '.zip') {
+        if (fileSize < TWO_GIB) {
+            try {
+                console.log(`[DanieDownload] Extracting ZIP via adm-zip (${(fileSize / 1024 / 1024).toFixed(1)} MB)...`);
+                const AdmZip = require('adm-zip');
+                const zip = new AdmZip(archivePath);
+                zip.extractAllTo(targetDir, true);
+                return true;
+            } catch (err) {
+                console.warn('[DanieDownload] adm-zip failed:', err.message);
+            }
+        } else {
+            console.log(`[DanieDownload] ZIP file is ${(fileSize / 1024 / 1024 / 1024).toFixed(2)} GB (> 2 GiB limit), skipping adm-zip.`);
+        }
+
+        // Fallback: system unzip (handles large ZIPs properly)
         try {
-            console.log('[DanieDownload] Extracting ZIP via adm-zip...');
-            const AdmZip = require('adm-zip');
-            const zip = new AdmZip(archivePath);
-            zip.extractAllTo(targetDir, true);
+            console.log('[DanieDownload] Extracting ZIP via system unzip...');
+            execSync(`unzip -o -q "${archivePath}" -d "${targetDir}"`, { stdio: 'ignore' });
             return true;
         } catch (err) {
-            console.error('[DanieDownload] adm-zip failed, falling back to system tar:', err.message);
+            console.error('[DanieDownload] System unzip also failed:', err.message);
+            throw new Error(`Failed to extract ZIP archive. Error: ${err.message}`);
         }
     }
 
-    // 2. RAR — via system unrar if available
+    // 2. RAR — via system unrar
     if (ext === '.rar') {
         try {
             console.log('[DanieDownload] Extracting RAR via system unrar...');
@@ -391,31 +407,11 @@ function extractArchive(archivePath, targetDir) {
             return true;
         } catch (err) {
             console.error('[DanieDownload] unrar extraction failed:', err.message);
-            throw new Error(`Failed to extract RAR archive. Make sure 'unrar' is installed on this system. Error: ${err.message}`);
+            throw new Error(`Failed to extract RAR archive. Error: ${err.message}`);
         }
     }
 
-    // 3. 7Z — via system 7z if available
-    if (ext === '.7z') {
-        try {
-            console.log('[DanieDownload] Extracting 7z via system 7z...');
-            execSync(`7z x "${archivePath}" -o"${targetDir}" -y`, { stdio: 'ignore' });
-            return true;
-        } catch (err) {
-            console.error('[DanieDownload] 7z extraction failed:', err.message);
-            throw new Error(`Failed to extract 7z archive. Make sure 'p7zip-full' or '7z' is installed on this system. Error: ${err.message}`);
-        }
-    }
-    
-    // 4. Fallback to system tar for tar, gz, tgz, tar.gz, etc.
-    try {
-        console.log(`[DanieDownload] Extracting ${ext} archive via system tar...`);
-        execSync(`tar -xf "${archivePath}" -C "${targetDir}"`, { stdio: 'ignore' });
-        return true;
-    } catch (err) {
-        console.error(`[DanieDownload] System tar extraction failed:`, err.message);
-        throw new Error(`Failed to extract archive (${ext}): ${err.message}`);
-    }
+    throw new Error(`Unsupported archive format: ${ext}. Only .zip and .rar are supported.`);
 }
 
 function getAllFiles(dirPath, arrayOfFiles) {
