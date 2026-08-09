@@ -102,6 +102,12 @@ async function startBot() {
         console.warn('⚠️ Note: Supabase session sync skipped or failed:', e.message || e);
     }
 
+    // IMPORTANT: Clean stale session files AFTER Supabase restore.
+    // Supabase restores ALL files including old pre-key/sender-key/session files
+    // that cause "Closing session" spam and reconnection loops.
+    // Only creds.json is needed — everything else gets recreated automatically.
+    freshStartSession(sessionDir);
+
     // Auto-update: Pull fresh files from GitHub at startup
     try {
         console.log('🔄 Checking for fresh bot files from GitHub...');
@@ -134,10 +140,51 @@ async function startBot() {
         process.exit(1);
     }
 
-    // Start the bot process
+    // Create a preload script that suppresses Baileys' noisy "Closing session" dumps
+    const preloadPath = path.join(__dirname, '_suppress_session_logs.js');
+    if (!fs.existsSync(preloadPath)) {
+        fs.writeFileSync(preloadPath, `
+// Auto-generated: Suppress Baileys "Closing session" spam on reconnect
+const _origLog = console.log;
+const _origWarn = console.warn;
+const _suppressed = [
+    'Closing session: SessionEntry',
+    '_chains:',
+    'chainKey:',
+    'chainType:',
+    'registrationId:',
+    'currentRatchet:',
+    'ephemeralKeyPair:',
+    'lastRemoteEphemeralKey:',
+    'previousCounter:',
+    'rootKey:',
+    'indexInfo:',
+    'baseKey:',
+    'baseKeyType:',
+    'remoteIdentityKey:',
+    'pendingPreKey:',
+    'signedKeyId:',
+    'preKeyId:',
+    '<Buffer'
+];
+function _isSuppressed(args) {
+    const str = args.map(a => typeof a === 'string' ? a : '').join(' ');
+    return _suppressed.some(p => str.includes(p));
+}
+console.log = function(...args) {
+    if (!_isSuppressed(args)) _origLog.apply(console, args);
+};
+console.warn = function(...args) {
+    if (!_isSuppressed(args)) _origWarn.apply(console, args);
+};
+`, 'utf-8');
+    }
+
+    // Start the bot process with the log suppression preload
     const child = fork(botBrainPath, [], {
         stdio: 'inherit',
-        windowsHide: true
+        windowsHide: true,
+        execArgv: ['--require', preloadPath]
     });
 
     const maxRunMinutes = parseInt(process.env.MAX_RUN_TIME_MINUTES || '0', 10);
@@ -163,4 +210,4 @@ async function startBot() {
     });
 }
 
-startBot();
+startBot();
