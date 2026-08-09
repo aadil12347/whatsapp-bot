@@ -1089,6 +1089,14 @@ function initUpsertListener(conn) {
             }
             const cleanSender = cleanJid(senderJid);
 
+            // Resolve LID-based 'from' to a sendable JID
+            // LID addresses (e.g. 131606941540440@lid) silently fail when used with sendMessage
+            let sendableFrom = from;
+            if (from && (from.includes('@lid') || from.includes('@newsletter'))) {
+                sendableFrom = cleanSender;
+                console.log(`[DanieWatch] Resolved LID 'from' (${from}) to sendable JID: ${sendableFrom}`);
+            }
+
             // OWNER-ONLY ACCESS CHECK: Block all non-owners from messaging/sending commands to the bot
             if (!mek.key.fromMe && !isOwner(senderJid, mek)) {
                 return;
@@ -1106,11 +1114,11 @@ function initUpsertListener(conn) {
             const trimmedText = body.trim();
             if (!trimmedText) return;
 
-            console.log(`[DanieWatch] Raw message received: from="${from}" sender="${senderJid}" cleanSender="${cleanSender}" fromMe=${mek.key.fromMe} text="${trimmedText}"`);
+            console.log(`[DanieWatch] Raw message received: from="${from}" sender="${senderJid}" cleanSender="${cleanSender}" sendableFrom="${sendableFrom}" fromMe=${mek.key.fromMe} text="${trimmedText}"`);
             console.log(`[DanieWatch] Current pendingConfig keys:`, Object.keys(pendingConfig));
 
             const reply = async (textMsg) => {
-                return conn.sendMessage(from, { text: textMsg }, { quoted: mek });
+                return conn.sendMessage(sendableFrom, { text: textMsg }, { quoted: mek });
             };
 
             // ---- Handle commands starting with PREFIX ----
@@ -1124,9 +1132,11 @@ function initUpsertListener(conn) {
                 const ALLOWED_COMMANDS = [
                     'sv', 'sr', 'sh', 'si',
                     'alive', 'allow', 'disallow', 'addowner', 'delowner', 'addsudo', 'delsudo', 'owners', 'allowed', 'sudolist', 'config', 'setgroup', 'dlstatus', 'dlconfig', 'downloadstatus',
-                    'c', 'cancel', 'clearqueue', 'que', 'queue', 'q',
+                    'c', 'cancel', 'clearqueue', 'cancelall', 'que', 'queue', 'q', 'qstatus',
                     'd', 'p', 's', 'status', 'progress',
                     'jid', 'groupid',
+                    'qdel', 'qremove', 'qedit', 'qupdate',
+                    'help',
                     'song', 'songdl', 'yt1s', 'yts', 'yts1', 'video', 'yt2s', 'yt3s', 'csong', 'csongdl'
                 ];
 
@@ -1153,7 +1163,7 @@ function initUpsertListener(conn) {
                     if (mek.message.extendedTextMessage?.text) mek.message.extendedTextMessage.text = '';
 
                     try {
-                        await DANIE_COMMANDS[cmdName](conn, mek, from, senderJid, cmdArgs, reply);
+                        await DANIE_COMMANDS[cmdName](conn, mek, sendableFrom, senderJid, cmdArgs, reply);
                     } catch (cmdErr) {
                         console.error(`[DanieWatch] Error executing command "${cmdName}":`, cmdErr);
                         try {
@@ -1867,6 +1877,11 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
                     fileName: finalFileName
                 }, { quoted: destJid === from ? mek : null, from, senderJid });
 
+                // Send completion message
+                try {
+                    await reply(`✅ *Download Complete!*\n📄 *File:* ${finalFileName}\n📦 *Size:* ${sizeInMB} MB\n🎯 *Sent to:* ${destLabel}`);
+                } catch (_) {}
+
                 // Delete temporary file
                 try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch (_) {}
             }
@@ -1923,6 +1938,7 @@ let globalProgressState = {
 };
 
 async function handlePullDownStatus(conn, mek, from, reply) {
+    // Delete previous sticky status message
     if (globalProgressState.statusMsg && globalProgressState.statusMsg.key) {
         try {
             await conn.sendMessage(globalProgressState.statusMsg.from || from, { delete: globalProgressState.statusMsg.key });
@@ -1932,28 +1948,64 @@ async function handlePullDownStatus(conn, mek, from, reply) {
 
     const pendingCount = globalTaskQueue ? globalTaskQueue.queue.length : 0;
     const isTaskRunning = globalTaskQueue && globalTaskQueue.activeTask;
+    const settings = loadSettings();
+    const uptime = formatUptime(process.uptime());
+    const memUsed = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1);
 
-    let statusText = '';
+    let statusText = `╭─── ⋆ ⋅ ✦ ⋅ ⋆ ───╮\n`;
+    statusText += `   📊 *DANIEWATCH STATUS*\n`;
+    statusText += `╰─── ⋆ ⋅ ✦ ⋅ ⋆ ───╯\n\n`;
+
+    // System info
+    statusText += `┌─❒ *System*\n`;
+    statusText += `│ ⏱️ Uptime: *${uptime}*\n`;
+    statusText += `│ 🧠 Memory: *${memUsed} MB*\n`;
+    statusText += `└───────────\n\n`;
+
+    // Active task
     if (globalProgressState.active && globalProgressState.percentage < 100) {
-        statusText = `⚡ *Active Stream Download Status:*\n` +
-                     `🎬 *File:* "${globalProgressState.fileName}"\n` +
-                     `📺 *Quality:* ${globalProgressState.quality}\n` +
-                     `📦 *Downloaded:* ${globalProgressState.downloadedMB} MB / ~${globalProgressState.totalEstMB} MB (${globalProgressState.percentage}%)\n` +
-                     `🚀 *Speed:* ${globalProgressState.speedMBs} MB/s\n\n` +
-                     `📥 *Pending Queue:* ${pendingCount} task(s)\n` +
-                     `_Send \`.s\` anytime to pull this status card to the bottom of the chat._`;
+        statusText += `┌─❒ *Active Download*\n`;
+        statusText += `│ 🎬 File: *${globalProgressState.fileName}*\n`;
+        if (globalProgressState.quality) statusText += `│ 📺 Quality: *${globalProgressState.quality}*\n`;
+        statusText += `│ 📦 Progress: *${globalProgressState.downloadedMB} MB / ~${globalProgressState.totalEstMB} MB (${globalProgressState.percentage}%)*\n`;
+        statusText += `│ 🚀 Speed: *${globalProgressState.speedMBs} MB/s*\n`;
+        statusText += `└───────────\n\n`;
     } else if (isTaskRunning) {
-        const desc = globalTaskQueue.activeTask.description || 'Active Task';
-        statusText = `⚙️ *Processing Task:* "${desc}"\n` +
-                     `📌 *Phase:* ${globalProgressState.phaseText || 'In Progress'}\n\n` +
-                     `📥 *Pending Queue:* ${pendingCount} task(s)\n` +
-                     `_Send \`.s\` anytime to pull this status card to the bottom of the chat._`;
+        statusText += `┌─❒ *Active Task*\n`;
+        statusText += `│ ⚙️ ${globalTaskQueue.activeTask.description || 'Processing...'}\n`;
+        statusText += `│ 📌 Phase: ${globalProgressState.phaseText || 'In Progress'}\n`;
+        statusText += `└───────────\n\n`;
     } else {
-        statusText = `📊 *DanieWatch Status Summary*\n\n` +
-                     `🟢 No active downloads currently running.\n` +
-                     `📥 Pending Queue: *${pendingCount}*\n\n` +
-                     `_Send \`.si <movie>\` or \`.p <tmdb_url>\` to start downloading._`;
+        statusText += `🟢 *No active tasks running.*\n\n`;
     }
+
+    // Queue
+    if (pendingCount > 0) {
+        statusText += `┌─❒ *Pending Queue (${pendingCount})*\n`;
+        globalTaskQueue.queue.forEach((t, idx) => {
+            statusText += `│  ${idx + 1}. ${t.description}\n`;
+        });
+        statusText += `└───────────\n\n`;
+    } else {
+        statusText += `📥 *Queue:* Empty\n\n`;
+    }
+
+    // Config
+    let targetSummary = 'Self (Private Chat)';
+    if (settings.targets && settings.targets.length > 0) {
+        targetSummary = settings.targets.map(t => {
+            const icon = t.type === 'group' ? '📤' : '📥';
+            return `${icon} ${t.name}`;
+        }).join(', ');
+    } else if (settings.mode === 'group' && settings.groupName) {
+        targetSummary = `📤 ${settings.groupName}`;
+    }
+    statusText += `┌─❒ *Config*\n`;
+    statusText += `│ 🔒 Mode: *${settings.mode || 'private'}*\n`;
+    statusText += `│ 🎯 Targets: *${targetSummary}*\n`;
+    statusText += `└───────────\n\n`;
+
+    statusText += '_Send `.s` anytime to refresh. Use `.c` to cancel all._';
 
     const sent = await reply(statusText);
     if (sent && sent.key) {
@@ -2489,14 +2541,50 @@ DANIE_COMMANDS['p'] = async (conn, mek, from, senderJid, args, reply) => {
 
 // Queue Control Commands
 DANIE_COMMANDS['c'] = async (conn, mek, from, senderJid, args, reply) => {
-    const cleanSender = cleanJid(senderJid);
-    delete pendingSearch[cleanSender];
-    delete pendingConfig[cleanSender];
+    // Clear ALL pending states (not just for this sender)
+    Object.keys(pendingSearch).forEach(k => delete pendingSearch[k]);
+    Object.keys(pendingConfig).forEach(k => delete pendingConfig[k]);
+
     const { count, activeAborted } = globalTaskQueue.cancelAll(senderJid);
-    let msg = `🛑 *Queue Cancelled!*`;
-    if (activeAborted) msg += `\n- Aborted currently active download task.`;
-    if (count > 0) msg += `\n- Cleared *${count}* pending queued task(s).`;
-    if (!activeAborted && count === 0) msg += `\n_Queue was already empty._`;
+
+    // Reset global progress state to idle
+    globalProgressState.active = false;
+    globalProgressState.fileName = '';
+    globalProgressState.quality = '';
+    globalProgressState.downloadedMB = 0;
+    globalProgressState.totalEstMB = 0;
+    globalProgressState.speedMBs = 0;
+    globalProgressState.percentage = 0;
+    globalProgressState.phaseText = 'Idle';
+    globalProgressState.statusMsg = null;
+
+    // Force reset processing flag so queue can accept new tasks cleanly
+    globalTaskQueue.isProcessing = false;
+
+    // Clean up temp files left behind by aborted downloads
+    try {
+        const cmdDir = __dirname;
+        const tmpFiles = fs.readdirSync(cmdDir).filter(f => f.startsWith('tmp_') || f.startsWith('extracted_'));
+        for (const f of tmpFiles) {
+            const fp = path.join(cmdDir, f);
+            try {
+                const stat = fs.statSync(fp);
+                if (stat.isDirectory()) {
+                    if (fs.rmSync) fs.rmSync(fp, { recursive: true, force: true });
+                    else fs.rmdirSync(fp, { recursive: true });
+                } else {
+                    fs.unlinkSync(fp);
+                }
+            } catch (_) {}
+        }
+    } catch (_) {}
+
+    let msg = `🛑 *All Operations Cancelled & Reset!*`;
+    if (activeAborted) msg += `\n❌ Aborted active download/task.`;
+    if (count > 0) msg += `\n🗑️ Cleared *${count}* pending queued task(s).`;
+    msg += `\n🔄 Reset all progress states.`;
+    msg += `\n🧹 Cleaned temp files.`;
+    msg += `\n\n✅ _Bot is now in fresh idle state. Ready for new commands!_`;
     await reply(msg);
 };
 DANIE_COMMANDS['cancel'] = DANIE_COMMANDS['c'];
@@ -2647,6 +2735,79 @@ DANIE_COMMANDS['alive'] = async (conn, mek, from, senderJid, args, reply) => {
 };
 
 DANIE_COMMANDS['qupdate'] = DANIE_COMMANDS['qedit'];
+
+DANIE_COMMANDS['help'] = async (conn, mek, from, senderJid, args, reply) => {
+    try {
+        if (conn && mek && mek.key) {
+            await conn.sendMessage(from, { react: { text: '📖', key: mek.key } });
+        }
+    } catch(e) {}
+
+    const helpText =
+        `╭─── ⋆ ⋅ ✦ ⋅ ⋆ ───╮\n` +
+        `   📖 *DANIEWATCH HELP*\n` +
+        `╰─── ⋆ ⋅ ✦ ⋅ ⋆ ───╯\n\n` +
+
+        `┌─❒ *🔍 Search & Browse*\n` +
+        `│ \`.sv <query>\` — Search VegaMovies\n` +
+        `│ \`.sr <query>\` — Search RogMovies\n` +
+        `│ \`.sh <query>\` — Search HDHub4u\n` +
+        `│ \`.si <query>\` — Search StreamIMDB\n` +
+        `└───────────────\n\n` +
+
+        `┌─❒ *📥 Download*\n` +
+        `│ \`.d <url>\` — Download file from URL\n` +
+        `│ \`.d name = <url>\` — Download with custom name\n` +
+        `│ \`.p <tmdb_url> = <url>\` — Download with TMDB info\n` +
+        `└───────────────\n\n` +
+
+        `┌─❒ *📋 Queue Management*\n` +
+        `│ \`.que\` — View current task queue\n` +
+        `│ \`.qdel <num>\` — Remove item from queue\n` +
+        `│ \`.qedit <num> <new_cmd>\` — Edit queued item\n` +
+        `│ \`.c\` — Cancel all & reset bot state\n` +
+        `└───────────────\n\n` +
+
+        `┌─❒ *⚙️ Configuration*\n` +
+        `│ \`.config\` — Set download destinations\n` +
+        `│ \`.setgroup\` — Quick-set target group\n` +
+        `│ \`.setgroup <num>\` — Set group by number\n` +
+        `│ \`.dlstatus\` — View download config\n` +
+        `└───────────────\n\n` +
+
+        `┌─❒ *👑 Access Control*\n` +
+        `│ \`.allow <number>\` — Grant bot access\n` +
+        `│ \`.disallow <number>\` — Revoke bot access\n` +
+        `│ \`.allowed\` — List all allowed users\n` +
+        `└───────────────\n\n` +
+
+        `┌─❒ *🎵 Media*\n` +
+        `│ \`.song <query>\` — Download song (audio)\n` +
+        `│ \`.video <query>\` — Download video\n` +
+        `└───────────────\n\n` +
+
+        `┌─❒ *📊 Status & Info*\n` +
+        `│ \`.alive\` — Check bot status & info\n` +
+        `│ \`.status\` / \`.s\` — View all process status\n` +
+        `│ \`.jid\` — Show current chat JID\n` +
+        `│ \`.help\` — Show this help message\n` +
+        `└───────────────\n\n` +
+
+        `💡 _All commands use the_ \`.\` _prefix._\n` +
+        `👨‍💻 _DanieWatch Bot by Daniyal Aadil_`;
+
+    const logoPath = path.join(__dirname, '..', '..', 'assets', 'daniewatch_logo.png');
+    if (fs.existsSync(logoPath)) {
+        try {
+            const imageBuffer = fs.readFileSync(logoPath);
+            await conn.sendMessage(from, { image: imageBuffer, caption: helpText }, { quoted: mek });
+            return;
+        } catch (e) {
+            console.error('[DanieWatch] Error sending help logo image:', e.message);
+        }
+    }
+    await reply(helpText);
+};
 
 DANIE_COMMANDS['sv'] = async (conn, mek, from, senderJid, args, reply) => {
     await searchCommandHandler(conn, mek, from, senderJid, args, reply, 'vegamovies');
