@@ -39,6 +39,38 @@ function cleanCorruptedSessionFiles(dir) {
     } catch (_) {}
 }
 
+/**
+ * Fresh start — delete ALL session files except creds.json on every startup.
+ * creds.json = your WhatsApp login identity (keeps you logged in).
+ * Everything else (pre-key, sender-key, session files) gets recreated 
+ * automatically as needed. This prevents the Baileys Signal protocol
+ * from entering an infinite session-sync loop on reconnect.
+ */
+function freshStartSession(dir) {
+    if (!fs.existsSync(dir)) return;
+    try {
+        const files = fs.readdirSync(dir);
+        let removedCount = 0;
+        for (const file of files) {
+            // Keep ONLY creds.json — everything else is temporary
+            if (file === 'creds.json') continue;
+            
+            const fullPath = path.join(dir, file);
+            try {
+                if (fs.statSync(fullPath).isFile()) {
+                    fs.unlinkSync(fullPath);
+                    removedCount++;
+                }
+            } catch (_) {}
+        }
+        if (removedCount > 0) {
+            console.log(`🧹 Fresh start: removed ${removedCount} temporary session files from ${path.basename(dir)}/ (kept creds.json)`);
+        }
+    } catch (err) {
+        console.warn('⚠️ Session cleanup error:', err.message);
+    }
+}
+
 async function startBot() {
     console.log('🚀 Starting your custom DanieWatch Downloader Bot...');
 
@@ -47,6 +79,8 @@ async function startBot() {
 
     cleanCorruptedSessionFiles(sessionDir);
     cleanCorruptedSessionFiles(sessDir);
+    freshStartSession(sessionDir);
+    freshStartSession(sessDir);
 
     // Auto-download latest session from Supabase if available
     try {

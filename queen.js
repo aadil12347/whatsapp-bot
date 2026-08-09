@@ -1,3 +1,20 @@
+// ═══ Suppress Baileys Signal protocol session ratchet spam on reconnect ═══
+(function() {
+    const _origLog = console.log;
+    const _origErr = console.error;
+    const _origWarn = console.warn;
+    const suppressPatterns = /Closing session|SessionEntry|session ratchet|ephemeralKeyPair|lastRemoteEphemeral/i;
+    function shouldSuppress(args) {
+        for (const arg of args) {
+            const s = typeof arg === 'string' ? arg : (arg && arg.constructor && arg.constructor.name === 'SessionEntry') ? 'SessionEntry' : '';
+            if (s && suppressPatterns.test(s)) return true;
+        }
+        return false;
+    }
+    console.log = function(...args) { if (!shouldSuppress(args)) _origLog.apply(console, args); };
+    console.error = function(...args) { if (!shouldSuppress(args)) _origErr.apply(console, args); };
+    console.warn = function(...args) { if (!shouldSuppress(args)) _origWarn.apply(console, args); };
+})();
 try {
     const baileys = require('anju-xpro-baileys');
     const realMakeWASocket = baileys.makeWASocket || baileys.default;
