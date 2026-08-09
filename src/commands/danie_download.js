@@ -138,6 +138,71 @@ function cleanJunkWords(text) {
     return result;
 }
 
+// =========================================================================
+//  BRANDING REPLACEMENTS — centralized list of piracy/source site names
+//  All occurrences in filenames are replaced with "DanieWatch"
+// =========================================================================
+const BRANDING_REPLACEMENTS = [
+    // Movie/streaming piracy sites
+    /vegamovies?/gi,
+    /rogmovies?/gi,
+    /hdhub4u/gi,
+    /hdmovie2/gi,
+    /filmyzilla/gi,
+    /movieverse/gi,
+    /moviesflix/gi,
+    /extramovies?/gi,
+    /worldfree4u/gi,
+    /world4ufree/gi,
+    /khatrimaza/gi,
+    /bolly4u/gi,
+    /themoviesflix/gi,
+    /cinemavilla/gi,
+    /tamilrockers?/gi,
+    /jalshamoviez?/gi,
+    /hubcloud/gi,
+    /gdtot/gi,
+    /gdflix/gi,
+    /katdrive/gi,
+    /katmoviehd/gi,
+    /mkvcinemas?/gi,
+    /mkvmoviespoint/gi,
+    /moviesbaba/gi,
+    /9xmovies?/gi,
+    /downloadhub/gi,
+    /filmywap/gi,
+    /skymovieshd/gi,
+    /coolmoviez/gi,
+    /mp4moviez/gi,
+    /7starhd/gi,
+    /afilmywap/gi,
+    /sdmoviespoint/gi,
+    /fullmaza/gi,
+    /ssrmovies/gi,
+    /ofilmywap/gi,
+    /moviemad/gi,
+    /hubdrive/gi,
+    /nexdrive/gi,
+    /filebee/gi,
+    /fastdl/gi,
+    /vgmlink/gi,
+    /mlwbd/gi,
+    /mlsbd/gi,
+    /hdmovieshub/gi,
+    /torrentmovies?/gi,
+];
+
+function applyBranding(text) {
+    if (!text) return text;
+    let result = text;
+    for (const regex of BRANDING_REPLACEMENTS) {
+        result = result.replace(regex, 'DanieWatch');
+    }
+    // Collapse multiple consecutive "DanieWatch" from adjacent pattern matches
+    result = result.replace(/(DanieWatch[\s._\-]*){2,}/gi, 'DanieWatch');
+    return result;
+}
+
 function generateCustomFileName(state, primaryHost) {
     let postTitle = state.title || '';
     const resolution = state.selectedResolution || '';
@@ -305,6 +370,7 @@ function extractArchive(archivePath, targetDir) {
     }
     const ext = path.extname(archivePath).toLowerCase();
     
+    // 1. ZIP — via adm-zip (Node.js, no external dependency)
     if (ext === '.zip') {
         try {
             console.log('[DanieDownload] Extracting ZIP via adm-zip...');
@@ -316,8 +382,32 @@ function extractArchive(archivePath, targetDir) {
             console.error('[DanieDownload] adm-zip failed, falling back to system tar:', err.message);
         }
     }
+
+    // 2. RAR — via system unrar if available
+    if (ext === '.rar') {
+        try {
+            console.log('[DanieDownload] Extracting RAR via system unrar...');
+            execSync(`unrar x -o+ "${archivePath}" "${targetDir}/"`, { stdio: 'ignore' });
+            return true;
+        } catch (err) {
+            console.error('[DanieDownload] unrar extraction failed:', err.message);
+            throw new Error(`Failed to extract RAR archive. Make sure 'unrar' is installed on this system. Error: ${err.message}`);
+        }
+    }
+
+    // 3. 7Z — via system 7z if available
+    if (ext === '.7z') {
+        try {
+            console.log('[DanieDownload] Extracting 7z via system 7z...');
+            execSync(`7z x "${archivePath}" -o"${targetDir}" -y`, { stdio: 'ignore' });
+            return true;
+        } catch (err) {
+            console.error('[DanieDownload] 7z extraction failed:', err.message);
+            throw new Error(`Failed to extract 7z archive. Make sure 'p7zip-full' or '7z' is installed on this system. Error: ${err.message}`);
+        }
+    }
     
-    // Fallback to system tar for other formats or if adm-zip fails
+    // 4. Fallback to system tar for tar, gz, tgz, tar.gz, etc.
     try {
         console.log(`[DanieDownload] Extracting ${ext} archive via system tar...`);
         execSync(`tar -xf "${archivePath}" -C "${targetDir}"`, { stdio: 'ignore' });
@@ -1754,21 +1844,25 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
             if (isArchive) {
                 let FolderName = '';
                 if (targetFilename) {
-                    FolderName = cleanFileName(targetFilename);
+                    FolderName = applyBranding(cleanFileName(targetFilename));
                 } else {
-                    FolderName = cleanFileName(tempFilename);
+                    FolderName = applyBranding(cleanFileName(tempFilename));
                 }
 
-                await reply(`📦 Archive detected: *${tempFilename}*. Extracting files...`);
+                await reply(`📦 Archive detected: *${tempFilename}* (${sizeInMB} MB). Extracting files...`);
                 const targetDir = path.join(__dirname, 'extracted_' + Date.now());
                 try {
                     extractArchive(tempFilePath, targetDir);
+
+                    // Delete the original archive immediately after extraction to free space
+                    try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch (_) {}
+                    console.log(`[DanieDownload] Deleted original archive after extraction to free space.`);
                     
                     // Traverse and find files
                     const filesToUpload = getAllFiles(targetDir);
-                    console.log(`[DanieDownload] Extracted files:`, filesToUpload);
+                    console.log(`[DanieDownload] Extracted ${filesToUpload.length} file(s):`, filesToUpload.map(f => path.basename(f)));
 
-                    // Detect shared root folder inside zip
+                    // Detect shared root folder inside archive
                     let archiveRootFolder = null;
                     if (filesToUpload.length > 0) {
                         const normalizedFiles = filesToUpload.map(f => path.relative(targetDir, f).replace(/\\/g, '/'));
@@ -1781,74 +1875,92 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
                             archiveRootFolder = firstRoot;
                         }
                     }
+
+                    // Filter out junk files first to get accurate total count
+                    const validFiles = filesToUpload.filter(fp => {
+                        const bn = path.basename(fp);
+                        return !bn.startsWith('.') && !bn.startsWith('._') && !fp.includes('__MACOSX') && !bn.toLowerCase().includes('.ds_store');
+                    });
+                    const totalFiles = validFiles.length;
                     
                     let uploadedCount = 0;
-                    for (const filePath of filesToUpload) {
-                        const baseName = path.basename(filePath);
-                        const isJunk = baseName.startsWith('.') || baseName.startsWith('._') || filePath.includes('__MACOSX');
-                        if (isJunk) continue;
+                    let skippedCount = 0;
+
+                    for (let fi = 0; fi < validFiles.length; fi++) {
+                        const extractedFilePath = validFiles[fi];
+                        const baseName = path.basename(extractedFilePath);
                         
-                        const stats = fs.statSync(filePath);
-                        const fileSizeInBytes = stats.size;
+                        const fStats = fs.statSync(extractedFilePath);
+                        const fileSizeInBytes = fStats.size;
                         const fileSizeInMB = (fileSizeInBytes / (1024 * 1024)).toFixed(2);
                         
                         if (fileSizeInBytes > 2000 * 1024 * 1024) {
-                            await reply(`⚠️ Skipping extracted file *${baseName}* because it exceeds 2 GB size limit (${fileSizeInMB} MB).`);
+                            await reply(`⚠️ Skipping *${baseName}* — exceeds 2 GB limit (${fileSizeInMB} MB).`);
+                            skippedCount++;
+                            // Delete oversized file immediately
+                            try { if (fs.existsSync(extractedFilePath)) fs.unlinkSync(extractedFilePath); } catch (_) {}
                             continue;
                         }
                         
                         // Detect mime type of extracted file
                         let fileMime = 'application/octet-stream';
-                        let fileExt = path.extname(filePath).substring(1);
+                        let fileExt = path.extname(extractedFilePath).substring(1);
                         try {
-                            const fileBuffer = fs.readFileSync(filePath, { start: 0, end: 4100 });
-                            const detectedType = await fileType.fromBuffer(fileBuffer);
+                            const fd = fs.openSync(extractedFilePath, 'r');
+                            const magicBuf = Buffer.alloc(4100);
+                            fs.readSync(fd, magicBuf, 0, 4100, 0);
+                            fs.closeSync(fd);
+                            const detectedType = await fileType.fromBuffer(magicBuf);
                             if (detectedType) {
                                 fileMime = detectedType.mime;
                                 fileExt = detectedType.ext;
                             }
                         } catch (err) {}
                         
-                        // Determine relative path and apply FolderName
-                        let relPath = path.relative(targetDir, filePath).replace(/\\/g, '/');
+                        // Determine relative path and apply branding to folder + file name
+                        let relPath = path.relative(targetDir, extractedFilePath).replace(/\\/g, '/');
                         if (archiveRootFolder) {
-                            // Strip root folder
                             const prefixLength = archiveRootFolder.length + 1;
                             relPath = relPath.substring(prefixLength);
                         }
 
                         let finalFileNamePath = path.join(FolderName, relPath);
-                        let finalFileName = finalFileNamePath.replace(/\\/g, '/')
-                                                            .replace(/hdhub4u/gi, 'DANIEWATCH')
-                                                            .replace(/vegamovies/gi, 'DANIEWATCH')
-                                                            .replace(/rogmovies/gi, 'DANIEWATCH');
+                        let finalFileName = applyBranding(finalFileNamePath.replace(/\\/g, '/'));
                         
                         if (fileExt && !finalFileName.toLowerCase().endsWith('.' + fileExt.toLowerCase())) {
                             finalFileName += '.' + fileExt;
                         }
                         
-                        await reply(`📤 Uploading extracted file: *${finalFileName}* (${fileSizeInMB} MB)`);
+                        await reply(`📤 Uploading *${fi + 1}/${totalFiles}*: *${path.basename(finalFileName)}* (${fileSizeInMB} MB)`);
                         
                         await sendAndForwardFile(conn, activeTargets, {
-                            document: { url: filePath },
+                            document: { url: extractedFilePath },
                             mimetype: fileMime,
                             fileName: finalFileName
                         }, { quoted: destJid === from ? mek : null, from, senderJid });
                         
                         uploadedCount++;
+
+                        // Delete file immediately after successful upload to free disk space
+                        try { if (fs.existsSync(extractedFilePath)) fs.unlinkSync(extractedFilePath); } catch (_) {}
+                        console.log(`[DanieDownload] ✅ Uploaded & deleted: ${finalFileName} (${fileSizeInMB} MB)`);
                     }
                     
-                    await reply(`✅ Successfully extracted and processed archive. Uploaded *${uploadedCount}* file(s).`);
+                    let summaryMsg = `✅ *Archive Complete!*\n📦 Extracted: *${totalFiles}* file(s)\n📤 Uploaded: *${uploadedCount}*`;
+                    if (skippedCount > 0) summaryMsg += `\n⚠️ Skipped: *${skippedCount}* (too large)`;
+                    summaryMsg += `\n🎯 *Sent to:* ${destLabel}`;
+                    await reply(summaryMsg);
                 } catch (err) {
                     await reply(`❌ Failed to extract or process archive: ${err.message}`);
                 } finally {
-                    // Clean up extracted directory and archive file
+                    // Clean up extracted directory (should be mostly empty now)
                     try {
                         if (fs.existsSync(targetDir)) {
                             if (fs.rmSync) fs.rmSync(targetDir, { recursive: true, force: true });
                             else fs.rmdirSync(targetDir, { recursive: true });
                         }
                     } catch (_) {}
+                    // Clean up archive file if it wasn't already deleted
                     try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch (_) {}
                 }
             } else {
@@ -1860,9 +1972,7 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
                     displayName = cleanFileName(tempFilename);
                 }
 
-                let finalFileName = displayName.replace(/hdhub4u/gi, 'DANIEWATCH')
-                                                .replace(/vegamovies/gi, 'DANIEWATCH')
-                                                .replace(/rogmovies/gi, 'DANIEWATCH');
+                let finalFileName = applyBranding(displayName);
                 if (ext && !finalFileName.toLowerCase().endsWith('.' + ext.toLowerCase())) {
                     finalFileName += '.' + ext;
                 }
