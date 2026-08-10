@@ -267,7 +267,62 @@ function generateCustomFileName(state, primaryHost) {
     return result;
 }
 
-const { execSync } = require('child_process');
+const { execSync, exec } = require('child_process');
+const util = require('util');
+const execAsync = util.promisify(exec);
+
+let _activeKeepAliveTimer = null;
+
+function startSocketKeepAlive(conn) {
+    stopSocketKeepAlive();
+    const socket = conn || _connInstance;
+    if (!socket) return;
+    console.log('[DanieWatch] 🔄 Active task started: Enabling 30s WhatsApp socket keep-alive ping...');
+    _activeKeepAliveTimer = setInterval(async () => {
+        try {
+            const activeConn = conn || _connInstance;
+            if (activeConn && activeConn.ws && activeConn.ws.readyState === 1) {
+                if (typeof activeConn.sendPresenceUpdate === 'function') {
+                    await activeConn.sendPresenceUpdate('available');
+                }
+            } else {
+                console.warn('[DanieWatch] Keep-alive ping: WhatsApp socket is not currently OPEN (readyState != 1)');
+            }
+        } catch (err) {
+            console.warn('[DanieWatch] Keep-alive ping warning:', err.message);
+        }
+    }, 30000);
+}
+
+function stopSocketKeepAlive() {
+    if (_activeKeepAliveTimer) {
+        clearInterval(_activeKeepAliveTimer);
+        _activeKeepAliveTimer = null;
+        console.log('[DanieWatch] ⏹️ Active task ended: Stopped WhatsApp socket keep-alive ping.');
+    }
+}
+
+async function waitForConnectionReady(conn, maxWaitMs = 30000) {
+    const activeConn = conn || _connInstance;
+    if (!activeConn) return false;
+    
+    if (activeConn.ws && activeConn.ws.readyState === 1) {
+        return true;
+    }
+    
+    console.log(`[DanieWatch] ⏳ WhatsApp WebSocket is not ready (readyState=${activeConn.ws?.readyState}). Waiting up to ${maxWaitMs / 1000}s for reconnection...`);
+    const startTime = Date.now();
+    while (Date.now() - startTime < maxWaitMs) {
+        await new Promise(r => setTimeout(r, 2000));
+        const currentConn = conn || _connInstance;
+        if (currentConn && currentConn.ws && currentConn.ws.readyState === 1) {
+            console.log('[DanieWatch] ✅ WhatsApp WebSocket re-connected and ready!');
+            return true;
+        }
+    }
+    console.warn('[DanieWatch] ⚠️ Timeout waiting for WebSocket reconnection. Attempting upload anyway...');
+    return false;
+}
 
 function getFFmpegPath() {
     try {
@@ -279,7 +334,7 @@ function getFFmpegPath() {
     return 'ffmpeg';
 }
 
-function remuxFileToFaststart(filePath) {
+async function remuxFileToFaststart(filePath) {
     if (!filePath || !fs.existsSync(filePath)) return false;
     const tmpFixed = filePath + '.fixed.mp4';
     const ffmpegBin = getFFmpegPath();
@@ -290,7 +345,7 @@ function remuxFileToFaststart(filePath) {
     // 1. First attempt: Stream copy with faststart (+faststart moov atom relocation)
     try {
         const cmdCopy = `${binStr} -y -i ${inStr} -c copy -movflags +faststart ${outStr}`;
-        execSync(cmdCopy, { stdio: 'ignore' });
+        await execAsync(cmdCopy, { maxBuffer: 1024 * 1024 * 50 });
         if (fs.existsSync(tmpFixed) && fs.statSync(tmpFixed).size > 0) {
             fs.copyFileSync(tmpFixed, filePath);
             console.log(`[DanieDownload] ✅ Faststart MP4 remux applied to: ${filePath}`);
@@ -305,7 +360,7 @@ function remuxFileToFaststart(filePath) {
     // 2. Second attempt: Re-encode video to H.264 (yuv420p) and audio to AAC for 100% WhatsApp video playback support
     try {
         const cmdEncode = `${binStr} -y -i ${inStr} -c:v libx264 -preset ultrafast -crf 26 -pix_fmt yuv420p -c:a aac -b:a 128k -movflags +faststart ${outStr}`;
-        execSync(cmdEncode, { stdio: 'ignore' });
+        await execAsync(cmdEncode, { maxBuffer: 1024 * 1024 * 50 });
         if (fs.existsSync(tmpFixed) && fs.statSync(tmpFixed).size > 0) {
             fs.copyFileSync(tmpFixed, filePath);
             console.log(`[DanieDownload] ✅ WhatsApp H.264/AAC video re-encode applied to: ${filePath}`);
@@ -364,7 +419,7 @@ function generateVideoThumbnailBuffer(videoPath) {
     return null;
 }
 
-function extractArchive(archivePath, targetDir) {
+async function extractArchive(archivePath, targetDir) {
     if (!fs.existsSync(targetDir)) {
         fs.mkdirSync(targetDir, { recursive: true });
     }
@@ -372,7 +427,7 @@ function extractArchive(archivePath, targetDir) {
     const fileSize = fs.existsSync(archivePath) ? fs.statSync(archivePath).size : 0;
     const TWO_GIB = 2 * 1024 * 1024 * 1024; // adm-zip limit
 
-    // 1. ZIP — adm-zip for small files, system unzip for large files
+    // 1. ZIP — adm-zip for small files, system unzip (async) for large files
     if (ext === '.zip') {
         if (fileSize < TWO_GIB) {
             try {
@@ -388,30 +443,54 @@ function extractArchive(archivePath, targetDir) {
             console.log(`[DanieDownload] ZIP file is ${(fileSize / 1024 / 1024 / 1024).toFixed(2)} GB (> 2 GiB limit), skipping adm-zip.`);
         }
 
-        // Fallback: system unzip (handles large ZIPs properly)
+        // Fallback: system unzip asynchronously (non-blocking)
         try {
-            console.log('[DanieDownload] Extracting ZIP via system unzip...');
-            execSync(`unzip -o -q "${archivePath}" -d "${targetDir}"`, { stdio: 'ignore' });
+            console.log('[DanieDownload] Extracting ZIP via system unzip (async non-blocking)...');
+            await execAsync(`unzip -o -q "${archivePath}" -d "${targetDir}"`, { maxBuffer: 1024 * 1024 * 50 });
             return true;
         } catch (err) {
-            console.error('[DanieDownload] System unzip also failed:', err.message);
-            throw new Error(`Failed to extract ZIP archive. Error: ${err.message}`);
+            try {
+                console.log('[DanieDownload] System unzip failed, trying 7z (async)...');
+                await execAsync(`7z x -y -o"${targetDir}" "${archivePath}"`, { maxBuffer: 1024 * 1024 * 50 });
+                return true;
+            } catch (err7z) {
+                console.error('[DanieDownload] System unzip and 7z both failed:', err.message);
+                throw new Error(`Failed to extract ZIP archive. Error: ${err.message}`);
+            }
         }
     }
 
-    // 2. RAR — via system unrar
+    // 2. RAR — via system unrar (async non-blocking)
     if (ext === '.rar') {
         try {
-            console.log('[DanieDownload] Extracting RAR via system unrar...');
-            execSync(`unrar x -o+ "${archivePath}" "${targetDir}/"`, { stdio: 'ignore' });
+            console.log('[DanieDownload] Extracting RAR via system unrar (async non-blocking)...');
+            await execAsync(`unrar x -o+ "${archivePath}" "${targetDir}/"`, { maxBuffer: 1024 * 1024 * 50 });
             return true;
         } catch (err) {
-            console.error('[DanieDownload] unrar extraction failed:', err.message);
-            throw new Error(`Failed to extract RAR archive. Error: ${err.message}`);
+            try {
+                console.log('[DanieDownload] System unrar failed, trying 7z (async)...');
+                await execAsync(`7z x -y -o"${targetDir}" "${archivePath}"`, { maxBuffer: 1024 * 1024 * 50 });
+                return true;
+            } catch (err7z) {
+                console.error('[DanieDownload] unrar extraction failed:', err.message);
+                throw new Error(`Failed to extract RAR archive. Error: ${err.message}`);
+            }
         }
     }
 
-    throw new Error(`Unsupported archive format: ${ext}. Only .zip and .rar are supported.`);
+    // 3. Other formats (7z, tar, gz)
+    if (['.7z', '.tar', '.gz', '.tgz'].includes(ext)) {
+        try {
+            console.log(`[DanieDownload] Extracting ${ext} via 7z (async)...`);
+            await execAsync(`7z x -y -o"${targetDir}" "${archivePath}"`, { maxBuffer: 1024 * 1024 * 50 });
+            return true;
+        } catch (err) {
+            console.error(`[DanieDownload] 7z extraction failed for ${ext}:`, err.message);
+            throw new Error(`Failed to extract ${ext} archive. Error: ${err.message}`);
+        }
+    }
+
+    throw new Error(`Unsupported archive format: ${ext}. Only .zip, .rar, .7z are supported.`);
 }
 
 function getAllFiles(dirPath, arrayOfFiles) {
@@ -454,6 +533,7 @@ async function sendAndForwardFile(conn, targets, filePayload, sendOptions = {}) 
 
     const primaryJid = targetList[0];
     console.log(`[DanieWatch] Uploading file to primary target (${primaryJid})...`);
+    await waitForConnectionReady(conn, 30000);
 
     // --- FIX 1: Session Primer for private JIDs ---
     // Before sending media to a private number, send a tiny text message first.
@@ -813,6 +893,7 @@ class TaskQueueManager {
 
         this.isProcessing = true;
         const task = this.queue.shift();
+        startSocketKeepAlive(task?.conn);
         
         const controller = new AbortController();
         const ref = { filePath: null };
@@ -837,6 +918,9 @@ class TaskQueueManager {
         } finally {
             this.activeTask = null;
             this.isProcessing = false;
+            if (this.queue.length === 0) {
+                stopSocketKeepAlive();
+            }
             setImmediate(() => this.processNext());
         }
     }
@@ -1853,7 +1937,7 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
                 await reply(`📦 Archive detected: *${tempFilename}* (${sizeInMB} MB). Extracting files...`);
                 const targetDir = path.join(__dirname, 'extracted_' + Date.now());
                 try {
-                    extractArchive(tempFilePath, targetDir);
+                    await extractArchive(tempFilePath, targetDir);
 
                     // Delete the original archive immediately after extraction to free space
                     try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch (_) {}
@@ -1996,7 +2080,7 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
                 }
 
                 if (finalFileName.toLowerCase().endsWith('.mp4') || mime === 'video/mp4') {
-                    remuxFileToFaststart(tempFilePath);
+                    await remuxFileToFaststart(tempFilePath);
                 }
 
                 await sendAndForwardFile(conn, activeTargets, {
@@ -2333,7 +2417,7 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
                         const stats = fs.statSync(tempTrailerPath);
                         if (stats.size > 0) {
                             console.log(`[DanieDownload] Remuxing trailer video to faststart MP4 for WhatsApp...`);
-                            remuxFileToFaststart(tempTrailerPath);
+                            await remuxFileToFaststart(tempTrailerPath);
 
                             console.log(`[DanieDownload] Generating video preview thumbnail...`);
                             let backdropBuf = null;
@@ -4111,5 +4195,11 @@ cmd({
     }
 });
 
-// Export initUpsertListener so command.js can auto-initialize it
+function isTaskRunning() {
+    return globalTaskQueue.isProcessing || globalTaskQueue.queue.length > 0;
+}
+
+// Export initUpsertListener, globalTaskQueue, and isTaskRunning
 module.exports.initUpsertListener = initUpsertListener;
+module.exports.globalTaskQueue = globalTaskQueue;
+module.exports.isTaskRunning = isTaskRunning;
