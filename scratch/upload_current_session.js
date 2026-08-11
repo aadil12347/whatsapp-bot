@@ -7,36 +7,40 @@ if (fs.existsSync(envPath)) {
 
 const { uploadSessionToSupabase } = require('../src/Utils/supabaseSession');
 
+// Only creds.json is essential — everything else is temporary
+const ESSENTIAL_FILES = ['creds.json'];
+
 async function run() {
     console.log('🚀 Uploading WhatsApp paired keys to Supabase...');
     const sessionDir = path.join(__dirname, '../session');
     const sessDir = path.join(__dirname, '../sess');
 
-    // Check if session directory exists and has files
+    // Check if session directory exists and has creds.json
     if (!fs.existsSync(sessionDir)) {
         console.warn('⚠️ session/ directory does not exist. Nothing to upload.');
         return;
     }
 
-    const sessionFiles = fs.readdirSync(sessionDir).filter(f => {
-        const fp = path.join(sessionDir, f);
-        return fs.statSync(fp).isFile() && fs.statSync(fp).size > 0;
-    });
-
-    if (sessionFiles.length === 0) {
-        console.warn('⚠️ session/ directory is empty. Nothing to upload.');
+    const credsPath = path.join(sessionDir, 'creds.json');
+    if (!fs.existsSync(credsPath) || fs.statSync(credsPath).size === 0) {
+        console.warn('⚠️ session/creds.json not found or empty. Nothing to upload.');
         return;
     }
 
-    console.log(`📁 Found ${sessionFiles.length} session file(s) to upload.`);
+    console.log('📁 Found creds.json to upload (only essential file needed).');
 
-    // Copy session/ → sess/ for upload
+    // Copy ONLY creds.json to sess/ for upload
     if (!fs.existsSync(sessDir)) fs.mkdirSync(sessDir, { recursive: true });
-    for (const file of sessionFiles) {
-        const srcFile = path.join(sessionDir, file);
-        const destFile = path.join(sessDir, file);
-        fs.copyFileSync(srcFile, destFile);
+    
+    // Clean sess/ first to avoid uploading stale files
+    for (const file of fs.readdirSync(sessDir)) {
+        const fp = path.join(sessDir, file);
+        if (fs.statSync(fp).isFile() && !ESSENTIAL_FILES.includes(file)) {
+            try { fs.unlinkSync(fp); } catch (_) {}
+        }
     }
+    
+    fs.copyFileSync(credsPath, path.join(sessDir, 'creds.json'));
 
     const success = await uploadSessionToSupabase(sessDir);
     if (success) {
@@ -47,3 +51,4 @@ async function run() {
 }
 
 run().catch(console.error);
+

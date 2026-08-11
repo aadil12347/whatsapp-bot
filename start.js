@@ -86,16 +86,18 @@ async function startBot() {
     try {
         await downloadSessionFromSupabase(sessDir);
         cleanCorruptedSessionFiles(sessDir);
+        // Clean stale files from sessDir too — only keep creds.json
+        freshStartSession(sessDir);
 
-        if (fs.existsSync(sessDir)) {
+        // Only copy creds.json from sess/ to session/ (not pre-keys, sessions, etc.)
+        const credsInSess = path.join(sessDir, 'creds.json');
+        if (fs.existsSync(credsInSess) && fs.statSync(credsInSess).size > 0) {
             if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir, { recursive: true });
-            const files = fs.readdirSync(sessDir);
-            for (const file of files) {
-                const srcFile = path.join(sessDir, file);
-                const destFile = path.join(sessionDir, file);
-                if (fs.statSync(srcFile).isFile() && fs.statSync(srcFile).size > 0) {
-                    fs.copyFileSync(srcFile, destFile);
-                }
+            const destCreds = path.join(sessionDir, 'creds.json');
+            // Only copy if session/ doesn't already have a valid creds.json
+            if (!fs.existsSync(destCreds) || fs.statSync(destCreds).size === 0) {
+                fs.copyFileSync(credsInSess, destCreds);
+                console.log('📁 Restored creds.json from Supabase backup into session/');
             }
         }
     } catch (e) {
