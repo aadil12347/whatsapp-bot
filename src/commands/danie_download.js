@@ -302,20 +302,21 @@ function stopSocketKeepAlive() {
     }
 }
 
-async function waitForConnectionReady(conn, maxWaitMs = 30000) {
+async function waitForConnectionReady(conn, maxWaitMs = 15000) {
     const activeConn = conn || _connInstance;
     if (!activeConn) return false;
     
-    if (activeConn.ws && activeConn.ws.readyState === 1) {
+    // If activeConn has no tracked ws object, or ws.readyState is 1 (OPEN) or undefined, socket is ready
+    if (!activeConn.ws || activeConn.ws.readyState === 1 || activeConn.ws.readyState === undefined) {
         return true;
     }
     
-    console.log(`[DanieWatch] ⏳ WhatsApp WebSocket is not ready (readyState=${activeConn.ws?.readyState}). Waiting up to ${maxWaitMs / 1000}s for reconnection...`);
+    console.log(`[DanieWatch] ⏳ WhatsApp WebSocket state is ${activeConn.ws.readyState}. Waiting up to ${maxWaitMs / 1000}s for reconnection...`);
     const startTime = Date.now();
     while (Date.now() - startTime < maxWaitMs) {
-        await new Promise(r => setTimeout(r, 2000));
+        await new Promise(r => setTimeout(r, 1000));
         const currentConn = conn || _connInstance;
-        if (currentConn && currentConn.ws && currentConn.ws.readyState === 1) {
+        if (currentConn && (!currentConn.ws || currentConn.ws.readyState === 1 || currentConn.ws.readyState === undefined)) {
             console.log('[DanieWatch] ✅ WhatsApp WebSocket re-connected and ready!');
             return true;
         }
@@ -520,6 +521,9 @@ const SETTINGS_PATH = path.join(__dirname, '..', '..', 'session', 'download_sett
 const _primedSessions = new Set();
 
 async function sendAndForwardFile(conn, targets, filePayload, sendOptions = {}) {
+    if (sendOptions.abortSignal && sendOptions.abortSignal.aborted) {
+        throw new Error('Aborted');
+    }
     let targetList = [];
     if (Array.isArray(targets) && targets.length > 0) {
         targetList = targets.map(t => {
@@ -533,7 +537,7 @@ async function sendAndForwardFile(conn, targets, filePayload, sendOptions = {}) 
 
     const primaryJid = targetList[0];
     console.log(`[DanieWatch] Uploading file to primary target (${primaryJid})...`);
-    await waitForConnectionReady(conn, 30000);
+    await waitForConnectionReady(conn, 15000);
 
     // --- FIX 1: Session Primer for private JIDs ---
     // Before sending media to a private number, send a tiny text message first.
@@ -581,6 +585,9 @@ async function sendAndForwardFile(conn, targets, filePayload, sendOptions = {}) 
     let sentMsg = null;
     const maxUploadAttempts = 5;
     for (let attempt = 1; attempt <= maxUploadAttempts; attempt++) {
+        if (sendOptions.abortSignal && sendOptions.abortSignal.aborted) {
+            throw new Error('Aborted');
+        }
         try {
             sentMsg = await conn.sendMessage(primaryJid, filePayload, sendOptions.quoted ? { quoted: sendOptions.quoted } : {});
             
@@ -598,6 +605,9 @@ async function sendAndForwardFile(conn, targets, filePayload, sendOptions = {}) 
             }
         } catch (uploadErr) {
             const errMsg = uploadErr.message || '';
+            if (errMsg === 'Aborted' || (sendOptions.abortSignal && sendOptions.abortSignal.aborted)) {
+                throw new Error('Aborted');
+            }
             const isConnectionError = errMsg.includes('Connection Closed') || errMsg.includes('Connection was lost') || errMsg.includes('Timed Out') || (uploadErr.output && uploadErr.output.statusCode === 408);
             console.error(`[DanieWatch] Upload attempt ${attempt}/${maxUploadAttempts} failed for ${primaryJid}:`, errMsg);
             if (attempt < maxUploadAttempts) {
@@ -1799,6 +1809,10 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
         const destJid = primaryJid;
 
         for (let i = 0; i < items.length; i++) {
+            if (abortSignal && abortSignal.aborted) {
+                console.log('[DanieDownload] Abort signal detected. Stopping download items loop.');
+                throw new Error('Aborted');
+            }
             let { customFilename, url } = parseDownloadItem(items[i]);
             let targetFilename = customFilename;
 
@@ -1858,6 +1872,10 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
 
             // Download using resume-enabled download function
             const responseHeaders = await downloadFileWithResume(url, tempFilePath, {}, abortSignal);
+
+            if (abortSignal && abortSignal.aborted) {
+                throw new Error('Aborted');
+            }
 
             // Extract real filename from Content-Disposition header
             const contentDisposition = (responseHeaders && responseHeaders['content-disposition']) || '';
@@ -1932,6 +1950,10 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
                 try {
                     await extractArchive(tempFilePath, targetDir);
 
+                    if (abortSignal && abortSignal.aborted) {
+                        throw new Error('Aborted');
+                    }
+
                     // Delete the original archive immediately after extraction to free space
                     try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch (_) {}
                     console.log(`[DanieDownload] Deleted original archive after extraction to free space.`);
@@ -1968,6 +1990,11 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
                     const uploadedFiles = [];
 
                     for (let fi = 0; fi < validFiles.length; fi++) {
+                        if (abortSignal && abortSignal.aborted) {
+                            console.log('[DanieDownload] Abort signal detected in archive upload loop. Stopping.');
+                            throw new Error('Aborted');
+                        }
+
                         const extractedFilePath = validFiles[fi];
                         const baseName = path.basename(extractedFilePath);
                         
@@ -2018,12 +2045,16 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
                                 document: { url: extractedFilePath },
                                 mimetype: fileMime,
                                 fileName: finalFileName
-                            }, { quoted: destJid === from ? mek : null, from, senderJid });
+                            }, { quoted: destJid === from ? mek : null, from, senderJid, abortSignal });
                             
                             uploadedCount++;
                             uploadedFiles.push(path.basename(finalFileName));
                             console.log(`[DanieDownload] ✅ Uploaded & deleted: ${finalFileName} (${fileSizeInMB} MB)`);
                         } catch (uploadErr) {
+                            if (uploadErr.message === 'Aborted' || (abortSignal && abortSignal.aborted)) {
+                                console.log('[DanieDownload] Archive upload aborted by user.');
+                                throw new Error('Aborted');
+                            }
                             failedCount++;
                             failedFiles.push({ name: path.basename(finalFileName), error: uploadErr.message });
                             console.error(`[DanieDownload] ❌ Upload failed for ${finalFileName}: ${uploadErr.message}`);
@@ -2045,6 +2076,10 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
                     summaryMsg += `\n🎯 *Sent to:* ${destLabel}`;
                     await reply(summaryMsg);
                 } catch (err) {
+                    if (err.message === 'Aborted' || (abortSignal && abortSignal.aborted)) {
+                        console.log('[DanieDownload] Archive process aborted cleanly.');
+                        throw err;
+                    }
                     await reply(`❌ Failed to extract or process archive: ${err.message}`);
                 } finally {
                     // Clean up extracted directory (should be mostly empty now)
