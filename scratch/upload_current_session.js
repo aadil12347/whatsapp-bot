@@ -7,15 +7,11 @@ if (fs.existsSync(envPath)) {
 
 const { uploadSessionToSupabase } = require('../src/Utils/supabaseSession');
 
-// Only creds.json is essential — everything else is temporary
-const ESSENTIAL_FILES = ['creds.json'];
-
 async function run() {
-    console.log('🚀 Uploading WhatsApp paired keys to Supabase...');
+    console.log('🚀 Uploading WhatsApp paired session keys to Supabase...');
     const sessionDir = path.join(__dirname, '../session');
     const sessDir = path.join(__dirname, '../sess');
 
-    // Check if session directory exists and has creds.json
     if (!fs.existsSync(sessionDir)) {
         console.warn('⚠️ session/ directory does not exist. Nothing to upload.');
         return;
@@ -27,22 +23,23 @@ async function run() {
         return;
     }
 
-    console.log('📁 Found creds.json to upload (only essential file needed).');
-
-    // Copy ONLY creds.json to sess/ for upload
     if (!fs.existsSync(sessDir)) fs.mkdirSync(sessDir, { recursive: true });
     
-    // Clean sess/ first to avoid uploading stale files
-    for (const file of fs.readdirSync(sessDir)) {
-        const fp = path.join(sessDir, file);
-        if (fs.statSync(fp).isFile() && !ESSENTIAL_FILES.includes(file)) {
-            try { fs.unlinkSync(fp); } catch (_) {}
+    // Copy all valid session files to sess/ for backup/upload
+    const files = fs.readdirSync(sessionDir);
+    let count = 0;
+    for (const file of files) {
+        if (!file.endsWith('.json')) continue;
+        const srcFp = path.join(sessionDir, file);
+        const destFp = path.join(sessDir, file);
+        if (fs.statSync(srcFp).isFile() && fs.statSync(srcFp).size > 0) {
+            fs.copyFileSync(srcFp, destFp);
+            count++;
         }
     }
-    
-    fs.copyFileSync(credsPath, path.join(sessDir, 'creds.json'));
+    console.log(`📁 Copied ${count} session file(s) from session/ to sess/ for upload.`);
 
-    const success = await uploadSessionToSupabase(sessDir);
+    const success = await uploadSessionToSupabase(sessionDir);
     if (success) {
         console.log('🎉 Current session uploaded to Supabase successfully!');
     } else {
@@ -51,4 +48,5 @@ async function run() {
 }
 
 run().catch(console.error);
+
 

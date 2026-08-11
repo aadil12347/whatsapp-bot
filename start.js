@@ -10,7 +10,7 @@ if (fs.existsSync(envPath)) {
 const { killPreviousInstances } = require('./src/Utils/singleInstance');
 killPreviousInstances();
 
-const { downloadSessionFromSupabase } = require('./src/Utils/supabaseSession');
+const { uploadSessionToSupabase, downloadSessionFromSupabase } = require('./src/Utils/supabaseSession');
 
 /**
  * Auto-patch libsignal's session_record.js to silence verbose session logging.
@@ -86,35 +86,69 @@ function cleanCorruptedSessionFiles(dir) {
     } catch (_) {}
 }
 
-/**
- * Fresh start — delete ALL session files except creds.json on every startup.
- * creds.json = your WhatsApp login identity (keeps you logged in).
- * Everything else (pre-key, sender-key, session files) gets recreated 
- * automatically as needed. This prevents the Baileys Signal protocol
- * from entering an infinite session-sync loop on reconnect.
- */
-function freshStartSession(dir) {
+function syncDirectories(srcDir, destDir) {
+    if (!fs.existsSync(srcDir)) return;
+    if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
+    try {
+        const files = fs.readdirSync(srcDir);
+        for (const file of files) {
+            if (!file.endsWith('.json')) continue;
+            const srcFile = path.join(srcDir, file);
+            const destFile = path.join(destDir, file);
+            try {
+                if (fs.statSync(srcFile).isFile() && fs.statSync(srcFile).size > 0) {
+                    if (!fs.existsSync(destFile) || fs.statSync(destFile).mtimeMs < fs.statSync(srcFile).mtimeMs) {
+                        fs.copyFileSync(srcFile, destFile);
+                    }
+                }
+            } catch (_) {}
+        }
+    } catch (_) {}
+}
+
+function pruneSessionDirectory(dir) {
     if (!fs.existsSync(dir)) return;
     try {
         const files = fs.readdirSync(dir);
         let removedCount = 0;
+        const now = Date.now();
+        const thirtyDays = 30 * 24 * 60 * 60 * 1000;
+        
         for (const file of files) {
-            // Keep ONLY creds.json — everything else is temporary
-            if (file === 'creds.json') continue;
+            if (!file.endsWith('.json')) continue;
+            
+            const isCreds = file === 'creds.json';
+            const isSession = file.startsWith('session-');
+            const isSenderKey = file.startsWith('sender-key-');
+            const isAppState = file.startsWith('app-state-sync-key-');
             
             const fullPath = path.join(dir, file);
+            
             try {
-                if (fs.statSync(fullPath).isFile()) {
+                if (isCreds) {
+                    continue;
+                }
+                
+                // If not an essential file type, delete it immediately
+                if (!isSession && !isSenderKey && !isAppState) {
+                    fs.unlinkSync(fullPath);
+                    removedCount++;
+                    continue;
+                }
+                
+                // If it is an essential file but hasn't been modified in 30 days, prune it
+                const stat = fs.statSync(fullPath);
+                if (now - stat.mtimeMs > thirtyDays) {
                     fs.unlinkSync(fullPath);
                     removedCount++;
                 }
             } catch (_) {}
         }
         if (removedCount > 0) {
-            console.log(`🧹 Fresh start: removed ${removedCount} temporary session files from ${path.basename(dir)}/ (kept creds.json)`);
+            console.log(`🧹 Pruned ${removedCount} non-essential/stale session files from ${path.basename(dir)}/`);
         }
     } catch (err) {
-        console.warn('⚠️ Session cleanup error:', err.message);
+        console.warn('⚠️ Error during session pruning:', err.message);
     }
 }
 
@@ -124,38 +158,26 @@ async function startBot() {
     const sessionDir = path.join(__dirname, 'session');
     const sessDir = path.join(__dirname, 'sess');
 
+    if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir, { recursive: true });
+    if (!fs.existsSync(sessDir)) fs.mkdirSync(sessDir, { recursive: true });
+
     cleanCorruptedSessionFiles(sessionDir);
     cleanCorruptedSessionFiles(sessDir);
-    freshStartSession(sessionDir);
-    freshStartSession(sessDir);
+    pruneSessionDirectory(sessionDir);
+    pruneSessionDirectory(sessDir);
 
-    // Auto-download latest session from Supabase if available
+    // Auto-download latest session files from Supabase if available
     try {
-        await downloadSessionFromSupabase(sessDir);
-        cleanCorruptedSessionFiles(sessDir);
-        // Clean stale files from sessDir too — only keep creds.json
-        freshStartSession(sessDir);
+        await downloadSessionFromSupabase(sessionDir);
+        cleanCorruptedSessionFiles(sessionDir);
+        pruneSessionDirectory(sessionDir);
 
-        // Only copy creds.json from sess/ to session/ (not pre-keys, sessions, etc.)
-        const credsInSess = path.join(sessDir, 'creds.json');
-        if (fs.existsSync(credsInSess) && fs.statSync(credsInSess).size > 0) {
-            if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir, { recursive: true });
-            const destCreds = path.join(sessionDir, 'creds.json');
-            // Only copy if session/ doesn't already have a valid creds.json
-            if (!fs.existsSync(destCreds) || fs.statSync(destCreds).size === 0) {
-                fs.copyFileSync(credsInSess, destCreds);
-                console.log('📁 Restored creds.json from Supabase backup into session/');
-            }
-        }
+        // Sync valid session files between session/ and sess/
+        syncDirectories(sessDir, sessionDir);
+        syncDirectories(sessionDir, sessDir);
     } catch (e) {
         console.warn('⚠️ Note: Supabase session sync skipped or failed:', e.message || e);
     }
-
-    // IMPORTANT: Clean stale session files AFTER Supabase restore.
-    // Supabase restores ALL files including old pre-key/sender-key/session files
-    // that cause "Closing session" spam and reconnection loops.
-    // Only creds.json is needed — everything else gets recreated automatically.
-    freshStartSession(sessionDir);
 
     // Auto-update: Pull fresh files from GitHub at startup
     try {
@@ -315,11 +337,21 @@ process.stderr.write = function(chunk, encoding, callback) {
         execArgv: ['--require', preloadPath]
     });
 
+    // Periodic session sync to Supabase every 15 minutes
+    const syncInterval = setInterval(async () => {
+        try {
+            console.log('☁️ Auto-syncing session state to Supabase...');
+            await uploadSessionToSupabase(sessionDir);
+        } catch (_) {}
+    }, 15 * 60 * 1000);
+
     const maxRunMinutes = parseInt(process.env.MAX_RUN_TIME_MINUTES || '0', 10);
     if (maxRunMinutes > 0) {
         console.log(`⏱️ Auto-restart timer active: Bot will exit gracefully in ${maxRunMinutes} minutes to save session & end run.`);
-        setTimeout(() => {
-            console.log(`⏰ ${maxRunMinutes} minutes elapsed. Stopping bot process for clean exit...`);
+        setTimeout(async () => {
+            console.log(`⏰ ${maxRunMinutes} minutes elapsed. Uploading session & stopping bot process...`);
+            clearInterval(syncInterval);
+            try { await uploadSessionToSupabase(sessionDir); } catch (_) {}
             child.kill('SIGTERM');
             setTimeout(() => {
                 if (!child.killed) child.kill('SIGKILL');
@@ -332,8 +364,10 @@ process.stderr.write = function(chunk, encoding, callback) {
         console.error('❌ Bot crashed with error:', err.message);
     });
 
-    child.on('exit', (code) => {
+    child.on('exit', async (code) => {
+        clearInterval(syncInterval);
         console.log(`🤖 Bot process exited with code ${code}`);
+        try { await uploadSessionToSupabase(sessionDir); } catch (_) {}
         process.exit(code || 0);
     });
 }
