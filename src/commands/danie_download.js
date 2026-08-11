@@ -1927,13 +1927,6 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
             }
 
             if (isArchive) {
-                let FolderName = '';
-                if (targetFilename) {
-                    FolderName = applyBranding(cleanFileName(targetFilename));
-                } else {
-                    FolderName = applyBranding(cleanFileName(tempFilename));
-                }
-
                 await reply(`📦 Archive detected: *${tempFilename}* (${sizeInMB} MB). Extracting files...`);
                 const targetDir = path.join(__dirname, 'extracted_' + Date.now());
                 try {
@@ -2005,16 +1998,15 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
                             }
                         } catch (err) {}
                         
-                        // Determine relative path and apply branding to folder + file name
-                        let relPath = path.relative(targetDir, extractedFilePath).replace(/\\/g, '/');
-                        if (archiveRootFolder) {
-                            const prefixLength = archiveRootFolder.length + 1;
-                            relPath = relPath.substring(prefixLength);
+                        // Keep actual file name as it is, just replace branding with DanieWatch
+                        const rawBaseName = path.basename(extractedFilePath);
+                        const cleanBase = cleanFileName(rawBaseName);
+                        let finalFileName = applyBranding(cleanBase);
+
+                        if (!/DanieWatch/i.test(finalFileName)) {
+                            finalFileName += ' - DanieWatch';
                         }
 
-                        let finalFileNamePath = path.join(FolderName, relPath);
-                        let finalFileName = applyBranding(finalFileNamePath.replace(/\\/g, '/'));
-                        
                         if (fileExt && !finalFileName.toLowerCase().endsWith('.' + fileExt.toLowerCase())) {
                             finalFileName += '.' + fileExt;
                         }
