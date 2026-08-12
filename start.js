@@ -204,10 +204,10 @@ async function startBot() {
         console.warn(error.message);
     }
 
-    const botBrainPath = path.join(__dirname, 'queen.js');
+    const botBrainPath = path.join(__dirname, 'queen_lite.js');
 
     if (!fs.existsSync(botBrainPath)) {
-        console.error('❌ Error: queen.js is missing! Please make sure the brain file is in the folder.');
+        console.error('❌ Error: queen_lite.js is missing! Please make sure the brain file is in the folder.');
         process.exit(1);
     }
 

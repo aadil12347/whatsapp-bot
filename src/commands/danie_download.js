@@ -1320,7 +1320,8 @@ function initUpsertListener(conn) {
                     'jid', 'groupid',
                     'qdel', 'qremove', 'qedit', 'qupdate',
                     'help',
-                    'song', 'songdl', 'yt1s', 'yts', 'yts1', 'video', 'yt2s', 'yt3s', 'csong', 'csongdl'
+                    'song', 'songdl', 'yt1s', 'yts', 'yts1', 'video', 'yt2s', 'yt3s', 'csong', 'csongdl',
+                    'ig', 'fb', 'tiktok', 'twitter', 'ytv', 'yt'
                 ];
 
                 if (!ALLOWED_COMMANDS.includes(cmdName)) {
@@ -3515,6 +3516,33 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
 
     const from = mek.key.remoteJid;
     const num = parseInt(text.trim(), 10);
+    if (state.step === 'song_select') {
+        const results = state.results || [];
+        if (isNaN(num) || num < 1 || num > results.length) {
+            return reply(`❌ Invalid selection. Reply with a number from 1 to ${results.length}.`);
+        }
+        const selected = results[num - 1];
+        delete pendingSearch[cleanSender];
+        // Download and send as audio
+        if (DANIE_COMMANDS['songdl']) {
+            return DANIE_COMMANDS['songdl'](conn, mek, from, senderJid, selected.url, reply);
+        }
+        return;
+    }
+
+    if (state.step === 'yts_select') {
+        const results = state.results || [];
+        if (isNaN(num) || num < 1 || num > results.length) {
+            return reply(`❌ Invalid selection. Reply with a number from 1 to ${results.length}.`);
+        }
+        const selected = results[num - 1];
+        delete pendingSearch[cleanSender];
+        // Download and send as video
+        if (DANIE_COMMANDS['video']) {
+            return DANIE_COMMANDS['video'](conn, mek, from, senderJid, selected.url, reply);
+        }
+        return;
+    }
 
     if (state.step === 'streamimdb_select') {
         const results = state.results || [];
@@ -4226,7 +4254,361 @@ function isTaskRunning() {
     return globalTaskQueue.isProcessing || globalTaskQueue.queue.length > 0;
 }
 
+// ═══════════════════════════════════════════════════════════════
+//  YOUTUBE COMMANDS (migrated from youtube.js)
+// ═══════════════════════════════════════════════════════════════
+const yts = require('yt-search');
+const { execSync } = require('child_process');
+
+const ytDefaultHeaders = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36",
+    "Referer": "https://frame.y2meta-uk.com/",
+    "Origin": "https://frame.y2meta-uk.com",
+    "Accept": "*/*"
+};
+
+async function convertYtMedia(ytUrl, audioBitrate, videoQuality, format) {
+    const tempRawPath = path.join(os.tmpdir(), `yt_raw_${Date.now()}_${Math.random().toString(36).substr(2, 5)}.${format}`);
+    const tempFixedPath = path.join(os.tmpdir(), `yt_fixed_${Date.now()}_${Math.random().toString(36).substr(2, 5)}.${format}`);
+    try {
+        const fetch = require('node-fetch');
+        const keyRes = await fetch("https://cnv.cx/v2/sanity/key", { headers: ytDefaultHeaders });
+        if (!keyRes.ok) throw new Error("Key fetch failed");
+        const { key } = await keyRes.json();
+        const bodyParams = new URLSearchParams({ link: ytUrl, format, audioBitrate, videoQuality, filenameStyle: "pretty", vCodec: "h264" });
+        const convRes = await fetch("https://cnv.cx/v2/converter", {
+            method: "POST",
+            headers: { ...ytDefaultHeaders, "Content-Type": "application/x-www-form-urlencoded", key },
+            body: bodyParams
+        });
+        if (!convRes.ok) throw new Error("Conversion failed");
+        const convJson = await convRes.json();
+        if (!convJson.url) throw new Error("No download URL");
+        const fileRes = await fetch(convJson.url, { headers: ytDefaultHeaders });
+        if (!fileRes.ok) throw new Error("File download failed");
+        const fileStream = fs.createWriteStream(tempRawPath);
+        await new Promise((resolve, reject) => { fileRes.body.pipe(fileStream); fileRes.body.on('error', reject); fileStream.on('finish', resolve); });
+        let mime = format === 'mp4' ? "video/mp4" : "audio/mpeg";
+        if (format === 'mp4') {
+            try {
+                execSync(`ffmpeg -y -i "${tempRawPath}" -c copy -movflags +faststart "${tempFixedPath}"`, { stdio: 'ignore' });
+                if (fs.existsSync(tempFixedPath) && fs.statSync(tempFixedPath).size > 0) {
+                    try { if (fs.existsSync(tempRawPath)) fs.unlinkSync(tempRawPath); } catch (_) {}
+                    return { filePath: tempFixedPath, filename: convJson.filename, mimetype: mime };
+                }
+            } catch (e) {
+                try {
+                    execSync(`ffmpeg -y -i "${tempRawPath}" -c:v libx264 -preset ultrafast -crf 26 -c:a aac -b:a 128k -pix_fmt yuv420p -movflags +faststart "${tempFixedPath}"`, { stdio: 'ignore' });
+                    if (fs.existsSync(tempFixedPath) && fs.statSync(tempFixedPath).size > 0) {
+                        try { if (fs.existsSync(tempRawPath)) fs.unlinkSync(tempRawPath); } catch (_) {}
+                        return { filePath: tempFixedPath, filename: convJson.filename, mimetype: mime };
+                    }
+                } catch (_) {}
+            }
+        }
+        return { filePath: tempRawPath, filename: convJson.filename, mimetype: mime };
+    } catch (err) {
+        console.error("[YouTube Error]:", err.message);
+        try { if (fs.existsSync(tempRawPath)) fs.unlinkSync(tempRawPath); } catch (_) {}
+        try { if (fs.existsSync(tempFixedPath)) fs.unlinkSync(tempFixedPath); } catch (_) {}
+        return null;
+    }
+}
+
+function extractYtId(urlStr) {
+    const regex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|embed\/|v\/|shorts\/|playlist\?list=)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
+    const match = urlStr.match(regex);
+    return match ? match[1] : null;
+}
+
+function normalizeYtUrl(urlStr) {
+    const id = extractYtId(urlStr);
+    return id ? `https://www.youtube.com/watch?v=${id}` : urlStr;
+}
+
+// .song — search YouTube and list results
+DANIE_COMMANDS['song'] = async (conn, mek, from, senderJid, args, reply) => {
+    try {
+        if (!args) return reply("🎵 Please provide a search query.\nExample: `.song Shape of You`");
+        const searchRes = await yts(args);
+        const videos = searchRes.videos.slice(0, 10);
+        if (!videos.length) return reply("❌ No songs found.");
+        let listText = `🎵 *Song Search Results for:* _"${args}"_\n\n`;
+        videos.forEach((item, idx) => {
+            listText += `  \`${idx + 1}\` — *${item.title}* (${item.timestamp})\n`;
+        });
+        listText += `\n_Reply with a number (1-${videos.length}) to download._`;
+        const sent = await reply(listText);
+        pendingSearch[cleanJid(senderJid)] = { step: 'song_select', results: videos, messageId: sent && sent.key ? sent.key.id : null };
+    } catch (err) { reply(`❌ Error: ${err.message}`); }
+};
+
+// .songdl — download audio from YouTube URL
+DANIE_COMMANDS['songdl'] = async (conn, mek, from, senderJid, args, reply) => {
+    let dl = null;
+    try {
+        if (!args) return reply("Please provide a YouTube URL.");
+        const cleanUrl = normalizeYtUrl(args);
+        const searchRes = await yts(cleanUrl);
+        const info = searchRes.videos[0];
+        if (!info) return reply("❌ No video found.");
+        await reply(`⏳ *Downloading:* "${info.title}"...`);
+        dl = await convertYtMedia(info.url, "128", "480", "mp3");
+        if (!dl || !dl.filePath || !fs.existsSync(dl.filePath)) throw new Error("Audio download failed.");
+        await conn.sendMessage(from, { audio: { url: dl.filePath }, mimetype: "audio/mpeg", fileName: `${info.title}.mp3`, ptt: false }, { quoted: mek });
+        await reply(`✅ *${info.title}* — ${info.timestamp}`);
+    } catch (err) { reply(`❌ Failed: ${err.message}`); }
+    finally { if (dl && dl.filePath && fs.existsSync(dl.filePath)) { try { fs.unlinkSync(dl.filePath); } catch (_) {} } }
+};
+
+// .yt1s — download audio with format choice (1=audio, 2=doc, 3=voice)
+DANIE_COMMANDS['yt1s'] = async (conn, mek, from, senderJid, args, reply) => {
+    let dl = null;
+    try {
+        if (!args) return reply("Please provide a query.");
+        const [query, choice] = args.split(" & ");
+        if (!query || !choice) return reply("Invalid format. Use: `.yt1s <URL> & <1|2|3>`");
+        const searchRes = await yts(query);
+        const info = searchRes.videos[0];
+        if (!info) return reply("No video found.");
+        dl = await convertYtMedia(info.url, "128", "480", "mp3");
+        if (!dl || !dl.filePath || !fs.existsSync(dl.filePath)) throw new Error("Audio download failed.");
+        if (choice.trim() === '1') {
+            await conn.sendMessage(from, { audio: { url: dl.filePath }, mimetype: "audio/mpeg", fileName: `${info.title}.mp3`, ptt: false });
+        } else if (choice.trim() === '2') {
+            await conn.sendMessage(from, { document: { url: dl.filePath }, mimetype: "audio/mpeg", fileName: `${info.title}.mp3` });
+        } else if (choice.trim() === '3') {
+            await conn.sendMessage(from, { audio: { url: dl.filePath }, mimetype: "audio/mp4", ptt: true });
+        }
+    } catch (err) { reply(`❌ Failed: ${err.message}`); }
+    finally { if (dl && dl.filePath && fs.existsSync(dl.filePath)) { try { fs.unlinkSync(dl.filePath); } catch (_) {} } }
+};
+
+// .yts — search YouTube videos
+DANIE_COMMANDS['yts'] = async (conn, mek, from, senderJid, args, reply) => {
+    try {
+        if (!args) return reply("🎥 Please provide a search query.");
+        const searchRes = await yts(args);
+        const videos = searchRes.videos.slice(0, 10);
+        if (!videos.length) return reply("❌ No videos found.");
+        let listText = `🎥 *Video Search Results for:* _"${args}"_\n\n`;
+        videos.forEach((item, idx) => {
+            listText += `  \`${idx + 1}\` — *${item.title}* (${item.timestamp}) 👁️${item.views}\n`;
+        });
+        listText += `\n_Reply with a number (1-${videos.length}) to download._`;
+        const sent = await reply(listText);
+        pendingSearch[cleanJid(senderJid)] = { step: 'yts_select', results: videos, messageId: sent && sent.key ? sent.key.id : null };
+    } catch (err) { reply(`❌ Error: ${err.message}`); }
+};
+DANIE_COMMANDS['yts1'] = DANIE_COMMANDS['yts'];
+
+// .video / .ytv / .yt — download YouTube video directly
+DANIE_COMMANDS['video'] = async (conn, mek, from, senderJid, args, reply) => {
+    let dl = null;
+    try {
+        if (!args) return reply("🎥 Please provide a YouTube URL or title.\nExample: `.video Shape of You`");
+        const cleanUrl = normalizeYtUrl(args);
+        const searchRes = await yts(cleanUrl);
+        const info = (searchRes && searchRes.videos && searchRes.videos.length > 0) ? searchRes.videos[0] : null;
+        if (!info) return reply("❌ No YouTube video found.");
+        await reply(`⏳ *Downloading:* "${info.title}"...`);
+        dl = await convertYtMedia(info.url, "128", "720", "mp4");
+        if (!dl || !dl.filePath || !fs.existsSync(dl.filePath)) throw new Error("Video download failed.");
+        const caption = `🎥 *${info.title}*\n⏱️ ${info.timestamp} | 👁️ ${info.views}\n🔗 ${info.url}`;
+        await conn.sendMessage(from, { video: { url: dl.filePath }, mimetype: "video/mp4", caption, fileName: `${info.title}.mp4` }, { quoted: mek });
+    } catch (err) { reply(`❌ Failed: ${err.message}`); }
+    finally { if (dl && dl.filePath && fs.existsSync(dl.filePath)) { try { fs.unlinkSync(dl.filePath); } catch (_) {} } }
+};
+DANIE_COMMANDS['ytv'] = DANIE_COMMANDS['video'];
+DANIE_COMMANDS['yt'] = DANIE_COMMANDS['video'];
+
+// .yt2s — download video at specific quality (inline)
+DANIE_COMMANDS['yt2s'] = async (conn, mek, from, senderJid, args, reply) => {
+    let dl = null;
+    try {
+        if (!args) return reply("Provide a YouTube URL & quality. Example: `.yt2s <URL> & 720`");
+        const parts = args.split(" & ");
+        const targetUrl = parts[0]; const quality = parts[1] || "360";
+        const searchRes = await yts(targetUrl);
+        const info = searchRes.videos[0];
+        if (!info) return reply("❌ No video found.");
+        dl = await convertYtMedia(info.url, "128", quality, "mp4");
+        if (!dl || !dl.filePath || !fs.existsSync(dl.filePath)) throw new Error("Video download failed.");
+        await conn.sendMessage(from, { video: { url: dl.filePath }, mimetype: "video/mp4", caption: `🎥 *${info.title}* (${quality}p)`, fileName: "video.mp4" });
+    } catch (err) { reply(`❌ Failed: ${err.message}`); }
+    finally { if (dl && dl.filePath && fs.existsSync(dl.filePath)) { try { fs.unlinkSync(dl.filePath); } catch (_) {} } }
+};
+
+// .yt3s — download video as document at specific quality
+DANIE_COMMANDS['yt3s'] = async (conn, mek, from, senderJid, args, reply) => {
+    let dl = null;
+    try {
+        if (!args) return reply("Provide a YouTube URL & quality.");
+        const parts = args.split(" & ");
+        const targetUrl = parts[0]; const quality = parts[1] || "360";
+        const searchRes = await yts(targetUrl);
+        const info = searchRes.videos[0];
+        if (!info) return reply("❌ No video found.");
+        dl = await convertYtMedia(info.url, "128", quality, "mp4");
+        if (!dl || !dl.filePath || !fs.existsSync(dl.filePath)) throw new Error("Video download failed.");
+        await conn.sendMessage(from, { document: { url: dl.filePath }, mimetype: "video/mp4", fileName: `${info.title}.mp4`, caption: `🎥 *${info.title}* (${quality}p)` });
+    } catch (err) { reply(`❌ Failed: ${err.message}`); }
+    finally { if (dl && dl.filePath && fs.existsSync(dl.filePath)) { try { fs.unlinkSync(dl.filePath); } catch (_) {} } }
+};
+
+// .csong — channel song (search + send to JID)
+DANIE_COMMANDS['csong'] = async (conn, mek, from, senderJid, args, reply) => {
+    let dl = null;
+    try {
+        if (!args) return reply("Usage: `.csong <query> & <jid>`");
+        const parts = args.split(" & ");
+        const queryStr = parts[0]; const jidStr = parts[1];
+        if (!queryStr || !jidStr) return reply("Invalid format.");
+        const searchRes = await yts(queryStr);
+        const info = searchRes.videos[0];
+        if (!info) return reply("No song found.");
+        dl = await convertYtMedia(info.url, "128", "480", "mp3");
+        if (!dl || !dl.filePath || !fs.existsSync(dl.filePath)) throw new Error("Audio download failed.");
+        await conn.sendMessage(`${jidStr}`, { image: { url: info.thumbnail }, caption: `🎵 *${info.title}*\n⏱️ ${info.timestamp}` });
+        await conn.sendMessage(`${jidStr}`, { audio: { url: dl.filePath }, mimetype: "audio/mpeg", fileName: dl.filename, ptt: true });
+        await reply(`✅ Sent to channel.`);
+    } catch (err) { reply(`❌ Failed: ${err.message}`); }
+    finally { if (dl && dl.filePath && fs.existsSync(dl.filePath)) { try { fs.unlinkSync(dl.filePath); } catch (_) {} } }
+};
+DANIE_COMMANDS['csongdl'] = DANIE_COMMANDS['csong'];
+
+// ═══════════════════════════════════════════════════════════════
+//  SOCIAL MEDIA DOWNLOAD COMMANDS (ig, fb, tiktok, twitter)
+// ═══════════════════════════════════════════════════════════════
+
+// .fb — Facebook video download
+DANIE_COMMANDS['fb'] = async (conn, mek, from, senderJid, args, reply) => {
+    try {
+        if (!args || !args.includes('facebook.com') && !args.includes('fb.watch')) {
+            return reply("📥 *Facebook Downloader*\nPlease provide a Facebook video URL.\nExample: `.fb https://www.facebook.com/watch?v=...`");
+        }
+        await reply(`⏳ *Downloading Facebook video...*`);
+        const fbdl = require('@xaviabot/fb-downloader');
+        const result = await fbdl(args.trim());
+        if (!result || !result.sd) throw new Error("Could not extract video from this Facebook URL.");
+        const videoUrl = result.hd || result.sd;
+        const caption = `💢 *DANIEWATCH FB DOWNLOADER* 💢\n\n🎞 *Title:* ${result.title || 'Facebook Video'}\n🔗 ${args.trim()}`;
+        await conn.sendMessage(from, { video: { url: videoUrl }, mimetype: "video/mp4", caption, fileName: "fb_video.mp4" }, { quoted: mek });
+    } catch (err) {
+        console.error('[FB Download Error]:', err.message);
+        reply(`❌ Failed to download Facebook video: ${err.message}`);
+    }
+};
+
+// .ig — Instagram reel/post download
+DANIE_COMMANDS['ig'] = async (conn, mek, from, senderJid, args, reply) => {
+    try {
+        if (!args || !args.includes('instagram.com')) {
+            return reply("📥 *Instagram Downloader*\nPlease provide an Instagram URL.\nExample: `.ig https://www.instagram.com/reel/...`");
+        }
+        await reply(`⏳ *Downloading Instagram content...*`);
+        const fetch = require('node-fetch');
+        // Use a public IG download API
+        const apiUrl = `https://api.cobalt.tools/api/json`;
+        const res = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({ url: args.trim(), vQuality: '720' })
+        });
+        const data = await res.json();
+        if (data.url) {
+            await conn.sendMessage(from, { video: { url: data.url }, mimetype: "video/mp4", caption: `📸 *DANIEWATCH IG DOWNLOADER*\n🔗 ${args.trim()}`, fileName: "ig_video.mp4" }, { quoted: mek });
+        } else if (data.picker && data.picker.length > 0) {
+            // Multiple images/slides
+            for (const item of data.picker.slice(0, 10)) {
+                if (item.type === 'video') {
+                    await conn.sendMessage(from, { video: { url: item.url }, mimetype: "video/mp4" });
+                } else {
+                    await conn.sendMessage(from, { image: { url: item.url }, caption: `📸 Instagram Slide` });
+                }
+            }
+        } else {
+            throw new Error("Could not extract media from this Instagram URL.");
+        }
+    } catch (err) {
+        console.error('[IG Download Error]:', err.message);
+        // Fallback: try ruhend-scraper
+        try {
+            const { igdl } = require('ruhend-scraper');
+            const result = await igdl(args.trim());
+            if (result && result.data && result.data.length > 0) {
+                for (const item of result.data.slice(0, 5)) {
+                    await conn.sendMessage(from, { video: { url: item.url }, mimetype: "video/mp4", caption: `📸 *DANIEWATCH IG DOWNLOADER*` }, { quoted: mek });
+                }
+                return;
+            }
+        } catch (_) {}
+        reply(`❌ Failed to download Instagram content: ${err.message}`);
+    }
+};
+
+// .tiktok — TikTok video download
+DANIE_COMMANDS['tiktok'] = async (conn, mek, from, senderJid, args, reply) => {
+    try {
+        if (!args || !args.includes('tiktok.com')) {
+            return reply("📥 *TikTok Downloader*\nPlease provide a TikTok URL.\nExample: `.tiktok https://www.tiktok.com/@user/video/...`");
+        }
+        await reply(`⏳ *Downloading TikTok video...*`);
+        const fetch = require('node-fetch');
+        // Use cobalt API for TikTok
+        const res = await fetch('https://api.cobalt.tools/api/json', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({ url: args.trim(), vQuality: '720' })
+        });
+        const data = await res.json();
+        if (data.url) {
+            await conn.sendMessage(from, { video: { url: data.url }, mimetype: "video/mp4", caption: `🎟️ *DANIEWATCH TIKTOK DOWNLOADER* 🎟️\n🔗 ${args.trim()}`, fileName: "tiktok_video.mp4" }, { quoted: mek });
+        } else {
+            throw new Error("Could not extract video.");
+        }
+    } catch (err) {
+        console.error('[TikTok Download Error]:', err.message);
+        // Fallback: try ruhend-scraper
+        try {
+            const { tiktokdl } = require('ruhend-scraper');
+            const result = await tiktokdl(args.trim());
+            if (result && result.video) {
+                await conn.sendMessage(from, { video: { url: result.video }, mimetype: "video/mp4", caption: `🎟️ *DANIEWATCH TIKTOK DOWNLOADER*\n📝 ${result.title || ''}` }, { quoted: mek });
+                return;
+            }
+        } catch (_) {}
+        reply(`❌ Failed to download TikTok video: ${err.message}`);
+    }
+};
+
+// .twitter — Twitter/X video download
+DANIE_COMMANDS['twitter'] = async (conn, mek, from, senderJid, args, reply) => {
+    try {
+        if (!args || (!args.includes('twitter.com') && !args.includes('x.com'))) {
+            return reply("📥 *Twitter/X Downloader*\nPlease provide a Twitter/X URL.\nExample: `.twitter https://x.com/user/status/...`");
+        }
+        await reply(`⏳ *Downloading Twitter video...*`);
+        const fetch = require('node-fetch');
+        const res = await fetch('https://api.cobalt.tools/api/json', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({ url: args.trim(), vQuality: '720' })
+        });
+        const data = await res.json();
+        if (data.url) {
+            await conn.sendMessage(from, { video: { url: data.url }, mimetype: "video/mp4", caption: `💢 *DANIEWATCH TWITTER DOWNLOADER*\n🔗 ${args.trim()}`, fileName: "twitter_video.mp4" }, { quoted: mek });
+        } else {
+            throw new Error("Could not extract video.");
+        }
+    } catch (err) {
+        console.error('[Twitter Download Error]:', err.message);
+        reply(`❌ Failed to download Twitter video: ${err.message}`);
+    }
+};
+
 // Export initUpsertListener, globalTaskQueue, and isTaskRunning
 module.exports.initUpsertListener = initUpsertListener;
 module.exports.globalTaskQueue = globalTaskQueue;
 module.exports.isTaskRunning = isTaskRunning;
+module.exports.DANIE_COMMANDS = DANIE_COMMANDS;
