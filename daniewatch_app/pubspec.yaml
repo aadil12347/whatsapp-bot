@@ -16,6 +16,8 @@ dependencies:
   google_fonts: ^6.2.1
   shared_preferences: ^2.3.5
   flutter_svg: ^2.0.17
+  supabase_flutter: ^2.8.3
+  home_widget: ^0.7.0
 
 dev_dependencies:
   flutter_test:
