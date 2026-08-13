@@ -3403,8 +3403,14 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
             let candidates = [];
 
             // === VCLOUD DIRECT EXTRACTION VIA FLARESOLVERR ===
-            // Extract sub-options (vcloud / hubcloud / 10gbps / fslv2 / fsl) from landing page hosts
-            for (const host of hostsList) {
+            // Prioritize vcloud / hubcloud / nexdrive hosts and exclude fastdl/telegram junk
+            const vcloudHosts = hostsList.filter(h => {
+                const href = (h.href || '').toLowerCase();
+                return !href.includes('fastdl') && !href.includes('telegram') && !href.includes('/tg/');
+            });
+            const targetHosts = vcloudHosts.length > 0 ? vcloudHosts : hostsList;
+
+            for (const host of targetHosts) {
                 const href = host.href || '';
                 console.log(`[DanieSearch] Extracting VCloud sub-options from landing host: ${href}`);
                 try {

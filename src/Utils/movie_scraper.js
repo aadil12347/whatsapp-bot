@@ -1482,11 +1482,23 @@ async function extractSubOptions(url, parentUrl = null) {
             const finalLinks = [];
             dl$('h2 a.btn, div.card-body a.btn, a.btn, a[href]').each((_, el) => {
                 let href = dl$(el).attr('href');
+                let id = dl$(el).attr('id') || '';
                 let text = dl$(el).text().trim().replace(/\s+/g, ' ');
 
                 const lowerText = text.toLowerCase();
                 const lowerHref = href ? href.toLowerCase() : '';
-                if (lowerText.includes('login') || lowerText.includes('admin') || lowerText.includes('idm') || lowerText.includes('ida') || lowerText.includes('telegram') || lowerHref.includes('telegram.me') || lowerHref.includes('t.me')) {
+                if (
+                    id === 'tgbtn' ||
+                    lowerText.includes('telegram') ||
+                    lowerText.includes('downoad') ||
+                    lowerHref.includes('/tg/') ||
+                    lowerHref.includes('telegram') ||
+                    lowerHref.includes('t.me') ||
+                    lowerText.includes('login') ||
+                    lowerText.includes('admin') ||
+                    lowerText.includes('idm') ||
+                    lowerText.includes('ida')
+                ) {
                     return;
                 }
 
