@@ -3484,27 +3484,43 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
         executeFn: async (signal, ref) => {
             let candidates = [];
 
-            for (const host of hostsList) {
+            // STRICTLY keep ONLY V-Cloud / HubCloud / NexDrive / VGMLink / KatDrive / KMHD / HubDrive hosts
+            const vcloudHosts = hostsList.filter(h => {
+                const href = (h.href || '').toLowerCase();
+                const text = (h.text || '').toLowerCase();
+                const isVcloud = href.includes('vcloud') || href.includes('hubcloud') || href.includes('nexdrive') || href.includes('vgmlink') || href.includes('katdrive') || href.includes('kmhd') || href.includes('hubdrive') || text.includes('v-cloud') || text.includes('vcloud') || text.includes('hubcloud');
+                const isJunk = href.includes('filebee') || href.includes('gofile') || href.includes('vikingfile') || href.includes('megaup') || href.includes('fastdl') || href.includes('telegram') || href.includes('gdtot') || href.includes('drive.google');
+                return isVcloud && !isJunk;
+            });
+
+            if (vcloudHosts.length === 0) {
+                console.log(`[DanieSearch] No V-Cloud download links available for this item.`);
+                await reply(`❌ No V-Cloud download links found for this selection.`);
+                throw new Error('No V-Cloud download links available for this item.');
+            }
+
+            for (const host of vcloudHosts) {
                 const href = host.href || '';
                 if (!href) continue;
 
                 if (isLandingUrl(href)) {
-                    console.log(`[DanieSearch] Extracting sub-options from landing host: ${href}`);
+                    console.log(`[DanieSearch] Extracting VCloud sub-options from landing host: ${href}`);
                     try {
                         const subOpts = await extractSubOptions(href);
                         if (subOpts && subOpts.length > 0) {
                             subOpts.forEach(opt => {
                                 const txt = (opt.text || '').toLowerCase();
-                                if (!txt.includes('login') && !txt.includes('admin')) {
-                                    candidates.push({ name: opt.text || 'Direct Link', href: opt.href });
+                                const optHref = (opt.href || '').toLowerCase();
+                                if (!txt.includes('login') && !txt.includes('admin') && !optHref.includes('filebee') && !optHref.includes('gofile') && !optHref.includes('fastdl') && !optHref.includes('gdtot')) {
+                                    candidates.push({ name: opt.text || 'VCloud Direct Link', href: opt.href });
                                 }
                             });
                         }
                     } catch (subErr) {
-                        console.error(`[DanieSearch] Sub-option extraction failed for ${href}:`, subErr.message);
+                        console.error(`[DanieSearch] VCloud Sub-option extraction failed for ${href}:`, subErr.message);
                     }
                 }
-                candidates.push({ name: host.text || 'Download Link', href: href });
+                candidates.push({ name: host.text || 'VCloud Download Link', href: href });
             }
 
             // Deduplicate candidates by href
@@ -3516,11 +3532,12 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
             });
 
             if (candidates.length === 0) {
-                console.log(`[DanieSearch] No download links available for this item.`);
-                throw new Error('No download links available for this item.');
+                console.log(`[DanieSearch] No VCloud download links available for this item.`);
+                await reply(`❌ VCloud link resolution returned no candidates.`);
+                throw new Error('No VCloud download links available for this item.');
             }
 
-            console.log(`[DanieSearch] Candidates for download:`, candidates.map(c => `${c.name} -> ${c.href}`));
+            console.log(`[DanieSearch] VCloud Candidates for download:`, candidates.map(c => `${c.name} -> ${c.href}`));
 
             let downloadSuccess = false;
             let lastError = null;
@@ -3544,26 +3561,27 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
                     }
                 }
                 
-                // Pass direct URL so downloadCommandHandler preserves original filename & applies branding like .d command
                 const downloadQuery = cand.href;
-                console.log(`[DanieSearch] Attempt ${i + 1}: Trying ${cand.name} (${cand.href})...`);
+                console.log(`[DanieSearch] VCloud Attempt ${i + 1}: Trying ${cand.name} (${cand.href})...`);
                 
                 try {
                     await downloadCommandHandler(conn, mek, from, senderJid, downloadQuery, reply, signal, ref, cand.name, true);
                     downloadSuccess = true;
-                    console.log(`[DanieSearch] Attempt ${i + 1} (${cand.name}) succeeded!`);
+                    console.log(`[DanieSearch] VCloud Attempt ${i + 1} (${cand.name}) succeeded!`);
                     break;
                 } catch (err) {
                     if (err.message === 'Aborted') {
                         throw err;
                     }
-                    console.error(`[DanieSearch] Attempt ${i + 1} (${cand.name}) failed:`, err.message);
+                    console.error(`[DanieSearch] VCloud Attempt ${i + 1} (${cand.name}) failed:`, err.message);
                     lastError = err;
                 }
             }
 
             if (!downloadSuccess) {
-                throw lastError || new Error('All download links failed.');
+                const errorMsg = lastError ? lastError.message : 'VCloud link resolution failed.';
+                await reply(`❌ *VCloud Download Failed:*\n${errorMsg}\n\n_Please try selecting a different quality or option._`);
+                throw lastError || new Error('VCloud download failed.');
             } else {
                 const isTvShow = state.episodesList && state.episodesList.length > 0;
                 if (!isTvShow) {

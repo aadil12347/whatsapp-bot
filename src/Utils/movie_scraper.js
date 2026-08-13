@@ -129,24 +129,26 @@ async function fetchHtmlWithRetry(url, parentUrl = null, customProxy = null) {
         };
     };
 
-    // Strategy 1: Direct request with browser TLS agent and dynamic headers
-    try {
-        const reqHeaders = buildHeaders(currentUrl, parentUrl, 0);
-        const res = await axios.get(currentUrl, {
-            headers: reqHeaders,
-            httpsAgent: browserHttpsAgent,
-            timeout: 10000,
-            maxRedirects: 5,
-            validateStatus: (status) => status >= 200 && status < 400
-        });
-        if (res.data) {
-            const body = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
-            if (body && body.length > 200 && !body.includes('Access Denied') && !body.includes('Just a moment...')) {
-                return body;
+    // Strategy 1: Direct request with browser TLS agent and dynamic headers (with retries)
+    for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+            const reqHeaders = buildHeaders(currentUrl, parentUrl, attempt);
+            const res = await axios.get(currentUrl, {
+                headers: reqHeaders,
+                httpsAgent: browserHttpsAgent,
+                timeout: 12000,
+                maxRedirects: 5,
+                validateStatus: (status) => status >= 200 && status < 400
+            });
+            if (res.data) {
+                const body = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
+                if (body && body.length > 200 && !body.includes('Access Denied') && !body.includes('Just a moment...')) {
+                    return body;
+                }
             }
+        } catch (err) {
+            // Retry next header/user-agent combination
         }
-    } catch (err) {
-        // Direct fetch failed or returned Cloudflare 403
     }
 
     // Strategy 2: FlareSolverr Cloudflare Bypass Service (Primary for Cloudflare Protected Sites)
@@ -170,6 +172,10 @@ async function fetchHtmlWithRetry(url, parentUrl = null, customProxy = null) {
         }
     } catch (fsErr) {
         console.warn(`[MovieScraper] FlareSolverr bypass failed: ${fsErr.message}`);
+        // Purge any hung FlareSolverr sessions to recycle Chromium instances
+        try {
+            await axios.post(flareUrl, { cmd: 'sessions.destroy', session: 'default' }, { timeout: 3000 });
+        } catch (_) {}
     }
 
     throw new Error(`Failed to fetch page HTML for ${url}`);

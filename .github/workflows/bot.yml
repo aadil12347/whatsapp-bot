@@ -36,7 +36,7 @@ jobs:
 
       - name: 🛡️ Launch FlareSolverr Service
         run: |
-          docker run -d --name=flaresolverr -p 8191:8191 -e LOG_LEVEL=info ghcr.io/flaresolverr/flaresolverr:latest
+          docker run -d --name=flaresolverr -p 8191:8191 -e LOG_LEVEL=info -e SESSION_TIMEOUT=60000 ghcr.io/flaresolverr/flaresolverr:latest
           echo "Waiting 5s for FlareSolverr container to warm up..."
           sleep 5
 
