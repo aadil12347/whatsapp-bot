@@ -874,8 +874,8 @@ function getQuotedMessageId(mek) {
 
 const pendingConfig = {};
 const pendingSearch = {};
-const VEGAMOVIES_DOMAIN = 'https://vegamovies.navy';
-const ROGMOVIES_DOMAIN = 'https://rogmovies.rest';
+const VEGAMOVIES_DOMAIN = process.env.VEGAMOVIES_DOMAIN || 'https://new1.vegamovies.futbol';
+const ROGMOVIES_DOMAIN = process.env.ROGMOVIES_DOMAIN || 'https://new1.rogmovies.click';
 const HDHUB4U_DOMAIN = process.env.HDHUB4U_DOMAIN || 'https://new3.hdhub4u.cl';
 
 // =========================================================================
@@ -3309,12 +3309,13 @@ async function searchCommandHandler(conn, mek, from, senderJid, q, reply, source
         if (isHdhub) {
             results = await searchHdhub4u(query);
         } else {
-            const url = `${siteDomain}/search.php?q=${encodeURIComponent(query)}&page=1`;
+            const apiPath = isRog ? '/ts-search.php' : '/search.php';
+            const url = `${siteDomain}${apiPath}?q=${encodeURIComponent(query)}&page=1`;
             console.log(`[DanieSearch] Fetching ${siteName} search API: ${url}`);
             
             const res = await axios.get(url, {
                 headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
                     'Accept': 'application/json, text/plain, */*',
                     'Referer': siteDomain + '/'
                 },
@@ -3322,11 +3323,21 @@ async function searchCommandHandler(conn, mek, from, senderJid, q, reply, source
             });
 
             if (res.data && res.data.hits) {
-                results = res.data.hits.map(h => ({
-                    title: h.document.post_title.replace(/&amp;/g, '&'),
-                    permalink: h.document.permalink,
-                    thumbnail: h.document.post_thumbnail
-                }));
+                results = res.data.hits.map(h => {
+                    let permalink = h.document.permalink || '';
+                    if (permalink && !permalink.startsWith('http')) {
+                        permalink = `${siteDomain}${permalink.startsWith('/') ? '' : '/'}${permalink}`;
+                    }
+                    let thumbnail = h.document.post_thumbnail || null;
+                    if (thumbnail && !thumbnail.startsWith('http')) {
+                        thumbnail = `${siteDomain}${thumbnail.startsWith('/') ? '' : '/'}${thumbnail}`;
+                    }
+                    return {
+                        title: h.document.post_title.replace(/&amp;/g, '&'),
+                        permalink,
+                        thumbnail
+                    };
+                });
             }
         }
 
