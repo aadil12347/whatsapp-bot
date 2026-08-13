@@ -186,7 +186,30 @@ async function fetchHtmlWithRetry(url, parentUrl = null, customProxy = null) {
         }
     }
 
-    // Strategy 2: Domain Mirrors (for vcloud/hubcloud/fastdl/vgmlink)
+    // Strategy 2: FlareSolverr Cloudflare Bypass Service
+    const flareUrl = process.env.FLARESOLVERR_URL || 'http://localhost:8191/v1';
+    try {
+        console.log(`[MovieScraper] Trying FlareSolverr bypass for ${url} via ${flareUrl}...`);
+        const fsRes = await axios.post(flareUrl, {
+            cmd: 'request.get',
+            url: currentUrl,
+            maxTimeout: 60000
+        }, {
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 65000
+        });
+        if (fsRes.data && fsRes.data.status === 'ok' && fsRes.data.solution && fsRes.data.solution.response) {
+            const body = fsRes.data.solution.response;
+            if (body && body.length > 200 && !body.includes('Access Denied') && !body.includes('Just a moment...')) {
+                console.log(`[MovieScraper] FlareSolverr bypass succeeded for ${url}`);
+                return body;
+            }
+        }
+    } catch (fsErr) {
+        console.warn(`[MovieScraper] FlareSolverr bypass skipped/failed: ${fsErr.message}`);
+    }
+
+    // Strategy 3: Domain Mirrors (for vcloud/hubcloud/fastdl/vgmlink)
     if (parsedUrl) {
         const domain = parsedUrl.hostname.toLowerCase();
         let mirrors = [];
@@ -225,7 +248,7 @@ async function fetchHtmlWithRetry(url, parentUrl = null, customProxy = null) {
         }
     }
 
-    // Strategy 3: CORS/Proxy Fallback for 403 Cloudflare blocks
+    // Strategy 4: CORS/Proxy Fallback for 403 Cloudflare blocks
     console.log(`[MovieScraper] Trying proxy fallback for Cloudflare 403 on ${url}...`);
     const proxies = [
         `https://proxy.cors.sh/${url}`,
@@ -254,14 +277,48 @@ async function fetchHtmlWithRetry(url, parentUrl = null, customProxy = null) {
 }
 
 /**
- * Follow redirect chain using HEAD/GET requests (up to 7 hops) to resolve final URL.
- * Used for 10Gbps server links that go through multiple redirects.
- * Mirrors the CSX/VegaMovies Extractors.kt resolveFinalUrl approach.
+ * Follow redirect chain using HEAD/GET requests to resolve final URL.
+ * Used for 10Gbps server links that go through multiple redirects to googleusercontent.
  */
 async function resolveFinalUrl(startUrl) {
     let currentUrl = startUrl;
-    const maxRedirects = 7;
+    try {
+        const res = await axios.get(startUrl, {
+            headers: HEADERS,
+            httpsAgent: browserHttpsAgent,
+            timeout: 10000,
+            maxRedirects: 10,
+            validateStatus: (status) => status >= 200 && status < 400
+        });
 
+        const finalUrl = res.request?.res?.responseUrl || res.config?.url || startUrl;
+        console.log('[MovieScraper] 10Gbps final redirect landing URL:', finalUrl);
+
+        if (finalUrl.includes('link=')) {
+            const linkMatch = finalUrl.match(/link=([^&]+)/);
+            if (linkMatch && linkMatch[1]) {
+                const decoded = decodeURIComponent(linkMatch[1]);
+                console.log('[MovieScraper] 10Gbps extracted direct link from URL param:', decoded);
+                return decoded;
+            }
+        }
+
+        const html = typeof res.data === 'string' ? res.data : '';
+        if (html.includes('googleusercontent.com')) {
+            const match = html.match(/https?:\/\/[^\s"']+\.googleusercontent\.com[^\s"']+/);
+            if (match) {
+                console.log('[MovieScraper] 10Gbps extracted direct link from HTML:', match[0]);
+                return match[0];
+            }
+        }
+
+        currentUrl = finalUrl;
+    } catch (err) {
+        console.warn(`[MovieScraper] resolveFinalUrl GET failed for ${startUrl}: ${err.message}`);
+    }
+
+    // Fallback: manual HEAD loop if GET did not resolve
+    const maxRedirects = 7;
     for (let i = 0; i < maxRedirects; i++) {
         try {
             const res = await axios.head(currentUrl, {
@@ -274,10 +331,23 @@ async function resolveFinalUrl(startUrl) {
             const location = res.headers['location'];
             if (!location) break;
             currentUrl = location;
+            if (currentUrl.includes('link=')) {
+                const linkMatch = currentUrl.match(/link=([^&]+)/);
+                if (linkMatch && linkMatch[1]) {
+                    currentUrl = decodeURIComponent(linkMatch[1]);
+                    break;
+                }
+            }
         } catch (err) {
-            // If we get a redirect in the error response, follow it
             if (err.response && err.response.headers && err.response.headers['location']) {
                 currentUrl = err.response.headers['location'];
+                if (currentUrl.includes('link=')) {
+                    const linkMatch = currentUrl.match(/link=([^&]+)/);
+                    if (linkMatch && linkMatch[1]) {
+                        currentUrl = decodeURIComponent(linkMatch[1]);
+                        break;
+                    }
+                }
             } else {
                 break;
             }
@@ -793,7 +863,7 @@ async function resolveVcloudLink(url, preferredServer = null, parentUrl = null) 
                 }
             });
 
-            // Prioritize: 1. preferredServer (if specified), 2. fsl (non-fslv2), 3. fslv2, 4. gdrive, 5. pixeldrain, etc.
+            // Strict server prioritization fallback: 10gbps > fslv2 > fsl (ONLY)
             let best = null;
             if (preferredServer) {
                 const lowerPref = preferredServer.toLowerCase();
@@ -808,19 +878,33 @@ async function resolveVcloudLink(url, preferredServer = null, parentUrl = null) 
                 });
             }
 
+            // Priority 1: 10Gbps Server
             if (!best) {
                 best = finalLinks.find(l => {
-                    const txt = l.text.toLowerCase();
-                    return (txt.includes('fsl') || txt.includes('fsl server')) && !txt.includes('fslv2');
+                    const txt = `${l.text} ${l.href}`.toLowerCase();
+                    return txt.includes('10gbps') || txt.includes('10 gbps') || txt.includes('g-direct') || txt.includes('gdirect');
                 });
             }
-            if (!best) best = finalLinks.find(l => l.text.toLowerCase().includes('fslv2'));
-            if (!best) best = finalLinks.find(l => l.text.toLowerCase().includes('gdrive') || l.text.toLowerCase().includes('drive') || l.text.toLowerCase().includes('g-drive'));
-            if (!best) best = finalLinks.find(l => l.text.toLowerCase().includes('pixeldrain') || l.text.toLowerCase().includes('pixelserver'));
-            if (!best) best = finalLinks.find(l => l.text.toLowerCase().includes('10gbps') || l.text.toLowerCase().includes('10gbps server'));
-            if (!best) best = finalLinks.find(l => l.text.toLowerCase().includes('mega server'));
-            if (!best) best = finalLinks.find(l => l.text.toLowerCase().includes('download file'));
-            if (!best) best = finalLinks[0];
+
+            // Priority 2: FSLv2 Server
+            if (!best) {
+                best = finalLinks.find(l => {
+                    const txt = `${l.text} ${l.href}`.toLowerCase();
+                    return txt.includes('fslv2') || txt.includes('fsl v2') || txt.includes('fsl-v2');
+                });
+            }
+
+            // Priority 3: FSL Server (excluding FSLv2)
+            if (!best) {
+                best = finalLinks.find(l => {
+                    const txt = `${l.text} ${l.href}`.toLowerCase();
+                    return (txt.includes('fsl') || txt.includes('fsl server') || txt.includes('fastserver')) && !txt.includes('fslv2') && !txt.includes('fsl v2') && !txt.includes('fsl-v2');
+                });
+            }
+
+            if (!best) {
+                throw new Error('No compatible download server found. Only 10Gbps, FSLv2, and FSL servers are supported.');
+            }
 
             if (best) {
                 let directUrl = best.href;
@@ -1424,19 +1508,31 @@ async function extractSubOptions(url, parentUrl = null) {
             });
 
             if (finalLinks.length > 0) {
-                return finalLinks;
+                const match10G = finalLinks.filter(l => {
+                    const t = `${l.text} ${l.href}`.toLowerCase();
+                    return t.includes('10gbps') || t.includes('10 gbps') || t.includes('g-direct') || t.includes('gdirect');
+                });
+                const matchFslv2 = finalLinks.filter(l => {
+                    const t = `${l.text} ${l.href}`.toLowerCase();
+                    return t.includes('fslv2') || t.includes('fsl v2') || t.includes('fsl-v2');
+                });
+                const matchFsl = finalLinks.filter(l => {
+                    const t = `${l.text} ${l.href}`.toLowerCase();
+                    return (t.includes('fsl') || t.includes('fsl server') || t.includes('fastserver')) && !t.includes('fslv2') && !t.includes('fsl v2') && !t.includes('fsl-v2');
+                });
+
+                const sortedOnly3 = [...match10G, ...matchFslv2, ...matchFsl];
+                if (sortedOnly3.length > 0) {
+                    return sortedOnly3;
+                }
+                return [];
             }
         }
 
-        const directBtn = $('a:contains("Download File")').attr('href') || $('a:contains("FSL Server")').attr('href');
-        if (directBtn) {
-            return [{ text: 'Download File', href: directBtn }];
-        }
-
-        return [{ text: 'Default Download Link', href: url }];
+        return [];
     } catch (err) {
         console.error('[MovieScraper] extractSubOptions failed:', err.message);
-        return [{ text: 'Original Link', href: url }];
+        return [];
     }
 }
 
