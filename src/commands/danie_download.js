@@ -138,6 +138,72 @@ function cleanJunkWords(text) {
     return result;
 }
 
+/**
+ * Send WhatsApp Interactive Single Select List Options (Method 2)
+ */
+async function sendInteractiveOptions(conn, from, title, bodyText, optionsList, quoted = null, posterUrl = null, footerText = "© DanieWatch Bot") {
+    const rows = (optionsList || []).map((opt, idx) => ({
+        header: (opt.header || `Option ${idx + 1}`).substring(0, 24),
+        title: (opt.title || opt.text || `${idx + 1}`).substring(0, 24),
+        description: (opt.description || opt.desc || '').substring(0, 72),
+        id: String(opt.id || (idx + 1))
+    }));
+
+    const buttonParamsJson = JSON.stringify({
+        title: "📋 Tap to Select Option",
+        sections: [
+            {
+                title: (title || "Options").substring(0, 24),
+                highlight_label: "DanieWatch",
+                rows: rows
+            }
+        ]
+    });
+
+    const interactiveMessage = {
+        header: { title: (title || "DanieWatch Options").substring(0, 50), hasMediaAttachment: false },
+        body: { text: bodyText },
+        footer: { text: footerText },
+        nativeFlowMessage: {
+            buttons: [
+                {
+                    name: "single_select",
+                    buttonParamsJson: buttonParamsJson
+                }
+            ]
+        }
+    };
+
+    let posterSent = null;
+    if (posterUrl && (posterUrl.startsWith('http://') || posterUrl.startsWith('https://'))) {
+        try {
+            posterSent = await conn.sendMessage(from, { image: { url: posterUrl }, caption: `📌 *${title}*` }, quoted ? { quoted } : {});
+        } catch (imgErr) {
+            console.error('[InteractiveOptions] Failed to send poster:', imgErr.message);
+        }
+    }
+
+    try {
+        const msg = await conn.sendMessage(from, {
+            viewOnceMessage: {
+                message: {
+                    interactiveMessage
+                }
+            }
+        }, quoted ? { quoted: posterSent || quoted } : {});
+        return msg;
+    } catch (err) {
+        console.error('[InteractiveOptions] Interactive list send failed, falling back to text list:', err.message);
+        let fallbackText = `📋 *${title}*\n\n${bodyText}\n\n`;
+        (optionsList || []).forEach((opt, idx) => {
+            const idVal = opt.id || (idx + 1);
+            fallbackText += `  \`${idVal}\` — *${opt.title || opt.text}* ${opt.description ? `(${opt.description})` : ''}\n`;
+        });
+        fallbackText += `\n_Reply with the number or tap option to select._`;
+        return conn.sendMessage(from, { text: fallbackText }, quoted ? { quoted: posterSent || quoted } : {});
+    }
+}
+
 // =========================================================================
 //  BRANDING REPLACEMENTS — centralized list of piracy/source site names
 //  All occurrences in filenames are replaced with "DanieWatch"
@@ -1289,11 +1355,24 @@ function initUpsertListener(conn) {
             if (from) saveActiveChat(from, null, mek.pushName);
             if (senderJid) saveActiveChat(senderJid, null, mek.pushName);
 
-            const body = mek.message.conversation ||
+            let body = mek.message.conversation ||
                          mek.message.extendedTextMessage?.text ||
                          mek.message.buttonsResponseMessage?.selectedButtonId ||
                          mek.message.listResponseMessage?.singleSelectReply?.selectedRowId ||
+                         mek.message.templateButtonReplyMessage?.selectedId ||
                          '';
+
+            if (!body && mek.message.interactiveResponseMessage) {
+                try {
+                    const resp = mek.message.interactiveResponseMessage;
+                    if (resp.nativeFlowResponseMessage?.paramsJson) {
+                        const params = JSON.parse(resp.nativeFlowResponseMessage.paramsJson);
+                        body = params.id || params.rowId || params.selectedRowId || '';
+                    } else if (resp.body?.text) {
+                        body = resp.body.text;
+                    }
+                } catch (_) {}
+            }
             const trimmedText = body.trim();
             if (!trimmedText) return;
 
@@ -1371,12 +1450,14 @@ function initUpsertListener(conn) {
                 }
             }
 
-            // ---- Check if it's a plain-number reply for pending search/resolution ----
+            // ---- Check if it's a reply for pending search/resolution ----
             if (pendingSearch[cleanSender]) {
                 const quotedId = getQuotedMessageId(mek);
-                const isValidNumber = /^\d+$/.test(trimmedText);
+                const isValidNumber = /^\d+$/.test(trimmedText) || /^\d+[\s,–\-]+/.test(trimmedText) || trimmedText.toLowerCase() === 'all';
+                const isInteractiveMsg = !!(mek.message.interactiveResponseMessage || mek.message.buttonsResponseMessage || mek.message.listResponseMessage || mek.message.templateButtonReplyMessage);
                 const isMatch = (quotedId && quotedId === pendingSearch[cleanSender].messageId) || 
-                                (!quotedId && isValidNumber);
+                                (!quotedId && isValidNumber) ||
+                                isInteractiveMsg;
                 if (isMatch) {
                     console.log(`[DanieWatch] Directing reply "${trimmedText}" to handleSearchReply for ${cleanSender}.`);
                     await handleSearchReply(conn, mek, senderJid, trimmedText, reply);
@@ -3256,19 +3337,24 @@ async function streamImdbSearchHandler(conn, mek, from, senderJid, q, reply) {
             messageId: null
         };
 
+        const optionsList = results.map((r, idx) => {
+            const typeLabel = r.type === 'tv' ? '📺 TV Series' : '🎥 Movie';
+            const yearLabel = r.year ? `(${r.year})` : '';
+            return {
+                id: String(idx + 1),
+                title: r.title,
+                description: `${typeLabel} ${yearLabel}`.trim()
+            };
+        });
+
         let responseText = `🎬 *IMDb / EmbedMaster Results for "${query}":*\n`;
         if (fallbackQueryUsed) {
             responseText += `ℹ️ _(Showing closest matches for "${fallbackQueryUsed}")_\n`;
         }
-        responseText += `\n`;
-        results.forEach((r, idx) => {
-            const typeLabel = r.type === 'tv' ? '📺 TV Series' : '🎥 Movie';
-            const yearLabel = r.year ? `(${r.year})` : '';
-            responseText += `  \`${idx + 1}\` — *${r.title}* ${yearLabel} [${typeLabel}]\n`;
-        });
-        responseText += `\n_Reply with a number (1-${results.length}) to select and load poster image & download options._`;
+        responseText += `\nClick the option menu below to select your title:`;
 
-        const sent = await reply(responseText);
+        const sendableFrom = mek.key.remoteJid;
+        const sent = await sendInteractiveOptions(conn, sendableFrom, `🎬 IMDb: "${query}"`, responseText, optionsList, mek, null, `© DanieWatch Bot`);
         if (sent && sent.key) {
             pendingSearch[cleanSender].messageId = sent.key.id;
         }
@@ -3353,13 +3439,15 @@ async function searchCommandHandler(conn, mek, from, senderJid, q, reply, source
             messageId: null
         };
 
-        let responseText = `🔍 *${siteName} Search Results for "${query}":*\n\n`;
-        results.forEach((r, idx) => {
-            responseText += `  \`${idx + 1}\` — ${r.title}\n\n`;
-        });
-        responseText = responseText.trim() + `\n\n_Reply with the number of the movie you want to select._`;
+        const optionsList = results.map((r, idx) => ({
+            id: String(idx + 1),
+            title: r.title,
+            description: `Tap to select result #${idx + 1}`
+        }));
 
-        const sent = await reply(responseText);
+        let responseText = `🔍 *${siteName} Search Results for "${query}":*\nFound ${results.length} item(s). Click below to select:`;
+        const sendableFrom = mek.key.remoteJid;
+        const sent = await sendInteractiveOptions(conn, sendableFrom, `🔍 ${siteName} Results`, responseText, optionsList, mek, null, `© DanieWatch Bot`);
         if (sent && sent.key) {
             pendingSearch[cleanSender].messageId = sent.key.id;
         }
@@ -3925,59 +4013,22 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                 messageId: null
             };
 
-            let listText = `🎬 *${selectedMovie.title}*\n\nSelect a resolution to download:\n\n`;
-            displayLinks.forEach((l, i) => {
+            const optionsList = displayLinks.map((l, i) => {
                 const cleanText = l.text.replace(/⚡\s*/g, '').trim();
                 const label = l.heading 
-                    ? `${l.heading} — *${cleanText}* (${l.resolution})` 
-                    : `${cleanText} (${l.resolution})`;
-                listText += `  \`${i + 1}\` — ${label}\n`;
+                    ? `${l.heading} — ${cleanText}` 
+                    : `${cleanText}`;
+                return {
+                    id: String(i + 1),
+                    title: `${l.resolution || 'Download'} Quality`,
+                    description: label.substring(0, 70)
+                };
             });
-            listText += `\n_Reply with the number of the resolution you want._`;
 
-            // Try to download and send the movie poster first, then resolutions list
-            let posterSent = null;
-            const posterUrl = selectedMovie.thumbnail;
-            if (posterUrl) {
-                const tempPosterPath = path.join(__dirname, 'tmp_search_poster_' + Date.now() + '.jpg');
-                try {
-                    const posterResponse = await axios({
-                        method: 'get',
-                        url: posterUrl,
-                        responseType: 'stream',
-                        headers: {
-                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-                        },
-                        timeout: 15000
-                    });
-                    const writer = fs.createWriteStream(tempPosterPath);
-                    posterResponse.data.pipe(writer);
-                    await new Promise((resolve, reject) => {
-                        writer.on('finish', resolve);
-                        writer.on('error', reject);
-                    });
-
-                    if (fs.existsSync(tempPosterPath)) {
-                        const sentMsg = await conn.sendMessage(from, {
-                            image: { url: tempPosterPath },
-                            caption: listText
-                        }, { quoted: mek });
-                        posterSent = sentMsg;
-                        try { if (fs.existsSync(tempPosterPath)) fs.unlinkSync(tempPosterPath); } catch (_) {}
-                    }
-                } catch (err) {
-                    console.error('[DanieSearch] Failed to fetch/send search poster:', err.message);
-                    if (fs.existsSync(tempPosterPath)) {
-                        try { if (fs.existsSync(tempPosterPath)) fs.unlinkSync(tempPosterPath); } catch (_) {}
-                    }
-                }
-            }
-
-            if (!posterSent) {
-                const sent = await reply(listText);
+            let bodyText = `🎬 *${selectedMovie.title}*\n\nSelect a resolution quality to download:`;
+            const sent = await sendInteractiveOptions(conn, from, selectedMovie.title, bodyText, optionsList, mek, selectedMovie.thumbnail, `© DanieWatch Bot`);
+            if (sent && sent.key) {
                 pendingSearch[cleanSender].messageId = sent.key.id;
-            } else {
-                pendingSearch[cleanSender].messageId = posterSent.key.id;
             }
         } catch (err) {
             console.error('[DanieSearch] Failed to load movie post details:', err.message);
@@ -4068,14 +4119,19 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                 state.episodesMap = Object.fromEntries(episodesMap);
                 state.messageId = null;
 
-                let episodeListText = `🌐 *Select episode(s) to download:* \n_${selectedLink.heading || selectedLink.text}_\n\n`;
-                state.episodesList.forEach((ep, idx) => {
-                    episodeListText += `  \`${idx + 1}\` — *${ep}*\n`;
+                const optionsList = state.episodesList.map((ep, idx) => ({
+                    id: String(idx + 1),
+                    title: ep,
+                    description: `Tap to download ${ep}`
+                }));
+                optionsList.push({
+                    id: String(state.episodesList.length + 1),
+                    title: `📥 Download All Episodes`,
+                    description: `Download all ${state.episodesList.length} episodes`
                 });
-                episodeListText += `  \`${state.episodesList.length + 1}\` — 📥 *Download All Episodes*\n`;
-                episodeListText += `\n_Reply with episode number(s) (e.g. \`1\`, \`1, 3, 5\`, \`1-5\`), or \`${state.episodesList.length + 1}\` for All._`;
 
-                const sent = await reply(episodeListText);
+                let episodeListText = `🌐 *${selectedLink.heading || selectedLink.text}*\n\nSelect episode(s) to download:`;
+                const sent = await sendInteractiveOptions(conn, from, `TV Series Episodes`, episodeListText, optionsList, mek, null, `© DanieWatch Bot`);
                 if (sent && sent.key) {
                     state.messageId = sent.key.id;
                 }
@@ -4332,12 +4388,15 @@ DANIE_COMMANDS['song'] = async (conn, mek, from, senderJid, args, reply) => {
         const searchRes = await yts(args);
         const videos = searchRes.videos.slice(0, 10);
         if (!videos.length) return reply("❌ No songs found.");
-        let listText = `🎵 *Song Search Results for:* _"${args}"_\n\n`;
-        videos.forEach((item, idx) => {
-            listText += `  \`${idx + 1}\` — *${item.title}* (${item.timestamp})\n`;
-        });
-        listText += `\n_Reply with a number (1-${videos.length}) to download._`;
-        const sent = await reply(listText);
+        
+        const optionsList = videos.map((item, idx) => ({
+            id: String(idx + 1),
+            title: item.title,
+            description: `${item.timestamp} | ${item.views} views`
+        }));
+        let listText = `🎵 *Song Search Results for:* _"${args}"_\n\nClick below to select:`;
+        const sendableFrom = mek.key.remoteJid;
+        const sent = await sendInteractiveOptions(conn, sendableFrom, `🎵 Song Search: "${args}"`, listText, optionsList, mek, null, `© DanieWatch Bot`);
         pendingSearch[cleanJid(senderJid)] = { step: 'song_select', results: videos, messageId: sent && sent.key ? sent.key.id : null };
     } catch (err) { reply(`❌ Error: ${err.message}`); }
 };
@@ -4390,12 +4449,15 @@ DANIE_COMMANDS['yts'] = async (conn, mek, from, senderJid, args, reply) => {
         const searchRes = await yts(args);
         const videos = searchRes.videos.slice(0, 10);
         if (!videos.length) return reply("❌ No videos found.");
-        let listText = `🎥 *Video Search Results for:* _"${args}"_\n\n`;
-        videos.forEach((item, idx) => {
-            listText += `  \`${idx + 1}\` — *${item.title}* (${item.timestamp}) 👁️${item.views}\n`;
-        });
-        listText += `\n_Reply with a number (1-${videos.length}) to download._`;
-        const sent = await reply(listText);
+        
+        const optionsList = videos.map((item, idx) => ({
+            id: String(idx + 1),
+            title: item.title,
+            description: `${item.timestamp} | ${item.views} views`
+        }));
+        let listText = `🎥 *Video Search Results for:* _"${args}"_\n\nClick below to select:`;
+        const sendableFrom = mek.key.remoteJid;
+        const sent = await sendInteractiveOptions(conn, sendableFrom, `🎥 Video Search: "${args}"`, listText, optionsList, mek, null, `© DanieWatch Bot`);
         pendingSearch[cleanJid(senderJid)] = { step: 'yts_select', results: videos, messageId: sent && sent.key ? sent.key.id : null };
     } catch (err) { reply(`❌ Error: ${err.message}`); }
 };

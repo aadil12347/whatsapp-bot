@@ -1,28 +1,29 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 
-const HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-    'Accept-Language': 'en-US,en;q=0.5'
-};
+async function printFullScript(siteName, url) {
+    console.log(`\n========================================`);
+    console.log(`Full Script [0] for ${siteName}: ${url}`);
+    console.log(`========================================`);
 
-async function dumpAllScript() {
-    const url = 'https://vegamovies.navy/?s=deadpool';
     try {
-        const response = await axios.get(url, { headers: HEADERS });
-        const $ = cheerio.load(response.data);
-        
-        $('script').each((i, el) => {
-            const src = $(el).attr('src');
-            const text = $(el).text();
-            if (!src && text.includes('proxyUrl')) {
-                console.log(text); // Print the whole script
+        const res = await axios.get(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36'
             }
         });
-    } catch(e) {
-        console.error(e);
+
+        const $ = cheerio.load(res.data);
+        const script0 = $('script').first().html();
+        console.log(script0);
+    } catch (err) {
+        console.error('Fetch failed:', err.message);
     }
 }
 
-dumpAllScript();
+async function run() {
+    await printFullScript('Vegamovies', 'https://new1.vegamovies.futbol/search.html?q=batman');
+    await printFullScript('Rogmovies', 'https://new1.rogmovies.click/search.html?q=pyaar&page=1');
+}
+
+run();
