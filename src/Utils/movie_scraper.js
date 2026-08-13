@@ -129,67 +129,30 @@ async function fetchHtmlWithRetry(url, parentUrl = null, customProxy = null) {
         };
     };
 
-    // Strategy 0: Rotating Working Proxies (1 Proxy Per Attempt/Step)
-    const activeProxies = [];
-    if (customProxy) activeProxies.push(parseProxy(customProxy));
-    if (process.env.PROXY_URL) activeProxies.push(...process.env.PROXY_URL.split(',').map(parseProxy));
-    
-    // Add rotating proxies from filtered working pool
-    for (let i = 0; i < 3; i++) {
-        const rot = getNextRotatingProxy();
-        if (rot) activeProxies.push(rot);
-    }
-
-    const validProxies = activeProxies.filter(Boolean);
-    for (const pConfig of validProxies) {
-        console.log(`[MovieScraper] Trying proxy: ${pConfig.host}:${pConfig.port} (user=${pConfig.auth?.username})`);
-        try {
-            const reqHeaders = buildHeaders(currentUrl, parentUrl, 0);
-            const res = await axios.get(currentUrl, {
-                headers: reqHeaders,
-                proxy: pConfig,
-                httpsAgent: browserHttpsAgent,
-                timeout: 8000,
-                validateStatus: (status) => status >= 200 && status < 400
-            });
+    // Strategy 1: Direct request with browser TLS agent and dynamic headers
+    try {
+        const reqHeaders = buildHeaders(currentUrl, parentUrl, 0);
+        const res = await axios.get(currentUrl, {
+            headers: reqHeaders,
+            httpsAgent: browserHttpsAgent,
+            timeout: 10000,
+            maxRedirects: 5,
+            validateStatus: (status) => status >= 200 && status < 400
+        });
+        if (res.data) {
             const body = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
-            if (body && body.length > 200 && !body.includes('Access Denied')) {
-                console.log(`[MovieScraper] Proxy fetch succeeded: ${pConfig.host}:${pConfig.port}`);
+            if (body && body.length > 200 && !body.includes('Access Denied') && !body.includes('Just a moment...')) {
                 return body;
             }
-        } catch (err) {
-            console.warn(`[MovieScraper] Proxy fetch failed for ${pConfig.host}:${pConfig.port}: ${err.message}`);
         }
+    } catch (err) {
+        // Direct fetch failed or returned Cloudflare 403
     }
 
-    // Strategy 1: Direct request with browser TLS agent and dynamic headers
-    const maxAttempts = 3;
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        try {
-            const reqHeaders = buildHeaders(currentUrl, parentUrl, attempt - 1);
-            const res = await axios.get(currentUrl, {
-                headers: reqHeaders,
-                httpsAgent: browserHttpsAgent,
-                timeout: 15000,
-                maxRedirects: 5,
-                validateStatus: (status) => status >= 200 && status < 400
-            });
-            if (res.data) {
-                return typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
-            }
-        } catch (err) {
-            const status = err.response ? err.response.status : null;
-            console.warn(`[MovieScraper] Direct fetch attempt ${attempt} failed for ${currentUrl}: ${err.message} (status=${status})`);
-            if (status !== 403 && status !== 503 && attempt < maxAttempts) {
-                await new Promise(r => setTimeout(r, 1000));
-            }
-        }
-    }
-
-    // Strategy 2: FlareSolverr Cloudflare Bypass Service
+    // Strategy 2: FlareSolverr Cloudflare Bypass Service (Primary for Cloudflare Protected Sites)
     const flareUrl = process.env.FLARESOLVERR_URL || 'http://localhost:8191/v1';
     try {
-        console.log(`[MovieScraper] Trying FlareSolverr bypass for ${url} via ${flareUrl}...`);
+        console.log(`[MovieScraper] Fetching via FlareSolverr: ${currentUrl}`);
         const fsRes = await axios.post(flareUrl, {
             cmd: 'request.get',
             url: currentUrl,
@@ -201,79 +164,15 @@ async function fetchHtmlWithRetry(url, parentUrl = null, customProxy = null) {
         if (fsRes.data && fsRes.data.status === 'ok' && fsRes.data.solution && fsRes.data.solution.response) {
             const body = fsRes.data.solution.response;
             if (body && body.length > 200 && !body.includes('Access Denied') && !body.includes('Just a moment...')) {
-                console.log(`[MovieScraper] FlareSolverr bypass succeeded for ${url}`);
+                console.log(`[MovieScraper] FlareSolverr bypass succeeded for ${currentUrl}`);
                 return body;
             }
         }
     } catch (fsErr) {
-        console.warn(`[MovieScraper] FlareSolverr bypass skipped/failed: ${fsErr.message}`);
+        console.warn(`[MovieScraper] FlareSolverr bypass failed: ${fsErr.message}`);
     }
 
-    // Strategy 3: Domain Mirrors (for vcloud/hubcloud/fastdl/vgmlink)
-    if (parsedUrl) {
-        const domain = parsedUrl.hostname.toLowerCase();
-        let mirrors = [];
-        if (domain.includes('vcloud') || domain.includes('hubcloud') || domain.includes('hubdrive')) {
-            mirrors = ['vcloud.zip', 'vcloud.lol', 'hubcloud.link', 'hubcloud.club', 'hubdrive.space', 'hubcloud.one'];
-        } else if (domain.includes('fastdl')) {
-            mirrors = ['fastdl.zip', 'fastdl.app', 'fastdl.site'];
-        } else if (domain.includes('vgmlink')) {
-            mirrors = ['vgmlink.com', 'vgmlink.org', 'vgmlink.net'];
-        }
-
-        for (const mirror of mirrors) {
-            if (mirror === domain) continue;
-            const mirrorUrl = currentUrl.replace(domain, mirror);
-            console.log(`[MovieScraper] Trying domain mirror: ${mirrorUrl}`);
-            try {
-                const reqHeaders = buildHeaders(mirrorUrl, parentUrl, 0);
-                const res = await axios.get(mirrorUrl, {
-                    headers: reqHeaders,
-                    httpsAgent: browserHttpsAgent,
-                    timeout: 10000,
-                    validateStatus: (status) => status >= 200 && status < 400
-                });
-                const body = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
-                // Ensure mirror response is valid page content (contains atob/var url/reurl/download) and not a shopify dummy or error page
-                const isValidContent = (body.includes('atob(') || body.includes('var url') || body.includes('reurl') || body.includes('download')) && !body.includes('shopify');
-                if (isValidContent) {
-                    console.log(`[MovieScraper] Mirror fetch succeeded: ${mirrorUrl}`);
-                    return body;
-                } else {
-                    console.warn(`[MovieScraper] Mirror returned invalid or parked content: ${mirrorUrl}`);
-                }
-            } catch (err) {
-                console.warn(`[MovieScraper] Mirror fetch failed for ${mirrorUrl}: ${err.message}`);
-            }
-        }
-    }
-
-    // Strategy 4: CORS/Proxy Fallback for 403 Cloudflare blocks
-    console.log(`[MovieScraper] Trying proxy fallback for Cloudflare 403 on ${url}...`);
-    const proxies = [
-        `https://proxy.cors.sh/${url}`,
-        `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`
-    ];
-
-    for (const proxyUrl of proxies) {
-        try {
-            const res = await axios.get(proxyUrl, {
-                headers: {
-                    'User-Agent': USER_AGENTS[0],
-                    'x-cors-api-key': 'temp_demo'
-                },
-                timeout: 15000
-            });
-            if (res.data && typeof res.data === 'string' && res.data.length > 200) {
-                console.log(`[MovieScraper] Proxy fetch succeeded via ${proxyUrl.substring(0, 45)}...`);
-                return res.data;
-            }
-        } catch (err) {
-            console.warn(`[MovieScraper] Proxy fetch failed via ${proxyUrl.substring(0, 45)}: ${err.message}`);
-        }
-    }
-
-    throw new Error(`Request failed with status code 403 (Cloudflare Block)`);
+    throw new Error(`Failed to fetch page HTML for ${url}`);
 }
 
 /**
