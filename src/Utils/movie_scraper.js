@@ -1413,24 +1413,24 @@ async function extractSubOptions(url, parentUrl = null) {
             return [{ text: 'Direct CDN Link', href: target }];
         }
 
-        // 3. Check if page contains intermediate links to HubCloud / VCloud (e.g. HubDrive pages)
+        // 3. Check if page contains intermediate links to HubCloud / VCloud (e.g. nexdrive / HubDrive landing pages)
         const hubcloudLinks = [];
         $('a[href]').each((_, el) => {
             const href = $(el).attr('href');
             const text = $(el).text().trim();
             if (!href) return;
             const lowerHref = href.toLowerCase();
-            const isDrivePath = lowerHref.includes('/drive/') || lowerHref.includes('/file/') || lowerHref.includes('?id=');
-            const isJunk = lowerHref.includes('telegram') || lowerHref.includes('/tg/') || lowerHref.includes('/admin') || lowerHref.includes('.fans');
-            if ((lowerHref.includes('hubcloud') || lowerHref.includes('vcloud') || lowerHref.includes('katdrive') || lowerHref.includes('kmhd')) && isDrivePath && !isJunk) {
+            const isVcloudHost = lowerHref.includes('vcloud') || lowerHref.includes('hubcloud') || lowerHref.includes('katdrive') || lowerHref.includes('kmhd') || lowerHref.includes('hubdrive');
+            const isJunk = !href.startsWith('http') || lowerHref.includes('telegram') || lowerHref.includes('/tg/') || lowerHref.includes('t.me') || lowerHref.includes('/admin') || lowerHref.includes('.fans');
+            if (isVcloudHost && !isJunk) {
                 if (!hubcloudLinks.some(hl => hl.href === href)) {
-                    hubcloudLinks.push({ text: text || 'HubCloud Server', href });
+                    hubcloudLinks.push({ text: text || 'VCloud Server', href });
                 }
             }
         });
 
         if (hubcloudLinks.length > 0) {
-            console.log(`[MovieScraper] Found ${hubcloudLinks.length} HubCloud link(s) on intermediate page.`);
+            console.log(`[MovieScraper] Found ${hubcloudLinks.length} VCloud link(s) on landing page.`);
             const allSubServers = [];
             for (const hcLink of hubcloudLinks) {
                 const subOpts = await extractSubOptions(hcLink.href, url);

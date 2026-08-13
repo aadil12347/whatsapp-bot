@@ -3402,51 +3402,31 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
         executeFn: async (signal, ref) => {
             let candidates = [];
 
-            // === STRICT DIRECT CDN ONLY MODE ===
-            // Only use FastDL hosts (which resolve to googleusercontent.com Direct CDN Links via var reurl)
-            // and already-resolved googleusercontent.com / googleapis.com direct CDN links.
-            // Exclude all other providers (vcloud, filebee, gofile, vikingfile, megaup, hubcloud, gdtot, etc.).
-
-            const cdnHosts = [];
-            const directCdnHosts = [];
-
+            // === VCLOUD DIRECT EXTRACTION VIA FLARESOLVERR ===
+            // Extract sub-options (vcloud / hubcloud / 10gbps / fslv2 / fsl) from landing page hosts
             for (const host of hostsList) {
-                const lowerHref = (host.href || '').toLowerCase();
-                if (lowerHref.includes('fastdl')) {
-                    cdnHosts.push(host);
-                } else if (
-                    lowerHref.includes('googleusercontent.com') ||
-                    lowerHref.includes('googleapis.com') ||
-                    lowerHref.includes('cdn.') ||
-                    lowerHref.includes('.cdn')
-                ) {
-                    directCdnHosts.push(host);
-                }
-            }
-
-            console.log(`[DanieSearch] Strict Direct CDN Mode: ${cdnHosts.length} FastDL host(s), ${directCdnHosts.length} direct CDN host(s)`);
-
-            // Process FastDL hosts to extract Direct CDN Links
-            for (const host of cdnHosts) {
-                console.log(`[DanieSearch] Resolving Direct CDN from FastDL: ${host.href}`);
+                const href = host.href || '';
+                console.log(`[DanieSearch] Extracting VCloud sub-options from landing host: ${href}`);
                 try {
-                    const subOpts = await extractSubOptions(host.href);
+                    const subOpts = await extractSubOptions(href);
                     if (subOpts && subOpts.length > 0) {
                         subOpts.forEach(opt => {
                             const txt = (opt.text || '').toLowerCase();
                             if (!txt.includes('login') && !txt.includes('admin')) {
-                                candidates.push({ name: opt.text || 'Direct CDN Link', href: opt.href });
+                                candidates.push({ name: opt.text || 'Direct Link', href: opt.href });
                             }
                         });
                     }
                 } catch (subErr) {
-                    console.error(`[DanieSearch] FastDL resolution failed for ${host.href}:`, subErr.message);
+                    console.error(`[DanieSearch] Sub-option extraction failed for ${href}:`, subErr.message);
                 }
             }
 
-            // Add any already-resolved direct CDN URLs
-            for (const host of directCdnHosts) {
-                candidates.push({ name: host.text || 'Direct CDN Link', href: host.href });
+            // Fallback: If no sub-options found, use raw host links
+            if (candidates.length === 0) {
+                for (const host of hostsList) {
+                    if (host.href) candidates.push({ name: host.text || 'Download Link', href: host.href });
+                }
             }
 
             // Deduplicate candidates by href
@@ -3458,11 +3438,11 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
             });
 
             if (candidates.length === 0) {
-                console.log(`[DanieSearch] No Direct CDN (FastDL/Google CDN) links available for this item.`);
-                throw new Error('No Direct CDN (FastDL) link available for this item.');
+                console.log(`[DanieSearch] No download links available for this item.`);
+                throw new Error('No download links available for this item.');
             }
 
-            console.log(`[DanieSearch] Direct CDN candidates:`, candidates.map(c => c.name));
+            console.log(`[DanieSearch] VCloud Direct candidates:`, candidates.map(c => `${c.name} -> ${c.href}`));
 
             let downloadSuccess = false;
             let lastError = null;
