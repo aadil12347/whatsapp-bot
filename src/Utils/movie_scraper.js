@@ -1413,30 +1413,35 @@ async function extractSubOptions(url, parentUrl = null) {
             return [{ text: 'Direct CDN Link', href: target }];
         }
 
-        // 3. Check if page contains intermediate links to HubCloud / VCloud (e.g. nexdrive / HubDrive landing pages)
-        const hubcloudLinks = [];
-        $('a[href]').each((_, el) => {
-            const href = $(el).attr('href');
-            const text = $(el).text().trim();
-            if (!href) return;
-            const lowerHref = href.toLowerCase();
-            const isVcloudHost = lowerHref.includes('vcloud') || lowerHref.includes('hubcloud') || lowerHref.includes('katdrive') || lowerHref.includes('kmhd') || lowerHref.includes('hubdrive');
-            const isJunk = !href.startsWith('http') || lowerHref.includes('telegram') || lowerHref.includes('/tg/') || lowerHref.includes('t.me') || lowerHref.includes('/admin') || lowerHref.includes('.fans');
-            if (isVcloudHost && !isJunk) {
-                if (!hubcloudLinks.some(hl => hl.href === href)) {
-                    hubcloudLinks.push({ text: text || 'VCloud Server', href });
-                }
-            }
-        });
+        // 3. Check if landing page (nexdrive / HubDrive) contains intermediate links to HubCloud / VCloud
+        const lowerUrl = url.toLowerCase();
+        const isAlreadyVcloud = lowerUrl.includes('vcloud') || lowerUrl.includes('hubcloud');
 
-        if (hubcloudLinks.length > 0) {
-            console.log(`[MovieScraper] Found ${hubcloudLinks.length} VCloud link(s) on landing page.`);
-            const allSubServers = [];
-            for (const hcLink of hubcloudLinks) {
-                const subOpts = await extractSubOptions(hcLink.href, url);
-                allSubServers.push(...subOpts);
+        if (!isAlreadyVcloud) {
+            const hubcloudLinks = [];
+            $('a[href]').each((_, el) => {
+                const href = $(el).attr('href');
+                const text = $(el).text().trim();
+                if (!href) return;
+                const lowerHref = href.toLowerCase();
+                const isVcloudHost = lowerHref.includes('vcloud') || lowerHref.includes('hubcloud') || lowerHref.includes('katdrive') || lowerHref.includes('kmhd') || lowerHref.includes('hubdrive');
+                const isJunk = !href.startsWith('http') || lowerHref.includes('signup') || lowerHref.includes('login') || lowerHref.includes('telegram') || lowerHref.includes('/tg/') || lowerHref.includes('t.me') || lowerHref.includes('/admin') || lowerHref.includes('.fans');
+                if (isVcloudHost && !isJunk) {
+                    if (!hubcloudLinks.some(hl => hl.href === href)) {
+                        hubcloudLinks.push({ text: text || 'VCloud Server', href });
+                    }
+                }
+            });
+
+            if (hubcloudLinks.length > 0) {
+                console.log(`[MovieScraper] Found ${hubcloudLinks.length} VCloud link(s) on landing page.`);
+                const allSubServers = [];
+                for (const hcLink of hubcloudLinks) {
+                    const subOpts = await extractSubOptions(hcLink.href, url);
+                    allSubServers.push(...subOpts);
+                }
+                if (allSubServers.length > 0) return allSubServers;
             }
-            if (allSubServers.length > 0) return allSubServers;
         }
 
         // 4. Default: HubCloud / VCloud / GDflix double atob script or var url

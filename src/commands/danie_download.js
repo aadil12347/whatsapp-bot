@@ -3403,10 +3403,12 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
             let candidates = [];
 
             // === VCLOUD DIRECT EXTRACTION VIA FLARESOLVERR ===
-            // Prioritize vcloud / hubcloud / nexdrive hosts and exclude fastdl/telegram junk
+            // Strictly keep only vcloud / hubcloud / nexdrive hosts and ignore filebee, gofile, vikingfile, megaup, fastdl
             const vcloudHosts = hostsList.filter(h => {
                 const href = (h.href || '').toLowerCase();
-                return !href.includes('fastdl') && !href.includes('telegram') && !href.includes('/tg/');
+                const isVcloud = href.includes('vcloud') || href.includes('hubcloud') || href.includes('nexdrive') || href.includes('vgmlink');
+                const isJunk = href.includes('filebee') || href.includes('gofile') || href.includes('vikingfile') || href.includes('megaup') || href.includes('fastdl') || href.includes('telegram') || href.includes('transfer.it');
+                return isVcloud && !isJunk;
             });
             const targetHosts = vcloudHosts.length > 0 ? vcloudHosts : hostsList;
 
