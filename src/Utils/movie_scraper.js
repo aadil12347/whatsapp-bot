@@ -926,11 +926,7 @@ async function scrapeAllPostLinks(url) {
                 return;
             }
 
-            // Filter out Pack/Zip links for TV Series per user requirement
-            const isPack = /\bpack\b|\bbatch\b|\bzip\b|\ball\s+episodes\b/i.test(linkText) || /\bpack\b|\bzip\b|\bbatch\b/i.test(lowerHref);
-            if (isSeries && isPack) {
-                return;
-            }
+            const isPack = /\bpack\b|\bbatch\b|\bzip\b|\brar\b|\ball\s+episodes\b/i.test(linkText) || /\bpack\b|\bzip\b|\bbatch\b|\brar\b/i.test(lowerHref);
 
             const parentText = $(el).parent().text().trim();
 
@@ -974,9 +970,9 @@ async function scrapeAllPostLinks(url) {
                 resolution = '480p';
             }
 
-            if (resolution === 'Unknown' && !episode && !isHostLink) return;
+            if (resolution === 'Unknown' && !episode && !isHostLink && !isPack) return;
 
-            links.push({ text: linkText, href, resolution, episode, heading: precedingHeading.trim(), parentText });
+            links.push({ text: linkText, href, resolution, episode, heading: precedingHeading.trim(), parentText, isPack });
         });
 
         return links;

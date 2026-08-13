@@ -3471,58 +3471,40 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
     }
 
     const primaryHost = hostsList[0] || {};
-    let sanitizedTitle = generateCustomFileName(state, primaryHost);
-    if (!sanitizedTitle) {
-        sanitizedTitle = (state.resolutionHeading || state.title || 'Movie')
-            .replace(/[:*?"<>|\\/]/g, '')
-            .trim();
-        if (primaryHost.episode) {
-            sanitizedTitle = `${sanitizedTitle} ${primaryHost.episode}`;
-        }
-    }
+    const labelTitle = state.selectedResolution 
+        ? `${state.title || 'Media'} (${state.selectedResolution})`
+        : (state.title || 'Media');
 
     const task = {
         type: 'search_download',
-        description: `🍿 Search Download: ${sanitizedTitle}`,
-        commandText: `Search Download: ${sanitizedTitle}`,
+        description: `🍿 Search Download: ${labelTitle}`,
+        commandText: `Search Download: ${labelTitle}`,
         senderJid,
         from,
         executeFn: async (signal, ref) => {
             let candidates = [];
 
-            // === VCLOUD DIRECT EXTRACTION VIA FLARESOLVERR ===
-            // Strictly keep only vcloud / hubcloud / nexdrive hosts and ignore filebee, gofile, vikingfile, megaup, fastdl
-            const vcloudHosts = hostsList.filter(h => {
-                const href = (h.href || '').toLowerCase();
-                const isVcloud = href.includes('vcloud') || href.includes('hubcloud') || href.includes('nexdrive') || href.includes('vgmlink');
-                const isJunk = href.includes('filebee') || href.includes('gofile') || href.includes('vikingfile') || href.includes('megaup') || href.includes('fastdl') || href.includes('telegram') || href.includes('transfer.it');
-                return isVcloud && !isJunk;
-            });
-            const targetHosts = vcloudHosts.length > 0 ? vcloudHosts : hostsList;
-
-            for (const host of targetHosts) {
+            for (const host of hostsList) {
                 const href = host.href || '';
-                console.log(`[DanieSearch] Extracting VCloud sub-options from landing host: ${href}`);
-                try {
-                    const subOpts = await extractSubOptions(href);
-                    if (subOpts && subOpts.length > 0) {
-                        subOpts.forEach(opt => {
-                            const txt = (opt.text || '').toLowerCase();
-                            if (!txt.includes('login') && !txt.includes('admin')) {
-                                candidates.push({ name: opt.text || 'Direct Link', href: opt.href });
-                            }
-                        });
-                    }
-                } catch (subErr) {
-                    console.error(`[DanieSearch] Sub-option extraction failed for ${href}:`, subErr.message);
-                }
-            }
+                if (!href) continue;
 
-            // Fallback: If no sub-options found, use raw host links
-            if (candidates.length === 0) {
-                for (const host of hostsList) {
-                    if (host.href) candidates.push({ name: host.text || 'Download Link', href: host.href });
+                if (isLandingUrl(href)) {
+                    console.log(`[DanieSearch] Extracting sub-options from landing host: ${href}`);
+                    try {
+                        const subOpts = await extractSubOptions(href);
+                        if (subOpts && subOpts.length > 0) {
+                            subOpts.forEach(opt => {
+                                const txt = (opt.text || '').toLowerCase();
+                                if (!txt.includes('login') && !txt.includes('admin')) {
+                                    candidates.push({ name: opt.text || 'Direct Link', href: opt.href });
+                                }
+                            });
+                        }
+                    } catch (subErr) {
+                        console.error(`[DanieSearch] Sub-option extraction failed for ${href}:`, subErr.message);
+                    }
                 }
+                candidates.push({ name: host.text || 'Download Link', href: href });
             }
 
             // Deduplicate candidates by href
@@ -3538,7 +3520,7 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
                 throw new Error('No download links available for this item.');
             }
 
-            console.log(`[DanieSearch] VCloud Direct candidates:`, candidates.map(c => `${c.name} -> ${c.href}`));
+            console.log(`[DanieSearch] Candidates for download:`, candidates.map(c => `${c.name} -> ${c.href}`));
 
             let downloadSuccess = false;
             let lastError = null;
@@ -3562,19 +3544,20 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
                     }
                 }
                 
-                const downloadQuery = `${sanitizedTitle} = ${cand.href}`;
-                console.log(`[DanieSearch] Fallback Attempt ${i + 1}: Trying ${cand.name}...`);
+                // Pass direct URL so downloadCommandHandler preserves original filename & applies branding like .d command
+                const downloadQuery = cand.href;
+                console.log(`[DanieSearch] Attempt ${i + 1}: Trying ${cand.name} (${cand.href})...`);
                 
                 try {
                     await downloadCommandHandler(conn, mek, from, senderJid, downloadQuery, reply, signal, ref, cand.name, true);
                     downloadSuccess = true;
-                    console.log(`[DanieSearch] Fallback Attempt ${i + 1} (${cand.name}) succeeded!`);
+                    console.log(`[DanieSearch] Attempt ${i + 1} (${cand.name}) succeeded!`);
                     break;
                 } catch (err) {
                     if (err.message === 'Aborted') {
                         throw err;
                     }
-                    console.error(`[DanieSearch] Fallback Attempt ${i + 1} (${cand.name}) failed:`, err.message);
+                    console.error(`[DanieSearch] Attempt ${i + 1} (${cand.name}) failed:`, err.message);
                     lastError = err;
                 }
             }
@@ -3592,7 +3575,7 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
 
     const queuedTask = globalTaskQueue.add(task);
     if (globalTaskQueue.activeTask && globalTaskQueue.activeTask.id !== queuedTask.id) {
-        await reply(`📥 *Added to Queue* (Position #${globalTaskQueue.queue.length}):\n🍿 Download: *${sanitizedTitle}*`);
+        await reply(`📥 *Added to Queue* (Position #${globalTaskQueue.queue.length}):\n🍿 Download: *${labelTitle}*`);
     }
 }
 
@@ -3641,17 +3624,6 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
         const posterUrl = selected.poster || '';
         await reply(`⏳ *Fetching details & poster for:* "${selected.title}"...`);
 
-        const sendWithPoster = async (textMsg, imgUrl) => {
-            if (imgUrl && (imgUrl.startsWith('http://') || imgUrl.startsWith('https://'))) {
-                try {
-                    return await conn.sendMessage(from, { image: { url: imgUrl }, caption: textMsg }, { quoted: mek });
-                } catch (imgErr) {
-                    console.error('[StreamIMDB] Failed to send poster image, falling back to text:', imgErr.message);
-                }
-            }
-            return reply(textMsg);
-        };
-
         try {
             let details = null;
             if (selected.tmdbId && selected.tmdbId !== '0') {
@@ -3674,15 +3646,18 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                     ? details.seasons.filter(s => s.season_number > 0 || s.seasonNum > 0)
                     : [{ seasonNum: 1, episodes: [{ epNum: 1, title: 'Episode 1', href: selected.href }] }];
 
-                let seasonText = `📺 *${mediaTitle}* ${mediaYear ? `(${mediaYear})` : ''}\n${imdbDisplay}\n_${overview ? overview.substring(0, 150) + '...' : ''}_\n\n*Select a Season:*\n`;
-                seasonsList.forEach((s, idx) => {
+                const optionsList = seasonsList.map((s, idx) => {
                     const sNum = s.season_number || s.seasonNum;
                     const epCount = s.episode_count || (s.episodes ? s.episodes.length : 10);
-                    seasonText += `  \`${idx + 1}\` — *Season ${sNum}* (${epCount} episodes)\n`;
+                    return {
+                        id: String(idx + 1),
+                        title: `Season ${sNum}`,
+                        description: `${epCount} episodes available`
+                    };
                 });
-                seasonText += `\n_Reply with a season number (1-${seasonsList.length})._`;
 
-                const sent = await sendWithPoster(seasonText, mediaPoster);
+                let seasonText = `📺 *${mediaTitle}* ${mediaYear ? `(${mediaYear})` : ''}\n${imdbDisplay}\n_${overview ? overview.substring(0, 150) + '...' : ''}_\n\n*Select a Season:*`;
+                const sent = await sendInteractiveOptions(conn, from, mediaTitle, seasonText, optionsList, mek, mediaPoster, `© DanieWatch Bot`);
                 pendingSearch[cleanSender] = {
                     step: 'streamimdb_season',
                     title: mediaTitle,
@@ -3699,13 +3674,14 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                 console.log(`[StreamIMDB] Resolving stream options for: ${targetEmbedUrl}`);
                 const qualities = await resolveStreamOptions(targetEmbedUrl);
                 
-                let qualityText = `🎬 *${mediaTitle}* ${mediaYear ? `(${mediaYear})` : ''}\n${imdbDisplay}\n_${overview ? overview.substring(0, 150) + '...' : ''}_\n\n*Available Download Qualities:*\n`;
-                qualities.forEach((q, idx) => {
-                    qualityText += `  \`${idx + 1}\` — *${q.quality}*\n`;
-                });
-                qualityText += `\n_Reply with quality number (1-${qualities.length}) to download._`;
+                const optionsList = qualities.map((q, idx) => ({
+                    id: String(idx + 1),
+                    title: q.quality,
+                    description: `Tap to download stream`
+                }));
 
-                const sent = await sendWithPoster(qualityText, mediaPoster);
+                let qualityText = `🎬 *${mediaTitle}* ${mediaYear ? `(${mediaYear})` : ''}\n${imdbDisplay}\n_${overview ? overview.substring(0, 150) + '...' : ''}_\n\n*Select Download Quality:*`;
+                const sent = await sendInteractiveOptions(conn, from, mediaTitle, qualityText, optionsList, mek, mediaPoster, `© DanieWatch Bot`);
                 pendingSearch[cleanSender] = {
                     step: 'streamimdb_quality',
                     title: mediaTitle,
@@ -3730,24 +3706,14 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
         }
 
         const chosenSeason = seasons[num - 1];
-        let epText = `📺 *${state.title}* - *Season ${chosenSeason.seasonNum}*\n\n*Select an Episode:*\n`;
-        chosenSeason.episodes.forEach((ep, idx) => {
-            epText += `  \`${idx + 1}\` — *Episode ${ep.epNum}: ${ep.title}*\n`;
-        });
-        epText += `\n_Reply with an episode number (1-${chosenSeason.episodes.length})._`;
+        const optionsList = chosenSeason.episodes.map((ep, idx) => ({
+            id: String(idx + 1),
+            title: `Episode ${ep.epNum}`,
+            description: (ep.title || `Episode ${ep.epNum}`).substring(0, 70)
+        }));
 
-        const sendWithPoster = async (textMsg, imgUrl) => {
-            if (imgUrl && (imgUrl.startsWith('http://') || imgUrl.startsWith('https://'))) {
-                try {
-                    return await conn.sendMessage(from, { image: { url: imgUrl }, caption: textMsg }, { quoted: mek });
-                } catch (imgErr) {
-                    console.error('[StreamIMDB] Failed to send poster image, falling back to text:', imgErr.message);
-                }
-            }
-            return reply(textMsg);
-        };
-
-        const sent = await sendWithPoster(epText, state.poster);
+        let epText = `📺 *${state.title}* - *Season ${chosenSeason.seasonNum}*\n\n*Select an Episode to Download:*`;
+        const sent = await sendInteractiveOptions(conn, from, `${state.title} S${chosenSeason.seasonNum}`, epText, optionsList, mek, state.poster, `© DanieWatch Bot`);
         pendingSearch[cleanSender] = {
             step: 'streamimdb_episode',
             title: state.title,
@@ -3769,30 +3735,19 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
         const fullTitle = `${state.title} S${state.seasonNum}E${chosenEpisode.epNum} - ${chosenEpisode.title}`;
         await reply(`⏳ *Fetching stream qualities for:* "${fullTitle}"...`);
 
-        const sendWithPoster = async (textMsg, imgUrl) => {
-            if (imgUrl && (imgUrl.startsWith('http://') || imgUrl.startsWith('https://'))) {
-                try {
-                    return await conn.sendMessage(from, { image: { url: imgUrl }, caption: textMsg }, { quoted: mek });
-                } catch (imgErr) {
-                    console.error('[StreamIMDB] Failed to send poster image, falling back to text:', imgErr.message);
-                }
-            }
-            return reply(textMsg);
-        };
-
         try {
             const embedUrl = await getEpisodeEmbedUrl(chosenEpisode.href);
             if (!embedUrl) {
                 return reply(`❌ Could not extract player embed URL for episode: "${fullTitle}".`);
             }
             const qualities = await resolveStreamOptions(embedUrl);
-            let qualityText = `📺 *${fullTitle}*\n\n*Available Download Qualities:*\n`;
-            qualities.forEach((q, idx) => {
-                qualityText += `  \`${idx + 1}\` — *${q.quality}*\n`;
-            });
-            qualityText += `\n_Reply with quality number (1-${qualities.length}) to download._`;
-
-            const sent = await sendWithPoster(qualityText, state.poster);
+            const optionsList = qualities.map((q, idx) => ({
+                id: String(idx + 1),
+                title: q.quality,
+                description: `Tap to download episode stream`
+            }));
+            let qualityText = `📺 *${fullTitle}*\n\n*Select Episode Quality:*`;
+            const sent = await sendInteractiveOptions(conn, from, fullTitle, qualityText, optionsList, mek, state.poster, `© DanieWatch Bot`);
             pendingSearch[cleanSender] = {
                 step: 'streamimdb_quality',
                 title: fullTitle,
@@ -3940,11 +3895,10 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
             console.log(`[DanieSearch] Scraping post page: ${postUrl}`);
             const allLinks = await scrapeAllPostLinks(postUrl);
 
-            // Filter out unrelated links (keep only V-Cloud, Hubdrive, or landing page domains)
+            // Keep all valid download links (including ZIP/RAR batch links, episode links, resolutions)
             const validLinks = allLinks.filter(l => {
+                if (!l || !l.href || !l.href.startsWith('http')) return false;
                 const lowerHref = l.href.toLowerCase();
-                const lowerText = l.text.toLowerCase();
-                const lowerHeading = (l.heading || '').toLowerCase();
                 
                 const isLandingDomain = lowerHref.includes('nexdrive') || 
                                         lowerHref.includes('vgmlink') || 
