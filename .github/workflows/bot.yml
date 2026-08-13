@@ -34,6 +34,12 @@ jobs:
       - name: 📦 Install Archive Tools
         run: sudo apt-get update -qq && sudo apt-get install -y -qq unzip unrar
 
+      - name: 🛡️ Launch FlareSolverr Service
+        run: |
+          docker run -d --name=flaresolverr -p 8191:8191 -e LOG_LEVEL=info ghcr.io/flaresolverr/flaresolverr:latest
+          echo "Waiting 5s for FlareSolverr container to warm up..."
+          sleep 5
+
       - name: 🤖 Execute Bot Task
         env:
           URL: '${{ secrets.URL }}'
