@@ -161,7 +161,7 @@ async function sendInteractiveOptions(conn, from, title, bodyText, optionsList, 
     });
 
     const interactiveMessage = {
-        header: { title: (title || "DanieWatch Options").substring(0, 50), hasMediaAttachment: false },
+        header: { title: (title || "DanieWatch Options").substring(0, 50) },
         body: { text: bodyText },
         footer: { text: footerText },
         nativeFlowMessage: {
@@ -3899,32 +3899,8 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
             const validLinks = allLinks.filter(l => {
                 if (!l || !l.href || !l.href.startsWith('http')) return false;
                 const lowerHref = l.href.toLowerCase();
-                
-                const isLandingDomain = lowerHref.includes('nexdrive') || 
-                                        lowerHref.includes('vgmlink') || 
-                                        lowerHref.includes('gdflix') || 
-                                        lowerHref.includes('fastdl') || 
-                                        lowerHref.includes('filebee') || 
-                                        lowerHref.includes('hubcloud') || 
-                                        lowerHref.includes('vcloud') || 
-                                        lowerHref.includes('katdrive') || 
-                                        lowerHref.includes('kmhd') || 
-                                        lowerHref.includes('fastdl.zip') ||
-                                        lowerHref.includes('hubdrive') ||
-                                        lowerHref.includes('hubcdn') ||
-                                        lowerHref.includes('gadgetsweb');
-                                        
-                const isVcloudKeyword = lowerHref.includes('vcloud') || 
-                                         lowerHref.includes('hubcloud') || 
-                                         lowerHref.includes('hubdrive') || 
-                                         lowerText.includes('v-cloud') || 
-                                         lowerText.includes('vcloud') || 
-                                         lowerText.includes('drive') || 
-                                         lowerText.includes('instant') || 
-                                         lowerHeading.includes('v-cloud') || 
-                                         lowerHeading.includes('vcloud');
-                                         
-                return (isLandingDomain || isVcloudKeyword) && l.resolution !== 'Unknown';
+                if (lowerHref.includes('telegram') || lowerHref.includes('facebook') || lowerHref.includes('twitter') || lowerHref.includes('youtube.com') || lowerHref.includes('/admin')) return false;
+                return true;
             });
 
             if (validLinks.length === 0) {
@@ -3932,28 +3908,13 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                 return reply(`❌ No valid download links could be parsed from this post.`);
             }
 
-            // Prefer Hubdrive / V-Cloud / Drive links
-            const hasDriveText = validLinks.some(l => {
-                const lt = l.text.toLowerCase();
-                const lh = l.href.toLowerCase();
-                return lt.includes('v-cloud') || lt.includes('vcloud') || lt.includes('drive') || lh.includes('hubdrive');
+            // Deduplicate links by href
+            const seenHref = new Set();
+            const displayLinks = validLinks.filter(l => {
+                if (seenHref.has(l.href)) return false;
+                seenHref.add(l.href);
+                return true;
             });
-
-            let displayLinks;
-            if (hasDriveText) {
-                displayLinks = validLinks.filter(l => {
-                    const lt = l.text.toLowerCase();
-                    const lh = l.href.toLowerCase();
-                    return lt.includes('v-cloud') || lt.includes('vcloud') || lt.includes('drive') || lh.includes('hubdrive') || lh.includes('vcloud') || lh.includes('hubcloud');
-                });
-            } else {
-                displayLinks = validLinks.filter(l => {
-                    const lt = l.text.toLowerCase();
-                    return !lt.includes('g-direct') && !lt.includes('gdirect') && 
-                           !lt.includes('tgdrive') && !lt.includes('telegram');
-                });
-            }
-            if (displayLinks.length === 0) displayLinks = validLinks;
 
             // Update state
             pendingSearch[cleanSender] = {
@@ -3968,18 +3929,28 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
             };
 
             const optionsList = displayLinks.map((l, i) => {
-                const cleanText = l.text.replace(/⚡\s*/g, '').trim();
-                const label = l.heading 
-                    ? `${l.heading} — ${cleanText}` 
-                    : `${cleanText}`;
+                const cleanText = l.text.replace(/⚡\s*/g, '').replace(/\[?DanieWatch\]?/gi, '').trim();
+                const isZipOrPack = l.isPack || /\bzip\b|\brar\b|\bpack\b|\bbatch\b/i.test(cleanText) || /\bzip\b|\brar\b|\bpack\b|\bbatch\b/i.test(l.href);
+                
+                let titleLabel = '';
+                if (isZipOrPack) {
+                    titleLabel = `📦 ${l.resolution && l.resolution !== 'Unknown' ? l.resolution : 'Zip / Batch'}`;
+                } else if (l.resolution && l.resolution !== 'Unknown') {
+                    titleLabel = `🎬 ${l.resolution} Quality`;
+                } else {
+                    titleLabel = (cleanText || `Option ${i + 1}`).substring(0, 24);
+                }
+
+                const descText = (l.heading ? `${l.heading} — ${cleanText}` : cleanText).substring(0, 70);
+
                 return {
                     id: String(i + 1),
-                    title: `${l.resolution || 'Download'} Quality`,
-                    description: label.substring(0, 70)
+                    title: titleLabel.substring(0, 24),
+                    description: descText || `Tap to select option #${i + 1}`
                 };
             });
 
-            let bodyText = `🎬 *${selectedMovie.title}*\n\nSelect a resolution quality to download:`;
+            let bodyText = `🎬 *${selectedMovie.title}*\n\nSelect a download quality / link option:`;
             const sent = await sendInteractiveOptions(conn, from, selectedMovie.title, bodyText, optionsList, mek, selectedMovie.thumbnail, `© DanieWatch Bot`);
             if (sent && sent.key) {
                 pendingSearch[cleanSender].messageId = sent.key.id;
