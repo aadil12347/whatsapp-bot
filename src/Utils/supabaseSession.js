@@ -93,6 +93,14 @@ async function uploadSessionToSupabase(sessionDir = path.join(__dirname, '../../
             return false;
         }
 
+        try {
+            const credsObj = JSON.parse(typeof sessionData['creds.json'] === 'string' ? sessionData['creds.json'] : sessionData['creds.json'].content || '{}');
+            if (credsObj.registered === false) {
+                console.warn('⚠️ creds.json is marked as registered: false (logged out). Aborting Supabase upload to preserve valid remote credentials.');
+                return false;
+            }
+        } catch (_) {}
+
         // Delete all old records from bot_session first
         const { error: delError } = await supabase.from('bot_session').delete().neq('id', 0);
         if (delError) {

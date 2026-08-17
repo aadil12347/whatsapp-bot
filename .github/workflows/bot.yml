@@ -56,7 +56,7 @@ jobs:
           node start.js
 
       - name: 📤 Sync Paired Keys to Supabase
-        if: always()
+        if: success()
         env:
           URL: '${{ secrets.URL }}'
           KEY: '${{ secrets.KEY }}'
