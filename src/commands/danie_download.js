@@ -1338,12 +1338,12 @@ function initUpsertListener(conn) {
             }
             const cleanSender = cleanJid(senderJid);
 
-            // Resolve LID-based 'from' to a sendable JID
-            // LID addresses (e.g. 131606941540440@lid) silently fail when used with sendMessage
+            // JID routing: Preserve original 'from' (LID thread, Group, or DM) as primary destination
+            // so replies arrive directly in the exact chat thread where the command was typed.
+            const targetJid = from || cleanSender;
             let sendableFrom = from;
-            if (from && (from.includes('@lid') || from.includes('@newsletter'))) {
+            if (from && from.includes('@newsletter')) {
                 sendableFrom = cleanSender;
-                console.log(`[DanieWatch] Resolved LID 'from' (${from}) to sendable JID: ${sendableFrom}`);
             }
 
             // OWNER-ONLY ACCESS CHECK: Block all non-owners from messaging/sending commands to the bot
@@ -1376,11 +1376,20 @@ function initUpsertListener(conn) {
             const trimmedText = body.trim();
             if (!trimmedText) return;
 
-            console.log(`[DanieWatch] Raw message received: from="${from}" sender="${senderJid}" cleanSender="${cleanSender}" sendableFrom="${sendableFrom}" fromMe=${mek.key.fromMe} text="${trimmedText}"`);
+            console.log(`[DanieWatch] Raw message received: from="${from}" sender="${senderJid}" cleanSender="${cleanSender}" targetJid="${targetJid}" fromMe=${mek.key.fromMe} text="${trimmedText}"`);
             console.log(`[DanieWatch] Current pendingConfig keys:`, Object.keys(pendingConfig));
 
             const reply = async (textMsg) => {
-                return conn.sendMessage(sendableFrom, { text: textMsg }, { quoted: mek });
+                try {
+                    return await conn.sendMessage(targetJid, { text: textMsg }, { quoted: mek });
+                } catch (err1) {
+                    if (cleanSender && cleanSender !== targetJid) {
+                        try {
+                            return await conn.sendMessage(cleanSender, { text: textMsg }, { quoted: mek });
+                        } catch (err2) {}
+                    }
+                    throw err1;
+                }
             };
 
             // ---- Handle commands starting with PREFIX ----
@@ -1426,7 +1435,7 @@ function initUpsertListener(conn) {
                     if (mek.message.extendedTextMessage?.text) mek.message.extendedTextMessage.text = '';
 
                     try {
-                        await DANIE_COMMANDS[cmdName](conn, mek, sendableFrom, senderJid, cmdArgs, reply);
+                        await DANIE_COMMANDS[cmdName](conn, mek, targetJid, senderJid, cmdArgs, reply);
                     } catch (cmdErr) {
                         console.error(`[DanieWatch] Error executing command "${cmdName}":`, cmdErr);
                         try {

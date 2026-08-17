@@ -23,6 +23,8 @@ const _blockStartPatterns = [
   'Session error:Error: Bad MAC',
   'Session error: Error: Bad MAC',
   'Error: Bad MAC',
+  'Decrypted message with closed session',
+  'Closing open session in favor of incoming prekey bundle',
 ];
 
 const _blockContentPatterns = [
