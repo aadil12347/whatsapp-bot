@@ -154,6 +154,7 @@ async function downloadSessionFromSupabase(sessionDir = path.join(__dirname, '..
         }
 
         const sessionFiles = data.session_data;
+        const localCredsExist = isValidJsonFile(path.join(sessionDir, 'creds.json'));
         let restoredCount = 0;
 
         for (const [filename, value] of Object.entries(sessionFiles)) {
@@ -179,6 +180,16 @@ async function downloadSessionFromSupabase(sessionDir = path.join(__dirname, '..
                 mtime = value.mtime;
             } else {
                 continue;
+            }
+
+            // If local creds already exist and local session file is present and newer, skip overwriting
+            if (localCredsExist && fs.existsSync(destPath)) {
+                try {
+                    const localStat = fs.statSync(destPath);
+                    if (mtime && localStat.mtimeMs >= mtime) {
+                        continue; // Keep newer local session file
+                    }
+                } catch (_) {}
             }
 
             fs.writeFileSync(destPath, content, 'utf-8');

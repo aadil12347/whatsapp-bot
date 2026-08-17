@@ -4,6 +4,23 @@
 //  Only does what's actually needed: Baileys connection + your commands.
 // ═══════════════════════════════════════════════════════════════════════
 
+require('./_suppress_session_logs');
+
+// ── Process-level error handling for Signal Bad MAC errors ──
+process.on('uncaughtException', (err) => {
+    if (err && err.message && err.message.includes('Bad MAC')) {
+        return; // Handled by _suppress_session_logs auto-repair
+    }
+    console.error('❌ Uncaught Exception:', err);
+});
+process.on('unhandledRejection', (reason) => {
+    const msg = (reason && reason.message) || String(reason || '');
+    if (msg.includes('Bad MAC')) {
+        return; // Handled by _suppress_session_logs auto-repair
+    }
+    console.error('❌ Unhandled Rejection:', reason);
+});
+
 const fs = require('fs');
 const path = require('path');
 const pino = require('pino');

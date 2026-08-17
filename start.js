@@ -172,8 +172,7 @@ async function startBot() {
         cleanCorruptedSessionFiles(sessionDir);
         pruneSessionDirectory(sessionDir);
 
-        // Sync valid session files between session/ and sess/
-        syncDirectories(sessDir, sessionDir);
+        // Backup valid session files from session/ to sess/ (NEVER overwrite session/ with stale sess/ files)
         syncDirectories(sessionDir, sessDir);
     } catch (e) {
         console.warn('⚠️ Note: Supabase session sync skipped or failed:', e.message || e);

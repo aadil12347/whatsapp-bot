@@ -1,19 +1,28 @@
 
-// Auto-generated: Suppress Baileys Signal protocol "Closing session" spam
-// Uses process.stdout/stderr.write interception (can't be overridden by console.log replacements)
+// Auto-generated: Suppress Baileys Signal protocol "Closing session" & "Bad MAC" spam
+// and auto-repair corrupted Signal sessions on the fly.
+const path = require('path');
+const fs = require('fs');
+
 const _origStdoutWrite = process.stdout.write.bind(process.stdout);
 const _origStderrWrite = process.stderr.write.bind(process.stderr);
 
 // Track if we're inside a multi-line session dump
 let _suppressingBlock = false;
 let _suppressedCount = 0;
+let _badMacCount = 0;
 let _lastReportTime = Date.now();
+let _lastBadMacRepairTime = 0;
+let _recentOutputBuffer = '';
 
 const _blockStartPatterns = [
   'Closing session',
   'Removing old closed session',
   'SessionEntry {',
   'SessionEntry\n',
+  'Session error:Error: Bad MAC',
+  'Session error: Error: Bad MAC',
+  'Error: Bad MAC',
 ];
 
 const _blockContentPatterns = [
@@ -39,11 +48,93 @@ const _blockContentPatterns = [
   'signedKeyId:',
   'preKeyId:',
   'messageKeys:',
+  'verifyMAC',
+  'doDecryptWhisperMessage',
+  'decryptWithSessions',
+  '_asyncQueueExecutor'
 ];
 
+/**
+ * Automatically repairs corrupted Signal session files when "Bad MAC" errors occur.
+ * Extracts session ID (e.g. 17064693616661_1.0) and unlinks corrupted files.
+ */
+function _handleBadMacRepair(fullText) {
+  if (!fullText.includes('Bad MAC')) return;
+
+  const now = Date.now();
+  _badMacCount++;
+
+  const sessionDir = path.join(__dirname, 'session');
+  const sessDir = path.join(__dirname, 'sess');
+
+  // Extract session identifier from stack trace (e.g. "at async 17064693616661_1.0 [as awaitable]")
+  const matches = fullText.match(/at async ([a-zA-Z0-9_\-.]+)/g) || [];
+  const extractedIds = new Set();
+  for (const m of matches) {
+    const id = m.replace('at async ', '').trim();
+    if (id && id !== '_asyncQueueExecutor' && id !== 'SessionCipher') {
+      extractedIds.add(id);
+    }
+  }
+
+  let deletedCount = 0;
+  const deleteMatchingSessionFiles = (dir) => {
+    if (!fs.existsSync(dir)) return;
+    try {
+      const files = fs.readdirSync(dir);
+      for (const file of files) {
+        if (!file.endsWith('.json') || file === 'creds.json') continue;
+
+        let match = false;
+        if (extractedIds.size > 0) {
+          for (const id of extractedIds) {
+            if (file.includes(id)) {
+              match = true;
+              break;
+            }
+          }
+        }
+
+        if (match) {
+          try {
+            const filePath = path.join(dir, file);
+            if (fs.existsSync(filePath)) {
+              fs.unlinkSync(filePath);
+              deletedCount++;
+            }
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+  };
+
+  if (extractedIds.size > 0) {
+    deleteMatchingSessionFiles(sessionDir);
+    deleteMatchingSessionFiles(sessDir);
+  }
+
+  if (now - _lastBadMacRepairTime > 5000) {
+    _lastBadMacRepairTime = now;
+    const idList = Array.from(extractedIds).join(', ');
+    _origStdoutWrite(
+      `[DanieWatch] 🧹 Auto-healed Bad MAC session corruption${idList ? ` (${idList})` : ''}. Deleted ${deletedCount} corrupted file(s). WhatsApp will re-establish E2EE session on next message.\n`
+    );
+  }
+}
+
 function _shouldSuppress(chunk) {
-  const str = typeof chunk === 'string' ? chunk : (Buffer.isBuffer(chunk) ? chunk.toString('utf8', 0, Math.min(chunk.length, 500)) : '');
+  const str = typeof chunk === 'string' ? chunk : (Buffer.isBuffer(chunk) ? chunk.toString('utf8', 0, Math.min(chunk.length, 1000)) : '');
   if (!str) return false;
+
+  // Append to recent buffer for multi-line stack trace inspection
+  _recentOutputBuffer += str;
+  if (_recentOutputBuffer.length > 4000) {
+    _recentOutputBuffer = _recentOutputBuffer.slice(-2000);
+  }
+
+  if (str.includes('Bad MAC')) {
+    _handleBadMacRepair(_recentOutputBuffer);
+  }
 
   // Check if this starts a new session dump block
   for (const p of _blockStartPatterns) {
@@ -56,34 +147,24 @@ function _shouldSuppress(chunk) {
 
   // If we're inside a suppressed block, check if this line is part of it
   if (_suppressingBlock) {
-    // Check if it's a closing brace (end of block)
     const trimmed = str.trim();
     if (trimmed === '}' || trimmed === '},') {
-      // Don't end suppression yet — there might be nested objects
       return true;
     }
-    
-    // Check for session content patterns
+
     for (const p of _blockContentPatterns) {
       if (str.includes(p)) return true;
     }
-    
-    // Check for Buffer patterns
+
     if (str.includes('<Buffer ') || str.includes('Buffer(')) return true;
-    
-    // Check for base64 key-like patterns (long alphanumeric with +/=)
     if (/^\s*'[A-Za-z0-9+/=]{20,}'/.test(trimmed)) return true;
-    
-    // If the line is just whitespace or braces, keep suppressing
     if (/^[\s{}\[\],]*$/.test(trimmed)) return true;
-    
-    // Otherwise, end the suppression block
+
     _suppressingBlock = false;
-    
-    // Periodically report how many were suppressed
+
     const now = Date.now();
     if (_suppressedCount > 0 && (now - _lastReportTime) > 30000) {
-      _origStdoutWrite('[DanieWatch] 🔇 Suppressed ' + _suppressedCount + ' Signal session log entries\n');
+      _origStdoutWrite('[DanieWatch] 🔇 Suppressed ' + _suppressedCount + ' Signal session / Bad MAC log entries\n');
       _suppressedCount = 0;
       _lastReportTime = now;
     }
@@ -109,3 +190,4 @@ process.stderr.write = function(chunk, encoding, callback) {
   }
   return _origStderrWrite(chunk, encoding, callback);
 };
+
