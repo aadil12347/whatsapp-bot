@@ -1246,59 +1246,6 @@ function initUpsertListener(conn) {
         _primedSessions.add(cleanJid(conn.user.id));
     }
 
-    // ── DanieWatch Startup Message ──
-    // Intercept connection.update to send our own branded startup message
-    // This replaces the default XPROVerce welcome message from the obfuscated framework
-    const sendStartupMsgNow = async () => {
-        if (_danieStartupSent) return;
-        try {
-            const rawId = conn.user?.id || '';
-            if (!rawId) return;
-            const { jidNormalizedUser } = require('anju-xpro-baileys');
-            const botJid = typeof jidNormalizedUser === 'function' ? jidNormalizedUser(rawId) : cleanJid(rawId);
-            if (!botJid) return;
-            const startupMsg =
-                `╭─── ⋆ ⋅ ✦ ⋅ ⋆ ───╮\n` +
-                `   ✨ *DANIEWATCH BOT* ✨\n` +
-                `╰─── ⋆ ⋅ ✦ ⋅ ⋆ ───╯\n\n` +
-                `⚡ *Bot Status*: \`Online & Ready\`\n\n` +
-                `┌─❒ *Quick Start*\n` +
-                `│ 🔹 Send any movie/video link directly to download!\n` +
-                `│ 🔹 Type *.alive* for full control menu (optional)\n` +
-                `│ 🔹 Type *.config* to change options (optional)\n` +
-                `└───────────────\n\n` +
-                `🚀 _Your bot is fully active and listening for commands!_`;
-            const logoPath = path.join(__dirname, '..', '..', 'assets', 'daniewatch_logo.png');
-            let msgPayload = { text: startupMsg, isDanieWatchStartup: true };
-            if (fs.existsSync(logoPath)) {
-                const imgBuf = fs.readFileSync(logoPath);
-                msgPayload = { image: imgBuf, caption: startupMsg, isDanieWatchStartup: true };
-            }
-            const sent = await conn.sendMessage(botJid, msgPayload);
-            if (sent && sent.key && sent.key.id) {
-                _danieStartupSent = true;
-                console.log('[DanieWatch] ✅ DanieWatch startup image & text message sent to bot\'s own chat.');
-            }
-        } catch (startupErr) {
-            console.error('[DanieWatch] Startup message failed:', startupErr.message);
-        }
-    };
-
-    try {
-        if (conn.ev) {
-            conn.ev.on('connection.update', async (update) => {
-                if (update.connection === 'open') {
-                    console.log('[DanieWatch] 📢 Connection open detected! Sending startup text...');
-                    await sendStartupMsgNow();
-                }
-            });
-            if (conn.user && conn.user.id) {
-                console.log('[DanieWatch] 📢 Connection already open at hook time! Sending startup text...');
-                sendStartupMsgNow();
-            }
-        }
-    } catch (e) {}
-
     // Listen to WhatsApp sync events to capture active chat threads
     try {
         if (conn.ev) {

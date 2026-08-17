@@ -210,8 +210,26 @@ async function downloadSessionFromSupabase(sessionDir = path.join(__dirname, '..
     }
 }
 
+async function clearSupabaseSession() {
+    try {
+        const supabase = getSupabaseClient();
+        if (!supabase) return false;
+        const { error } = await supabase.from('bot_session').delete().neq('id', 0);
+        if (error) {
+            console.warn('⚠️ Warning clearing Supabase session table:', error.message);
+            return false;
+        }
+        console.log('🧹 Cleared all remote session data from Supabase bot_session table.');
+        return true;
+    } catch (e) {
+        console.warn('⚠️ Error clearing Supabase session:', e.message);
+        return false;
+    }
+}
+
 module.exports = {
     uploadSessionToSupabase,
-    downloadSessionFromSupabase
+    downloadSessionFromSupabase,
+    clearSupabaseSession
 };
 
