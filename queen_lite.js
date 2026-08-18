@@ -57,6 +57,11 @@ const logger = pino({ level: 'silent' });
 // ── Message retry cache ──
 const msgRetryCounterCache = new NodeCache({ stdTTL: 600, checkperiod: 120 });
 
+// ── Proto message cache for retry decryption ──
+// When Baileys fails to decrypt and retries, it calls getMessage() to get the original proto.
+// We cache message protos here so retries can succeed.
+const msgProtoCache = new NodeCache({ stdTTL: 300, checkperiod: 60 });
+
 // ── State ──
 let conn = null;
 let startupMessageSent = false;
@@ -85,7 +90,17 @@ async function connectToWA() {
         connectTimeoutMs: 60000,
         keepAliveIntervalMs: 25000,
         emitOwnEvents: true,
-        generateHighQualityLinkPreview: false
+        generateHighQualityLinkPreview: false,
+        // Allow Baileys to request message re-send from WhatsApp when decryption fails.
+        // This is the proper Signal Protocol mechanism — when the ratchet is out of sync,
+        // Baileys will send a retry receipt and the sender re-encrypts with a fresh session.
+        retryRequestDelayMs: 2000,
+        // Provide the message proto for retry decryption attempts
+        getMessage: async (key) => {
+            const cached = msgProtoCache.get(key.id);
+            if (cached) return cached;
+            return { conversation: null };
+        }
     });
 
     // ── Save credentials on update ──
@@ -183,12 +198,17 @@ async function connectToWA() {
         }
     });
 
-    // ── Auto-read status updates + react ──
+    // ── Auto-read status updates + react + cache message protos for retry ──
     conn.ev.on('messages.upsert', async (chatUpdate) => {
         try {
             if (chatUpdate.type !== 'notify') return;
             const msg = chatUpdate.messages[0];
             if (!msg || !msg.message) return;
+
+            // Cache message proto for retry decryption support
+            if (msg.key?.id && msg.message) {
+                msgProtoCache.set(msg.key.id, msg.message);
+            }
 
             const from = msg.key.remoteJid;
             if (from !== 'status@broadcast') return;

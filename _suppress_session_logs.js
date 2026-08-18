@@ -25,6 +25,7 @@ const _blockStartPatterns = [
   'Error: Bad MAC',
   'Decrypted message with closed session',
   'Closing open session in favor of incoming prekey bundle',
+  'Failed to decrypt message with any known session',
 ];
 
 const _blockContentPatterns = [
@@ -143,6 +144,14 @@ function _shouldSuppress(chunk) {
     if (str.includes(p)) {
       _suppressingBlock = true;
       _suppressedCount++;
+      
+      // Periodic summary report instead of flooding
+      const now = Date.now();
+      if (_suppressedCount >= 10 && (now - _lastReportTime) > 30000) {
+        _origStdoutWrite('[DanieWatch] 🔇 Suppressed ' + _suppressedCount + ' Signal session / Bad MAC / decrypt-failure log entries (normal during session re-negotiation)\n');
+        _suppressedCount = 0;
+        _lastReportTime = now;
+      }
       return true;
     }
   }

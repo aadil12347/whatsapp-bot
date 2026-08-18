@@ -152,6 +152,48 @@ function pruneSessionDirectory(dir) {
     }
 }
 
+/**
+ * Nuclear cleanup: Purge ALL stale Signal ratchet state (session-*, sender-key-*,
+ * identity-key-*, lid-mapping-*, device-list-*) on startup.
+ * These files become stale between bot restarts and cause endless
+ * "Failed to decrypt message with any known session" loops.
+ * Baileys will re-negotiate fresh E2EE sessions on demand when it receives
+ * new messages — this is the correct Signal Protocol behavior.
+ * We keep: creds.json, app-state-sync-key-*, app-state-sync-version-*, pre-key-*
+ */
+function purgeStaleRatchetState(dir) {
+    if (!fs.existsSync(dir)) return;
+    try {
+        const files = fs.readdirSync(dir);
+        let purgedCount = 0;
+        
+        for (const file of files) {
+            if (!file.endsWith('.json')) continue;
+            
+            // These survive restarts — they are the master auth + key material
+            if (file === 'creds.json') continue;
+            if (file.startsWith('app-state-sync-key-')) continue;
+            if (file.startsWith('app-state-sync-version-')) continue;
+            if (file.startsWith('pre-key-')) continue;
+            
+            // Everything else is ephemeral ratchet state — nuke it
+            // This includes: session-*, sender-key-*, identity-key-*, 
+            // lid-mapping-*, device-list-*, and any other transient files
+            const fullPath = path.join(dir, file);
+            try {
+                fs.unlinkSync(fullPath);
+                purgedCount++;
+            } catch (_) {}
+        }
+        
+        if (purgedCount > 0) {
+            console.log(`🔥 Purged ${purgedCount} stale Signal ratchet file(s) from ${path.basename(dir)}/ — fresh E2EE sessions will be negotiated on demand.`);
+        }
+    } catch (err) {
+        console.warn('⚠️ Error during ratchet state purge:', err.message);
+    }
+}
+
 async function startBot() {
     console.log('🚀 Starting your custom DanieWatch Downloader Bot...');
 
@@ -166,11 +208,16 @@ async function startBot() {
     pruneSessionDirectory(sessionDir);
     pruneSessionDirectory(sessDir);
 
+    // CRITICAL: Purge ALL stale Signal ratchet state BEFORE downloading from Supabase.
+    // This prevents the "Failed to decrypt message with any known session" loop
+    // that happens on 2nd run when old session-*.json files are out of sync.
+    purgeStaleRatchetState(sessionDir);
+    purgeStaleRatchetState(sessDir);
+
     // Auto-download latest session files from Supabase if available
     try {
         await downloadSessionFromSupabase(sessionDir);
         cleanCorruptedSessionFiles(sessionDir);
-        pruneSessionDirectory(sessionDir);
 
         // Backup valid session files from session/ to sess/ (NEVER overwrite session/ with stale sess/ files)
         syncDirectories(sessionDir, sessDir);
