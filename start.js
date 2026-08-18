@@ -153,13 +153,20 @@ function pruneSessionDirectory(dir) {
 }
 
 /**
- * Nuclear cleanup: Purge ALL stale Signal ratchet state (session-*, sender-key-*,
- * identity-key-*, lid-mapping-*, device-list-*) on startup.
- * These files become stale between bot restarts and cause endless
+ * Nuclear cleanup: Purge ONLY stale Signal ratchet state on startup.
+ * Only deletes: session-*, sender-key-*, identity-key-*
+ * These are the files that become stale between bot restarts and cause
  * "Failed to decrypt message with any known session" loops.
- * Baileys will re-negotiate fresh E2EE sessions on demand when it receives
- * new messages — this is the correct Signal Protocol behavior.
- * We keep: creds.json, app-state-sync-key-*, app-state-sync-version-*, pre-key-*
+ * 
+ * We KEEP everything else, including:
+ *   - creds.json (master auth identity)
+ *   - app-state-sync-key-*, app-state-sync-version-* (app state)
+ *   - pre-key-* (pre-key material for new sessions)
+ *   - lid-mapping-* (LID ↔ phone number maps — needed for fromMe detection)
+ *   - device-list-* (device registry)
+ *   - download_settings.json, active_chats.json (bot settings)
+ *
+ * Baileys will re-negotiate fresh E2EE sessions on demand.
  */
 function purgeStaleRatchetState(dir) {
     if (!fs.existsSync(dir)) return;
@@ -170,15 +177,13 @@ function purgeStaleRatchetState(dir) {
         for (const file of files) {
             if (!file.endsWith('.json')) continue;
             
-            // These survive restarts — they are the master auth + key material
-            if (file === 'creds.json') continue;
-            if (file.startsWith('app-state-sync-key-')) continue;
-            if (file.startsWith('app-state-sync-version-')) continue;
-            if (file.startsWith('pre-key-')) continue;
+            // ONLY delete actual Signal ratchet files that go stale between restarts
+            const isRatchetFile = file.startsWith('session-') || 
+                                  file.startsWith('sender-key-') || 
+                                  file.startsWith('identity-key-');
             
-            // Everything else is ephemeral ratchet state — nuke it
-            // This includes: session-*, sender-key-*, identity-key-*, 
-            // lid-mapping-*, device-list-*, and any other transient files
+            if (!isRatchetFile) continue;
+            
             const fullPath = path.join(dir, file);
             try {
                 fs.unlinkSync(fullPath);
