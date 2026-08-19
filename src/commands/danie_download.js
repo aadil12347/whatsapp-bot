@@ -494,35 +494,30 @@ async function extractArchive(archivePath, targetDir) {
     const fileSize = fs.existsSync(archivePath) ? fs.statSync(archivePath).size : 0;
     const TWO_GIB = 2 * 1024 * 1024 * 1024; // adm-zip limit
 
-    // 1. ZIP — adm-zip for small files, system unzip (async) for large files
+    // 1. ZIP — native system unzip (fastest C execution, 0 MB Node RAM overhead), fallback to 7z or adm-zip
     if (ext === '.zip') {
-        if (fileSize < TWO_GIB) {
-            try {
-                console.log(`[DanieDownload] Extracting ZIP via adm-zip (${(fileSize / 1024 / 1024).toFixed(1)} MB)...`);
-                const AdmZip = require('adm-zip');
-                const zip = new AdmZip(archivePath);
-                zip.extractAllTo(targetDir, true);
-                return true;
-            } catch (err) {
-                console.warn('[DanieDownload] adm-zip failed:', err.message);
-            }
-        } else {
-            console.log(`[DanieDownload] ZIP file is ${(fileSize / 1024 / 1024 / 1024).toFixed(2)} GB (> 2 GiB limit), skipping adm-zip.`);
-        }
-
-        // Fallback: system unzip asynchronously (non-blocking)
         try {
-            console.log('[DanieDownload] Extracting ZIP via system unzip (async non-blocking)...');
+            console.log(`[DanieDownload] Extracting ZIP via native system unzip (${(fileSize / 1024 / 1024).toFixed(1)} MB)...`);
             await execAsync(`unzip -o -q "${archivePath}" -d "${targetDir}"`, { maxBuffer: 1024 * 1024 * 50 });
             return true;
-        } catch (err) {
+        } catch (unzipErr) {
+            console.warn('[DanieDownload] Native system unzip unavailable, trying 7z...');
             try {
-                console.log('[DanieDownload] System unzip failed, trying 7z (async)...');
                 await execAsync(`7z x -y -o"${targetDir}" "${archivePath}"`, { maxBuffer: 1024 * 1024 * 50 });
                 return true;
             } catch (err7z) {
-                console.error('[DanieDownload] System unzip and 7z both failed:', err.message);
-                throw new Error(`Failed to extract ZIP archive. Error: ${err.message}`);
+                if (fileSize < TWO_GIB) {
+                    try {
+                        console.log('[DanieDownload] 7z unavailable, falling back to adm-zip...');
+                        const AdmZip = require('adm-zip');
+                        const zip = new AdmZip(archivePath);
+                        zip.extractAllTo(targetDir, true);
+                        return true;
+                    } catch (admErr) {
+                        console.error('[DanieDownload] All ZIP extraction methods failed:', admErr.message);
+                    }
+                }
+                throw new Error(`Failed to extract ZIP archive. Error: ${unzipErr.message}`);
             }
         }
     }
