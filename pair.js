@@ -215,13 +215,12 @@ async function startPairing(cleanStart = true) {
             console.log('');
             console.log('=========================================');
             console.log('🎉 SUCCESS! WhatsApp Connected!');
-            console.log(`🤖 Logged in as: ${sock.user?.name || sock.user?.id || 'unknown'}`);
-            console.log('=========================================');
-            
+            await saveCreds();
+            await delay(1000);
             syncSessionFiles();
             console.log('☁️ Uploading fresh paired session keys to Supabase...');
             try {
-                await uploadSessionToSupabase();
+                await uploadSessionToSupabase(SESSION_DIR);
                 console.log('✅ Session uploaded to Supabase successfully.');
             } catch (uploadErr) {
                 console.warn('⚠️ Supabase upload failed:', uploadErr.message || uploadErr);
