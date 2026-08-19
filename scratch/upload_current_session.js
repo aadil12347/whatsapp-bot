@@ -5,7 +5,7 @@ if (fs.existsSync(envPath)) {
     require('dotenv').config({ path: envPath });
 }
 
-const { uploadSessionToSupabase } = require('../src/Utils/supabaseSession');
+const { uploadSessionToSupabase, clearSupabaseSession } = require('../src/Utils/supabaseSession');
 
 async function run() {
     console.log('🚀 Uploading WhatsApp paired session keys to Supabase...');
@@ -38,6 +38,9 @@ async function run() {
         }
     }
     console.log(`📁 Copied ${count} session file(s) from session/ to sess/ for upload.`);
+
+    console.log('🧹 Clearing old remote session data from Supabase...');
+    await clearSupabaseSession();
 
     const success = await uploadSessionToSupabase(sessionDir);
     if (success) {
