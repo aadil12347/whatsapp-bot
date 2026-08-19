@@ -58,8 +58,11 @@ const _blockContentPatterns = [
 ];
 
 /**
- * Automatically repairs corrupted Signal session files when "Bad MAC" errors occur.
- * Extracts session ID (e.g. 17064693616661_1.0) and unlinks corrupted files.
+ * Log Bad MAC occurrences for diagnostics but do NOT delete session files.
+ * Baileys' built-in retry mechanism (retryRequestDelayMs) will request
+ * message re-sends and re-negotiate fresh E2EE sessions automatically.
+ * Deleting session files mid-negotiation was causing an infinite loop:
+ *   Bad MAC → delete file → Baileys creates new session → Bad MAC → delete → ...
  */
 function _handleBadMacRepair(fullText) {
   if (!fullText.includes('Bad MAC')) return;
@@ -67,61 +70,13 @@ function _handleBadMacRepair(fullText) {
   const now = Date.now();
   _badMacCount++;
 
-  const sessionDir = path.join(__dirname, 'session');
-  const sessDir = path.join(__dirname, 'sess');
-
-  // Extract session identifier from stack trace (e.g. "at async 17064693616661_1.0 [as awaitable]")
-  const matches = fullText.match(/at async ([a-zA-Z0-9_\-.]+)/g) || [];
-  const extractedIds = new Set();
-  for (const m of matches) {
-    const id = m.replace('at async ', '').trim();
-    if (id && id !== '_asyncQueueExecutor' && id !== 'SessionCipher') {
-      extractedIds.add(id);
-    }
-  }
-
-  let deletedCount = 0;
-  const deleteMatchingSessionFiles = (dir) => {
-    if (!fs.existsSync(dir)) return;
-    try {
-      const files = fs.readdirSync(dir);
-      for (const file of files) {
-        if (!file.endsWith('.json') || file === 'creds.json') continue;
-
-        let match = false;
-        if (extractedIds.size > 0) {
-          for (const id of extractedIds) {
-            if (file.includes(id)) {
-              match = true;
-              break;
-            }
-          }
-        }
-
-        if (match) {
-          try {
-            const filePath = path.join(dir, file);
-            if (fs.existsSync(filePath)) {
-              fs.unlinkSync(filePath);
-              deletedCount++;
-            }
-          } catch (_) {}
-        }
-      }
-    } catch (_) {}
-  };
-
-  if (extractedIds.size > 0) {
-    deleteMatchingSessionFiles(sessionDir);
-    deleteMatchingSessionFiles(sessDir);
-  }
-
-  if (now - _lastBadMacRepairTime > 5000) {
+  // Only log a summary periodically, don't delete anything
+  if (now - _lastBadMacRepairTime > 30000) {
     _lastBadMacRepairTime = now;
-    const idList = Array.from(extractedIds).join(', ');
     _origStdoutWrite(
-      `[DanieWatch] 🧹 Auto-healed Bad MAC session corruption${idList ? ` (${idList})` : ''}. Deleted ${deletedCount} corrupted file(s). WhatsApp will re-establish E2EE session on next message.\n`
+      `[DanieWatch] 🔄 Bad MAC errors detected (${_badMacCount} total). Baileys is re-negotiating E2EE sessions automatically — this is normal after a restart.\n`
     );
+    _badMacCount = 0;
   }
 }
 

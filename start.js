@@ -106,6 +106,19 @@ function syncDirectories(srcDir, destDir) {
     } catch (_) {}
 }
 
+function isEssentialSessionFile(file) {
+    if (!file || typeof file !== 'string' || !file.endsWith('.json')) return false;
+    return file === 'creds.json' ||
+           file === 'active_chats.json' ||
+           file.startsWith('session-') ||
+           file.startsWith('sender-key-') ||
+           file.startsWith('pre-key-') ||
+           file.startsWith('identity-key-') ||
+           file.startsWith('lid-mapping-') ||
+           file.startsWith('device-list-') ||
+           file.startsWith('app-state-sync-');
+}
+
 function pruneSessionDirectory(dir) {
     if (!fs.existsSync(dir)) return;
     try {
@@ -117,20 +130,15 @@ function pruneSessionDirectory(dir) {
         for (const file of files) {
             if (!file.endsWith('.json')) continue;
             
-            const isCreds = file === 'creds.json';
-            const isSession = file.startsWith('session-');
-            const isSenderKey = file.startsWith('sender-key-');
-            const isAppState = file.startsWith('app-state-sync-key-');
-            
             const fullPath = path.join(dir, file);
             
             try {
-                if (isCreds) {
+                if (file === 'creds.json') {
                     continue;
                 }
                 
-                // If not an essential file type, delete it immediately
-                if (!isSession && !isSenderKey && !isAppState) {
+                // If not an essential Baileys file type, delete it
+                if (!isEssentialSessionFile(file)) {
                     fs.unlinkSync(fullPath);
                     removedCount++;
                     continue;

@@ -27,8 +27,21 @@ function isValidJsonFile(filePath) {
     }
 }
 
+function isEssentialSessionFile(file) {
+    if (!file || typeof file !== 'string' || !file.endsWith('.json')) return false;
+    return file === 'creds.json' ||
+           file === 'active_chats.json' ||
+           file.startsWith('session-') ||
+           file.startsWith('sender-key-') ||
+           file.startsWith('pre-key-') ||
+           file.startsWith('identity-key-') ||
+           file.startsWith('lid-mapping-') ||
+           file.startsWith('device-list-') ||
+           file.startsWith('app-state-sync-');
+}
+
 /**
- * Uploads ONLY essential session files (creds.json, session-*.json, sender-key-*.json, app-state-sync-key-*.json)
+ * Uploads ALL essential session files (creds, pre-keys, sessions, sender-keys, identity-keys, lid-mappings, app-state)
  * from sessionDir to Supabase bot_session table.
  * Stale session files older than 30 days are pruned locally and skipped.
  */
@@ -56,13 +69,7 @@ async function uploadSessionToSupabase(sessionDir = path.join(__dirname, '../../
         for (const file of files) {
             if (!file.endsWith('.json')) continue;
             
-            const isCreds = file === 'creds.json';
-            const isSession = file.startsWith('session-');
-            const isSenderKey = file.startsWith('sender-key-');
-            const isAppState = file.startsWith('app-state-sync-key-');
-            
-            // Upload master auth creds, app-state keys, and active session/sender-key ratchets
-            if (!isCreds && !isSession && !isSenderKey && !isAppState) {
+            if (!isEssentialSessionFile(file)) {
                 continue;
             }
 
@@ -168,12 +175,7 @@ async function downloadSessionFromSupabase(sessionDir = path.join(__dirname, '..
         for (const [filename, value] of Object.entries(sessionFiles)) {
             if (!filename.endsWith('.json') || !value) continue;
             
-            const isCreds = filename === 'creds.json';
-            const isSession = filename.startsWith('session-');
-            const isSenderKey = filename.startsWith('sender-key-');
-            const isAppState = filename.startsWith('app-state-sync-key-');
-            
-            if (!isCreds && !isSession && !isSenderKey && !isAppState) {
+            if (!isEssentialSessionFile(filename)) {
                 continue;
             }
 
