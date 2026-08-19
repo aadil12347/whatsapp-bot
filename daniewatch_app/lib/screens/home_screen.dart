@@ -49,7 +49,7 @@ class _HomeScreenState extends State<HomeScreen> {
     FocusScope.of(context).unfocus();
 
     final state = context.read<AppState>();
-    if (state.isSearchMode || state.searchQuery.isNotEmpty) {
+    if (state.isSearchMode) {
       state.exitSearch();
       return;
     }
@@ -100,9 +100,6 @@ class _HomeScreenState extends State<HomeScreen> {
   void _openResolutionModal(String postUrl, String title) {
     FocusScope.of(context).unfocus();
     final state = context.read<AppState>();
-    if (state.isSearchMode) {
-      state.exitSearch();
-    }
     final site = state.currentSite;
     showModalBottomSheet(
       context: context,
@@ -131,9 +128,6 @@ class _HomeScreenState extends State<HomeScreen> {
           child: GestureDetector(
             onTap: () {
               FocusScope.of(context).unfocus();
-              if (state.isSearchMode && state.searchQuery.isEmpty) {
-                state.exitSearch();
-              }
             },
             behavior: HitTestBehavior.translucent,
             child: Scaffold(
@@ -167,78 +161,6 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         );
       },
-    );
-  }
-
-  Widget _buildHeader(AppState state, Color accent) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 14, 20, 4),
-      child: Row(
-        children: [
-          const AppLogo(size: 38),
-          const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'DanieWatch Extractor',
-                style: TextStyle(
-                  color: AppTheme.champagne,
-                  fontSize: 22,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: -0.5,
-                ),
-              ),
-              Row(
-                children: [
-                  Container(
-                    width: 7,
-                    height: 7,
-                    decoration: BoxDecoration(
-                      color: accent,
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: accent.withOpacity(0.6),
-                          blurRadius: 4,
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    state.currentSite.displayName,
-                    style: TextStyle(
-                      color: accent,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          const Spacer(),
-          if (state.isSearchMode)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(
-                color: accent.withOpacity(0.18),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: accent.withOpacity(0.3)),
-              ),
-              child: Text(
-                'SEARCH',
-                style: TextStyle(
-                  color: accent,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 1,
-                ),
-              ),
-            ),
-        ],
-      ),
     );
   }
 

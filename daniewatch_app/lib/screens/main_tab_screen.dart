@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:home_widget/home_widget.dart';
 import 'home_screen.dart';
 import 'bot_control_screen.dart';
 import '../theme/app_theme.dart';
+import '../providers/bot_provider.dart';
 
 class MainTabScreen extends StatefulWidget {
   const MainTabScreen({super.key});
@@ -17,6 +20,42 @@ class _MainTabScreenState extends State<MainTabScreen> {
     HomeScreen(),
     BotControlScreen(),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _setupHomeWidgetListener();
+  }
+
+  void _setupHomeWidgetListener() {
+    HomeWidget.widgetClicked.listen((Uri? uri) {
+      _handleWidgetAction(uri);
+    });
+    HomeWidget.initiallyLaunchedFromHomeWidget().then((Uri? uri) {
+      _handleWidgetAction(uri);
+    });
+  }
+
+  void _handleWidgetAction(Uri? uri) {
+    if (uri == null) return;
+    final botProvider = Provider.of<BotProvider>(context, listen: false);
+    
+    // Switch to Bot Controller tab when widget action is pressed
+    setState(() {
+      _currentIndex = 1;
+    });
+
+    final actionStr = uri.toString();
+    if (actionStr.contains('start')) {
+      if (botProvider.isStartButtonActive) {
+        botProvider.startBot();
+      }
+    } else if (actionStr.contains('stop')) {
+      if (botProvider.isStopButtonActive) {
+        botProvider.stopBot();
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

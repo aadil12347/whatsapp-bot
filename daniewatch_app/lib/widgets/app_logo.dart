@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import '../theme/app_theme.dart';
 
-/// App Logo widget rendering the official SVG vector logo from file.svg
+/// App Logo widget rendering the 3D "D" logo image.
 class AppLogo extends StatelessWidget {
   final double size;
   final bool showBackground;
@@ -22,18 +21,31 @@ class AppLogo extends StatelessWidget {
         shape: BoxShape.circle,
         boxShadow: [
           BoxShadow(
-            color: AppTheme.emeraldInk.withOpacity(0.4),
-            blurRadius: 10,
+            color: AppTheme.emeraldInk.withOpacity(0.5),
+            blurRadius: 12,
+            spreadRadius: 1,
             offset: const Offset(0, 3),
           ),
         ],
       ),
       child: ClipOval(
-        child: SvgPicture.asset(
-          'assets/logo.svg',
+        child: Image.asset(
+          'assets/logo.png',
           width: size,
           height: size,
           fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) => Container(
+            color: AppTheme.emeraldInk,
+            alignment: Alignment.center,
+            child: Text(
+              'D',
+              style: TextStyle(
+                color: AppTheme.champagne,
+                fontSize: size * 0.5,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
         ),
       ),
     );
