@@ -89,13 +89,9 @@ async function connectToWA() {
         defaultQueryTimeoutMs: undefined,
         connectTimeoutMs: 60000,
         keepAliveIntervalMs: 25000,
-        emitOwnEvents: true,
+        emitOwnEvents: false,
         generateHighQualityLinkPreview: false,
-        // Allow Baileys to request message re-send from WhatsApp when decryption fails.
-        // This is the proper Signal Protocol mechanism — when the ratchet is out of sync,
-        // Baileys will send a retry receipt and the sender re-encrypts with a fresh session.
         retryRequestDelayMs: 2000,
-        // Provide the message proto for retry decryption attempts
         getMessage: async (key) => {
             const cached = msgProtoCache.get(key.id);
             if (cached) return cached;
@@ -118,25 +114,12 @@ async function connectToWA() {
                 console.log(`[DanieWatch] 🆔 Bot identity: id=${conn.user.id || 'N/A'}, lid=${conn.user.lid || 'N/A'}, name=${conn.user.name || 'N/A'}`);
             }
 
-            // Force presence update to establish fresh Signal sessions with WA servers
-            try {
-                await conn.sendPresenceUpdate('available');
-            } catch (_) {}
-
-            // Wait for the initial flood of stale/undecryptable queued messages to flush.
-            // Messages queued while the bot was offline are encrypted with old ratchet keys
-            // and will arrive as undefined payload. We need to let them drain before
-            // initializing the command listener, otherwise the listener's undecryptable
-            // message counter gets overwhelmed and new messages may get lost in the noise.
-            console.log('[DanieWatch] ⏳ Waiting 10s for stale queued messages to flush...');
-            await new Promise(r => setTimeout(r, 10000));
-
-            // Initialize DanieWatch command listener AFTER the flush
+            // Initialize DanieWatch command listener IMMEDIATELY
             try {
                 const danie = require('./src/commands/danie_download');
                 if (danie.initUpsertListener) {
                     danie.initUpsertListener(conn);
-                    console.log('[DanieWatch] ✅ Listener initialized — commands active NOW!');
+                    console.log('[DanieWatch] ✅ Listener initialized — commands active IMMEDIATELY!');
                 }
             } catch (err) {
                 console.error('[DanieWatch] Failed to init listener:', err.message);
