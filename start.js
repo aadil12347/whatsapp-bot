@@ -221,14 +221,23 @@ async function startBot() {
     pruneSessionDirectory(sessionDir);
     pruneSessionDirectory(sessDir);
 
-    // Preserve active Signal ratchet state across restarts to allow E2EE message decryption.
-    // Clean only corrupted 0-byte/invalid JSON files and stale files older than 30 days.
-
+    // CRITICAL: Purge stale Signal ratchet state BEFORE starting.
+    // session-*, sender-key-*, identity-key-* files go stale when the bot is offline.
+    // The Double Ratchet advances on the sender's side, so old chain keys produce "Bad MAC"
+    // errors and every incoming message has undefined payload (undecryptable).
+    // Baileys will re-negotiate fresh E2EE sessions on demand — this is the correct approach
+    // used by silva-md-bot and all other successful Baileys bots.
+    purgeStaleRatchetState(sessionDir);
+    purgeStaleRatchetState(sessDir);
 
     // Auto-download latest session files from Supabase if available
     try {
         await downloadSessionFromSupabase(sessionDir);
         cleanCorruptedSessionFiles(sessionDir);
+
+        // Purge ratchet files AGAIN after Supabase download, because Supabase
+        // may have restored old session-*/sender-key-*/identity-key-* files
+        purgeStaleRatchetState(sessionDir);
 
         // Backup valid session files from session/ to sess/ (NEVER overwrite session/ with stale sess/ files)
         syncDirectories(sessionDir, sessDir);

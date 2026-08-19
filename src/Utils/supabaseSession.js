@@ -41,8 +41,25 @@ function isEssentialSessionFile(file) {
 }
 
 /**
- * Uploads ALL essential session files (creds, pre-keys, sessions, sender-keys, identity-keys, lid-mappings, app-state)
- * from sessionDir to Supabase bot_session table.
+ * Files safe to sync to/from Supabase.
+ * EXCLUDES session-*, sender-key-*, identity-key-* (Signal ratchet state)
+ * because these go stale when the bot is offline and cause Bad MAC / undecryptable
+ * messages when restored. Baileys re-negotiates fresh sessions on demand.
+ * This mirrors silva-md-bot's approach of only persisting creds remotely.
+ */
+function isSyncableSessionFile(file) {
+    if (!file || typeof file !== 'string' || !file.endsWith('.json')) return false;
+    return file === 'creds.json' ||
+           file === 'active_chats.json' ||
+           file === 'download_settings.json' ||
+           file.startsWith('pre-key-') ||
+           file.startsWith('lid-mapping-') ||
+           file.startsWith('device-list-') ||
+           file.startsWith('app-state-sync-');
+}
+
+/**
+ * Uploads session files (excluding ratchet state) from sessionDir to Supabase.
  * Stale session files older than 30 days are pruned locally and skipped.
  */
 async function uploadSessionToSupabase(sessionDir = path.join(__dirname, '../../session')) {
@@ -69,7 +86,7 @@ async function uploadSessionToSupabase(sessionDir = path.join(__dirname, '../../
         for (const file of files) {
             if (!file.endsWith('.json')) continue;
             
-            if (!isEssentialSessionFile(file)) {
+            if (!isSyncableSessionFile(file)) {
                 continue;
             }
 
@@ -77,6 +94,7 @@ async function uploadSessionToSupabase(sessionDir = path.join(__dirname, '../../
             if (isValidJsonFile(filePath)) {
                 try {
                     const stat = fs.statSync(filePath);
+                    const isCreds = file === 'creds.json';
                     // Prune files older than 30 days (excluding creds.json)
                     if (!isCreds && (now - stat.mtimeMs > thirtyDays)) {
                         fs.unlinkSync(filePath);
@@ -175,7 +193,7 @@ async function downloadSessionFromSupabase(sessionDir = path.join(__dirname, '..
         for (const [filename, value] of Object.entries(sessionFiles)) {
             if (!filename.endsWith('.json') || !value) continue;
             
-            if (!isEssentialSessionFile(filename)) {
+            if (!isSyncableSessionFile(filename)) {
                 continue;
             }
 

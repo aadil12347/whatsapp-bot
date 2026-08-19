@@ -904,7 +904,7 @@ function cleanJid(jid) {
     const parts = jid.split('@');
     const user = parts[0].split(':')[0];
     let server = parts[1] || 's.whatsapp.net';
-    if (server === 'c.us' || server === 's.whatsapp.net' || server === 'lid') {
+    if (server === 'c.us') {
         server = 's.whatsapp.net';
     }
     return `${user}@${server}`;
@@ -1512,31 +1512,59 @@ function isOwner(senderJid, mek = null) {
     const rawParticipant = mek && mek.key ? String(mek.key.participant || '') : '';
     const rawRemote = mek && mek.key ? String(mek.key.remoteJid || '') : '';
 
-    // If bot instance user object is available, check bot's phone number JID and LID
-    if (_connInstance && _connInstance.user) {
-        const botIdNum = _connInstance.user.id ? _connInstance.user.id.split('@')[0].split(':')[0] : '';
-        const botLidNum = _connInstance.user.lid ? _connInstance.user.lid.split('@')[0].split(':')[0] : '';
+    const extractUserPart = (jid) => {
+        if (!jid || typeof jid !== 'string') return '';
+        return jid.split('@')[0].split(':')[0].trim();
+    };
 
-        for (const target of [rawSender, rawParticipant, rawRemote]) {
-            if (!target) continue;
-            const targetNum = target.split('@')[0].split(':')[0];
+    const targets = [rawSender, rawParticipant, rawRemote].filter(Boolean);
+
+    // 1. Check against active Baileys socket user object (conn.user)
+    if (_connInstance && _connInstance.user) {
+        const botIdNum = extractUserPart(_connInstance.user.id);
+        const botLidNum = extractUserPart(_connInstance.user.lid);
+
+        for (const target of targets) {
+            const targetNum = extractUserPart(target);
+            if (!targetNum) continue;
             if (botIdNum && targetNum === botIdNum) return true;
             if (botLidNum && targetNum === botLidNum) return true;
         }
     }
 
+    // 2. Read creds.json directly in case conn.user isn't fully populated yet
+    try {
+        const credsPath = path.join(__dirname, '..', '..', 'session', 'creds.json');
+        if (fs.existsSync(credsPath)) {
+            const creds = JSON.parse(fs.readFileSync(credsPath, 'utf8'));
+            if (creds && creds.me) {
+                const credsIdNum = extractUserPart(creds.me.id);
+                const credsLidNum = extractUserPart(creds.me.lid);
+
+                for (const target of targets) {
+                    const targetNum = extractUserPart(target);
+                    if (!targetNum) continue;
+                    if (credsIdNum && targetNum === credsIdNum) return true;
+                    if (credsLidNum && targetNum === credsLidNum) return true;
+                }
+            }
+        }
+    } catch (_) {}
+
+    // 3. Check against configured owner phone numbers & SUDO
     const cJid = cleanJid(senderJid);
-    const senderNum = cJid ? cJid.split('@')[0].split(':')[0] : '';
+    const senderNum = extractUserPart(cJid);
     const ownerNum = (process.env.NUMBER || process.env.BOT_NUMBER || '923013068663').trim().replace(/[^0-9]/g, '');
     const envSudoNums = (process.env.SUDO || '923013068663').split(',').map(n => n.trim().replace(/[^0-9]/g, '')).filter(Boolean);
     const dynamicSudo = loadSudo();
     const defaultOwners = ['923013068663', '923000000000', '94762898540', '94717775628', '94758775628'];
     const allOwners = [...defaultOwners, ownerNum, ...envSudoNums, ...dynamicSudo].filter(Boolean);
 
-    for (const target of [rawSender, rawParticipant, rawRemote, senderNum]) {
+    for (const target of [...targets, senderNum]) {
         if (!target) continue;
-        const numPart = target.split('@')[0].split(':')[0];
-        if (allOwners.some(owner => owner && (numPart.includes(owner) || owner.includes(numPart)))) {
+        const numPart = extractUserPart(target);
+        if (!numPart) continue;
+        if (allOwners.some(owner => owner && (numPart === owner || numPart.endsWith(owner) || owner.endsWith(numPart)))) {
             return true;
         }
     }
