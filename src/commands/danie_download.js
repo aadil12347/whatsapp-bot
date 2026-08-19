@@ -1371,7 +1371,7 @@ function initUpsertListener(conn) {
                     'qdel', 'qremove', 'qedit', 'qupdate',
                     'help',
                     'song', 'songdl', 'yt1s', 'yts', 'yts1', 'video', 'yt2s', 'yt3s', 'csong', 'csongdl',
-                    'ig', 'fb', 'tiktok', 'twitter', 'ytv', 'yt',
+                    'ig', 'fb', 'tiktok', 'twitter', 'ytv', 'yt', 'tk', 'insta', 'instagram', 'ytm', 'music', 'yta',
                     'mvdl', 'mv', 'movie', 'mvdlinfo', 'mvdlseason', 'mvdlshowep', 'mvdlget', 'mvdlsub'
                 ];
 
@@ -1433,6 +1433,51 @@ function initUpsertListener(conn) {
                 if (isMatch) {
                     console.log(`[DanieWatch] Directing reply "${trimmedText}" to handleSearchReply for ${cleanSender}.`);
                     await handleSearchReply(conn, mek, senderJid, trimmedText, reply);
+                    return;
+                }
+            }
+
+            // ---- AUTO-URL DETECTOR FOR OWNER (Direct Link Auto-Downloader) ----
+            const urlMatch = trimmedText.match(/https?:\/\/[^\s]+/i);
+            if (urlMatch && urlMatch[0]) {
+                const detectedUrl = urlMatch[0];
+                const lowerUrl = detectedUrl.toLowerCase();
+
+                console.log(`[DanieWatch] 🔗 Direct URL detected from owner: "${detectedUrl}"`);
+
+                if (lowerUrl.includes('tiktok.com')) {
+                    console.log(`[DanieWatch] Auto-routing TikTok link to .tiktok handler...`);
+                    await DANIE_COMMANDS['tiktok'](conn, mek, targetJid, senderJid, detectedUrl, reply);
+                    return;
+                }
+                if (lowerUrl.includes('instagram.com')) {
+                    console.log(`[DanieWatch] Auto-routing Instagram link to .ig handler...`);
+                    await DANIE_COMMANDS['ig'](conn, mek, targetJid, senderJid, detectedUrl, reply);
+                    return;
+                }
+                if (lowerUrl.includes('facebook.com') || lowerUrl.includes('fb.watch')) {
+                    console.log(`[DanieWatch] Auto-routing Facebook link to .fb handler...`);
+                    await DANIE_COMMANDS['fb'](conn, mek, targetJid, senderJid, detectedUrl, reply);
+                    return;
+                }
+                if (lowerUrl.includes('twitter.com') || lowerUrl.includes('x.com')) {
+                    console.log(`[DanieWatch] Auto-routing Twitter/X link to .twitter handler...`);
+                    await DANIE_COMMANDS['twitter'](conn, mek, targetJid, senderJid, detectedUrl, reply);
+                    return;
+                }
+                if (lowerUrl.includes('youtube.com') || lowerUrl.includes('youtu.be')) {
+                    if (lowerUrl.includes('music.youtube.com') || trimmedText.toLowerCase().includes('audio') || trimmedText.toLowerCase().includes('song') || trimmedText.toLowerCase().includes('mp3')) {
+                        console.log(`[DanieWatch] Auto-routing YouTube Music link to .ytm handler...`);
+                        await DANIE_COMMANDS['ytm'](conn, mek, targetJid, senderJid, detectedUrl, reply);
+                    } else {
+                        console.log(`[DanieWatch] Auto-routing YouTube Video link to .yt handler...`);
+                        await DANIE_COMMANDS['yt'](conn, mek, targetJid, senderJid, detectedUrl, reply);
+                    }
+                    return;
+                }
+                if (lowerUrl.includes('nexdrive.fit') || lowerUrl.includes('vcloud.fit') || lowerUrl.includes('vcloud.zip')) {
+                    console.log(`[DanieWatch] Auto-routing Series link to .se handler...`);
+                    await DANIE_COMMANDS['se'](conn, mek, targetJid, senderJid, detectedUrl, reply);
                     return;
                 }
             }
@@ -4538,37 +4583,64 @@ DANIE_COMMANDS['ig'] = async (conn, mek, from, senderJid, args, reply) => {
     }
 };
 
+// Helper: Download TikTok Media via TikWM & Ruhend fallback
+async function downloadTikTokMedia(url) {
+    const fetch = require('node-fetch');
+    // Engine 1: TikWM API
+    try {
+        const res = await fetch('https://www.tikwm.com/api/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ url: url.trim(), hd: 1 })
+        });
+        const data = await res.json();
+        if (data && data.data && (data.data.play || data.data.hdplay)) {
+            return {
+                videoUrl: data.data.hdplay || data.data.play,
+                title: data.data.title || 'TikTok Video',
+                author: data.data.author ? data.data.author.nickname : 'TikTok Creator',
+                music: data.data.music
+            };
+        }
+    } catch (e1) {
+        console.error('[TikTok TikWM Error]:', e1.message);
+    }
+
+    // Engine 2: Ruhend Scraper Fallback
+    try {
+        const { tiktokdl } = require('ruhend-scraper');
+        const result = await tiktokdl(url.trim());
+        if (result && (result.video || result.play)) {
+            return {
+                videoUrl: result.video || result.play,
+                title: result.title || 'TikTok Video',
+                author: result.author || 'TikTok Creator'
+            };
+        }
+    } catch (e2) {
+        console.error('[TikTok Ruhend Error]:', e2.message);
+    }
+
+    throw new Error('Could not extract TikTok video from link.');
+}
+
 // .tiktok — TikTok video download
 DANIE_COMMANDS['tiktok'] = async (conn, mek, from, senderJid, args, reply) => {
     try {
-        if (!args || !args.includes('tiktok.com')) {
-            return reply("📥 *TikTok Downloader*\nPlease provide a TikTok URL.\nExample: `.tiktok https://www.tiktok.com/@user/video/...`");
+        if (!args || (!args.includes('tiktok.com') && !args.includes('vt.tiktok.com'))) {
+            return reply("🎟️ *TikTok Downloader*\nPlease provide a TikTok video URL.\nExample: `.tk https://vt.tiktok.com/...` or `.tiktok https://www.tiktok.com/@user/video/...`");
         }
-        await reply(`⏳ *Downloading TikTok video...*`);
-        const fetch = require('node-fetch');
-        // Use cobalt API for TikTok
-        const res = await fetch('https://api.cobalt.tools/api/json', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-            body: JSON.stringify({ url: args.trim(), vQuality: '720' })
-        });
-        const data = await res.json();
-        if (data.url) {
-            await conn.sendMessage(from, { video: { url: data.url }, mimetype: "video/mp4", caption: `🎟️ *DANIEWATCH TIKTOK DOWNLOADER* 🎟️\n🔗 ${args.trim()}`, fileName: "tiktok_video.mp4" }, { quoted: mek });
-        } else {
-            throw new Error("Could not extract video.");
-        }
+        await reply(`⏳ *Downloading TikTok video (HD / No Watermark)...*`);
+        const result = await downloadTikTokMedia(args.trim());
+        const caption = `🎟️ *DANIEWATCH TIKTOK DOWNLOADER* 🎟️\n\n📝 *Title:* ${result.title}\n👤 *Author:* ${result.author || 'TikTok Creator'}\n🔗 ${args.trim()}`;
+        await conn.sendMessage(from, {
+            video: { url: result.videoUrl },
+            mimetype: "video/mp4",
+            caption,
+            fileName: "tiktok_video.mp4"
+        }, { quoted: mek });
     } catch (err) {
         console.error('[TikTok Download Error]:', err.message);
-        // Fallback: try ruhend-scraper
-        try {
-            const { tiktokdl } = require('ruhend-scraper');
-            const result = await tiktokdl(args.trim());
-            if (result && result.video) {
-                await conn.sendMessage(from, { video: { url: result.video }, mimetype: "video/mp4", caption: `🎟️ *DANIEWATCH TIKTOK DOWNLOADER*\n📝 ${result.title || ''}` }, { quoted: mek });
-                return;
-            }
-        } catch (_) {}
         reply(`❌ Failed to download TikTok video: ${err.message}`);
     }
 };
