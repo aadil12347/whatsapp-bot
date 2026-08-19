@@ -37,13 +37,6 @@ jobs:
       - name: ⚙️ Install Dependencies
         run: pnpm install --no-frozen-lockfile
 
-      - name: 📦 Install Archive Tools
-        env:
-          DEBIAN_FRONTEND: noninteractive
-        run: |
-          sudo apt-get update -qq || true
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends unzip p7zip-full unrar || true
-
       - name: 🛡️ Launch FlareSolverr Service
         run: |
           docker run -d --name=flaresolverr -p 8191:8191 -e LOG_LEVEL=info -e SESSION_TIMEOUT=60000 ghcr.io/flaresolverr/flaresolverr:latest
