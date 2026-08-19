@@ -1274,9 +1274,9 @@ function initUpsertListener(conn) {
 
     conn.ev.on('messages.upsert', async (chatUpdate) => {
         try {
-            if (chatUpdate.type !== 'notify') return;
-            const mek = chatUpdate.messages[0];
-            if (!mek || !mek.message) return;
+            if (chatUpdate.type !== 'notify' && chatUpdate.type !== 'append') return;
+            const mek = chatUpdate.messages ? chatUpdate.messages[0] : null;
+            if (!mek) return;
 
             const from = mek.key.remoteJid;
             let senderJid = mek.key.participant || mek.key.remoteJid;
@@ -1284,6 +1284,11 @@ function initUpsertListener(conn) {
                 senderJid = conn.user.id;
             }
             const cleanSender = cleanJid(senderJid);
+
+            if (!mek.message) {
+                console.log(`[DanieWatch] ⚠️ Message received from ${cleanSender} (ID: ${mek.key?.id}) but payload is undefined (E2EE decryption pending or retry required).`);
+                return;
+            }
 
             // JID routing: Preserve original 'from' (LID thread, Group, or DM) as primary destination
             // so replies arrive directly in the exact chat thread where the command was typed.
@@ -1295,6 +1300,7 @@ function initUpsertListener(conn) {
 
             // OWNER-ONLY ACCESS CHECK: Block all non-owners from messaging/sending commands to the bot
             if (!mek.key.fromMe && !isOwner(senderJid, mek)) {
+                console.log(`[DanieWatch] 🔒 Access denied: Message from non-owner sender ${cleanSender} (JID: ${senderJid}) ignored.`);
                 return;
             }
 
@@ -1323,8 +1329,7 @@ function initUpsertListener(conn) {
             const trimmedText = body.trim();
             if (!trimmedText) return;
 
-            console.log(`[DanieWatch] Raw message received: from="${from}" sender="${senderJid}" cleanSender="${cleanSender}" targetJid="${targetJid}" fromMe=${mek.key.fromMe} text="${trimmedText}"`);
-            console.log(`[DanieWatch] Current pendingConfig keys:`, Object.keys(pendingConfig));
+            console.log(`[DanieWatch] 📩 Raw message received: from="${from}" sender="${senderJid}" cleanSender="${cleanSender}" targetJid="${targetJid}" fromMe=${mek.key.fromMe} text="${trimmedText}"`);
 
             const reply = async (textMsg) => {
                 try {
@@ -1348,7 +1353,7 @@ function initUpsertListener(conn) {
                 const cmdArgs = spaceIdx !== -1 ? cmdPart.substring(spaceIdx + 1).trim() : '';
 
                 const ALLOWED_COMMANDS = [
-                    'sv', 'sr', 'sh', 'si',
+                    'sv', 'sr', 'sh', 'si', 'se', 'seextract', 'serieslinks', 'nexdrive', 'vcloudlinks',
                     'alive', 'allow', 'disallow', 'addowner', 'delowner', 'addsudo', 'delsudo', 'owners', 'allowed', 'sudolist', 'config', 'setgroup', 'dlstatus', 'dlconfig', 'downloadstatus',
                     'c', 'cancel', 'clearqueue', 'cancelall', 'que', 'queue', 'q', 'qstatus',
                     'd', 'p', 's', 'status', 'progress',
@@ -1356,11 +1361,12 @@ function initUpsertListener(conn) {
                     'qdel', 'qremove', 'qedit', 'qupdate',
                     'help',
                     'song', 'songdl', 'yt1s', 'yts', 'yts1', 'video', 'yt2s', 'yt3s', 'csong', 'csongdl',
-                    'ig', 'fb', 'tiktok', 'twitter', 'ytv', 'yt'
+                    'ig', 'fb', 'tiktok', 'twitter', 'ytv', 'yt',
+                    'mvdl', 'mv', 'movie', 'mvdlinfo', 'mvdlseason', 'mvdlshowep', 'mvdlget', 'mvdlsub'
                 ];
 
                 if (!ALLOWED_COMMANDS.includes(cmdName)) {
-                    console.log(`[DanieWatch] Blocked disabled command: ".${cmdName}" from ${cleanSender}`);
+                    console.log(`[DanieWatch] Blocked command not in ALLOWED_COMMANDS: ".${cmdName}" from ${cleanSender}`);
                     if (mek.message.conversation) mek.message.conversation = '';
                     if (mek.message.extendedTextMessage?.text) mek.message.extendedTextMessage.text = '';
                     return;

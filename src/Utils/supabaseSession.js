@@ -57,10 +57,12 @@ async function uploadSessionToSupabase(sessionDir = path.join(__dirname, '../../
             if (!file.endsWith('.json')) continue;
             
             const isCreds = file === 'creds.json';
+            const isSession = file.startsWith('session-');
+            const isSenderKey = file.startsWith('sender-key-');
             const isAppState = file.startsWith('app-state-sync-key-');
             
-            // Only upload master auth creds and app-state keys (skip temporary session/sender-key ratchets)
-            if (!isCreds && !isAppState) {
+            // Upload master auth creds, app-state keys, and active session/sender-key ratchets
+            if (!isCreds && !isSession && !isSenderKey && !isAppState) {
                 continue;
             }
 
@@ -167,9 +169,11 @@ async function downloadSessionFromSupabase(sessionDir = path.join(__dirname, '..
             if (!filename.endsWith('.json') || !value) continue;
             
             const isCreds = filename === 'creds.json';
+            const isSession = filename.startsWith('session-');
+            const isSenderKey = filename.startsWith('sender-key-');
             const isAppState = filename.startsWith('app-state-sync-key-');
             
-            if (!isCreds && !isAppState) {
+            if (!isCreds && !isSession && !isSenderKey && !isAppState) {
                 continue;
             }
 

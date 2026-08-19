@@ -213,11 +213,9 @@ async function startBot() {
     pruneSessionDirectory(sessionDir);
     pruneSessionDirectory(sessDir);
 
-    // CRITICAL: Purge ALL stale Signal ratchet state BEFORE downloading from Supabase.
-    // This prevents the "Failed to decrypt message with any known session" loop
-    // that happens on 2nd run when old session-*.json files are out of sync.
-    purgeStaleRatchetState(sessionDir);
-    purgeStaleRatchetState(sessDir);
+    // Preserve active Signal ratchet state across restarts to allow E2EE message decryption.
+    // Clean only corrupted 0-byte/invalid JSON files and stale files older than 30 days.
+
 
     // Auto-download latest session files from Supabase if available
     try {
