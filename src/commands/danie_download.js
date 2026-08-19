@@ -4581,16 +4581,16 @@ DANIE_COMMANDS['twitter'] = async (conn, mek, from, senderJid, args, reply) => {
         }
         await reply(`⏳ *Downloading Twitter video...*`);
         const fetch = require('node-fetch');
-        const res = await fetch('https://api.cobalt.tools/api/json', {
+        const res = await fetch('https://www.tikwm.com/api/', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-            body: JSON.stringify({ url: args.trim(), vQuality: '720' })
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ url: args.trim(), hd: 1 })
         });
         const data = await res.json();
-        if (data.url) {
-            await conn.sendMessage(from, { video: { url: data.url }, mimetype: "video/mp4", caption: `💢 *DANIEWATCH TWITTER DOWNLOADER*\n🔗 ${args.trim()}`, fileName: "twitter_video.mp4" }, { quoted: mek });
+        if (data && data.data && data.data.play) {
+            await conn.sendMessage(from, { video: { url: data.data.play }, mimetype: "video/mp4", caption: `💢 *DANIEWATCH TWITTER DOWNLOADER*\n🔗 ${args.trim()}`, fileName: "twitter_video.mp4" }, { quoted: mek });
         } else {
-            throw new Error("Could not extract video.");
+            throw new Error("Could not extract video from this link.");
         }
     } catch (err) {
         console.error('[Twitter Download Error]:', err.message);
@@ -4598,8 +4598,195 @@ DANIE_COMMANDS['twitter'] = async (conn, mek, from, senderJid, args, reply) => {
     }
 };
 
+// .insta / .instagram alias
+DANIE_COMMANDS['insta'] = DANIE_COMMANDS['ig'];
+DANIE_COMMANDS['instagram'] = DANIE_COMMANDS['ig'];
+
+// .tk alias
+DANIE_COMMANDS['tk'] = DANIE_COMMANDS['tiktok'];
+
+// Helper: Download YouTube Media (Video / Audio) via standalone yt-dlp binary with fallbacks
+async function downloadYouTubeMediaHelper(queryOrUrl, isAudio = false) {
+    const util = require('util');
+    const execPromise = util.promisify(require('child_process').exec);
+
+    let videoInfo = null;
+    let targetUrl = queryOrUrl.trim();
+
+    if (!targetUrl.includes('youtube.com') && !targetUrl.includes('youtu.be')) {
+        console.log(`[YouTubeHelper] Searching YouTube for query: "${targetUrl}"`);
+        const searchRes = await yts(targetUrl);
+        if (searchRes && searchRes.videos && searchRes.videos.length > 0) {
+            videoInfo = searchRes.videos[0];
+            targetUrl = videoInfo.url;
+            console.log(`[YouTubeHelper] Found video: "${videoInfo.title}" (${videoInfo.url})`);
+        } else {
+            throw new Error("No YouTube video found for query.");
+        }
+    } else {
+        const searchRes = await yts(targetUrl);
+        if (searchRes && searchRes.videos && searchRes.videos.length > 0) {
+            videoInfo = searchRes.videos[0];
+        }
+    }
+
+    const title = videoInfo ? videoInfo.title : 'YouTube Media';
+    const timestamp = videoInfo ? videoInfo.timestamp : '';
+    const views = videoInfo ? videoInfo.views : '';
+    const thumbnail = videoInfo ? videoInfo.thumbnail : '';
+
+    const ext = isAudio ? 'm4a' : 'mp4';
+    const tempFile = path.join(os.tmpdir(), `yt_${Date.now()}_${Math.random().toString(36).substring(2, 6)}.${ext}`);
+
+    const ytdlpBin = path.join(__dirname, '..', '..', 'yt-dlp.exe');
+
+    // Engine 1: Try local yt-dlp.exe (Asynchronous non-blocking download)
+    if (fs.existsSync(ytdlpBin)) {
+        try {
+            console.log(`[YouTubeHelper] Engine 1 (yt-dlp) starting download for "${title}"...`);
+            const formatFlag = isAudio ? '-f "140/251/ba/b"' : '-f "18/b/bv*+ba"';
+            const cmd = `"${ytdlpBin}" --js-runtimes node --extractor-args "youtube:player_client=android" ${formatFlag} --no-playlist -o "${tempFile}" "${targetUrl}"`;
+            await execPromise(cmd, { timeout: 60000 });
+
+            if (fs.existsSync(tempFile) && fs.statSync(tempFile).size > 1000) {
+                console.log(`[YouTubeHelper] Engine 1 SUCCESS: File saved to ${tempFile} (${fs.statSync(tempFile).size} bytes)`);
+                return {
+                    filePath: tempFile,
+                    title,
+                    timestamp,
+                    views,
+                    thumbnail,
+                    targetUrl,
+                    mimetype: isAudio ? "audio/mp4" : "video/mp4"
+                };
+            }
+        } catch (err1) {
+            console.error('[yt-dlp Engine Error]:', err1.message);
+        }
+    }
+
+    // Engine 2: Try convertYtMedia (cnv.cx API fallback)
+    try {
+        console.log(`[YouTubeHelper] Engine 2 (cnv.cx API) starting fallback...`);
+        const format = isAudio ? "mp3" : "mp4";
+        const convResult = await convertYtMedia(targetUrl, "128", "720", format);
+        if (convResult && convResult.filePath && fs.existsSync(convResult.filePath)) {
+            console.log(`[YouTubeHelper] Engine 2 SUCCESS: File saved to ${convResult.filePath}`);
+            return {
+                filePath: convResult.filePath,
+                title,
+                timestamp,
+                views,
+                thumbnail,
+                targetUrl,
+                mimetype: isAudio ? "audio/mpeg" : "video/mp4"
+            };
+        }
+    } catch (err2) {
+        console.error('[cnv.cx Engine Error]:', err2.message);
+    }
+
+    // Engine 3: Try TikWM API
+    const fetch = require('node-fetch');
+    try {
+        console.log(`[YouTubeHelper] Engine 3 (TikWM API) starting fallback...`);
+        const res = await fetch('https://www.tikwm.com/api/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ url: targetUrl, hd: 1 })
+        });
+        const data = await res.json();
+        if (data && data.data && data.data.play) {
+            const mediaUrl = isAudio ? (data.data.music || data.data.play) : (data.data.hdplay || data.data.play);
+            const fileRes = await fetch(mediaUrl);
+            if (fileRes.ok) {
+                const buffer = await fileRes.buffer();
+                fs.writeFileSync(tempFile, buffer);
+                console.log(`[YouTubeHelper] Engine 3 SUCCESS: File saved to ${tempFile}`);
+                return {
+                    filePath: tempFile,
+                    title: data.data.title || title,
+                    timestamp,
+                    views,
+                    thumbnail,
+                    targetUrl,
+                    mimetype: isAudio ? "audio/mpeg" : "video/mp4"
+                };
+            }
+        }
+    } catch (_) {}
+
+    throw new Error("Failed to extract playable YouTube media. Please try again with a direct YouTube link.");
+}
+
+// .yt / .ytv / .video — YouTube Video download
+DANIE_COMMANDS['yt'] = async (conn, mek, from, senderJid, args, reply) => {
+    let res = null;
+    try {
+        if (!args) {
+            return reply("🎥 *YouTube Video Downloader*\nPlease provide a YouTube URL or title search.\nExample: `.yt https://www.youtube.com/watch?v=...` or `.yt Shape of You`");
+        }
+        await reply(`⏳ *Searching and downloading YouTube video...*`);
+        res = await downloadYouTubeMediaHelper(args, false);
+        if (!res || !res.filePath || !fs.existsSync(res.filePath)) throw new Error("Could not download video.");
+
+        console.log(`[YouTube Video] Sending video file to WhatsApp (${from})...`);
+        const caption = `🎥 *${res.title}*\n⏱️ ${res.timestamp} | 👁️ ${res.views}\n🔗 ${res.targetUrl}`;
+        await conn.sendMessage(from, {
+            video: { url: res.filePath },
+            mimetype: "video/mp4",
+            caption,
+            fileName: `${res.title.replace(/[^a-zA-Z0-9 ]/g, '')}.mp4`
+        }, { quoted: mek });
+        console.log(`[YouTube Video] Video successfully sent to ${from}!`);
+    } catch (err) {
+        console.error('[YouTube Video Error]:', err.message);
+        reply(`❌ Failed to download YouTube video: ${err.message}`);
+    } finally {
+        if (res && res.filePath && fs.existsSync(res.filePath)) {
+            try { fs.unlinkSync(res.filePath); } catch (_) {}
+        }
+    }
+};
+DANIE_COMMANDS['ytv'] = DANIE_COMMANDS['yt'];
+DANIE_COMMANDS['video'] = DANIE_COMMANDS['yt'];
+
+// .ytm / .song / .songdl / .music / .yta — YouTube Music / Audio download
+DANIE_COMMANDS['ytm'] = async (conn, mek, from, senderJid, args, reply) => {
+    let res = null;
+    try {
+        if (!args) {
+            return reply("🎵 *YouTube Music Downloader*\nPlease provide a song title or YouTube link.\nExample: `.ytm Shape of You` or `.songdl https://youtu.be/...`");
+        }
+        await reply(`⏳ *Searching and downloading audio...*`);
+        res = await downloadYouTubeMediaHelper(args, true);
+        if (!res || !res.filePath || !fs.existsSync(res.filePath)) throw new Error("Could not download audio.");
+
+        console.log(`[YouTube Music] Sending audio file to WhatsApp (${from})...`);
+        await conn.sendMessage(from, {
+            audio: { url: res.filePath },
+            mimetype: res.mimetype || "audio/mp4",
+            fileName: `${res.title.replace(/[^a-zA-Z0-9 ]/g, '')}.m4a`,
+            ptt: false
+        }, { quoted: mek });
+        await reply(`✅ *${res.title}* ${res.timestamp ? `(${res.timestamp})` : ''}\n🔗 ${res.targetUrl}`);
+        console.log(`[YouTube Music] Audio successfully sent to ${from}!`);
+    } catch (err) {
+        console.error('[YouTube Music Error]:', err.message);
+        reply(`❌ Failed to download audio: ${err.message}`);
+    } finally {
+        if (res && res.filePath && fs.existsSync(res.filePath)) {
+            try { fs.unlinkSync(res.filePath); } catch (_) {}
+        }
+    }
+};
+DANIE_COMMANDS['songdl'] = DANIE_COMMANDS['ytm'];
+DANIE_COMMANDS['music'] = DANIE_COMMANDS['ytm'];
+DANIE_COMMANDS['yta'] = DANIE_COMMANDS['ytm'];
+
 // Export initUpsertListener, globalTaskQueue, and isTaskRunning
 module.exports.initUpsertListener = initUpsertListener;
 module.exports.globalTaskQueue = globalTaskQueue;
 module.exports.isTaskRunning = isTaskRunning;
 module.exports.DANIE_COMMANDS = DANIE_COMMANDS;
+
