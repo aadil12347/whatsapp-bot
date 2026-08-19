@@ -204,6 +204,13 @@ async function connectToWA() {
                 return;
             }
 
+            // 440 = conflict (another instance connected with same keys)
+            if (statusCode === 440) {
+                console.log('⚠️ Session conflict (Status 440): Another bot instance is active with these credentials. Backing off 30s before reconnecting...');
+                setTimeout(connectToWA, 30000);
+                return;
+            }
+
             // 515 = restart required
             if (statusCode === 515) {
                 console.log('🔄 Restart required by server. Reconnecting...');
