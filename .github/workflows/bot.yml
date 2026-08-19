@@ -1,6 +1,8 @@
-name: WhatsApp Bot Task Runner
+name: WhatsApp Bot Task Runner (24/7 Continuous)
 
 on:
+  schedule:
+    - cron: '0 */4 * * *'  # Fallback cron schedule every 4 hours
   workflow_dispatch:
     inputs:
       command:
@@ -9,6 +11,10 @@ on:
         default: 'start'
   repository_dispatch:
     types: [run-bot, execute-task]
+
+permissions:
+  contents: write
+  actions: write
 
 jobs:
   run-bot-task:
@@ -40,7 +46,7 @@ jobs:
           echo "Waiting 5s for FlareSolverr container to warm up..."
           sleep 5
 
-      - name: 🤖 Execute Bot Task
+      - name: 🤖 Execute Bot Task (4-Hour Shift)
         env:
           URL: '${{ secrets.URL }}'
           KEY: '${{ secrets.KEY }}'
@@ -50,13 +56,13 @@ jobs:
           BOT_NUMBER: '${{ secrets.NUMBER }}'
           SUDO: '${{ secrets.NUMBER }}'
           FLARESOLVERR_URL: 'http://localhost:8191/v1'
-          MAX_RUN_TIME_MINUTES: '280'
+          MAX_RUN_TIME_MINUTES: '230'
         run: |
-          echo "🚀 Restoring paired keys from Supabase & running bot..."
+          echo "🚀 Restoring paired keys from Supabase & running bot for 230 mins..."
           node start.js
 
       - name: 📤 Sync Paired Keys to Supabase
-        if: success()
+        if: always()
         env:
           URL: '${{ secrets.URL }}'
           KEY: '${{ secrets.KEY }}'
@@ -65,3 +71,15 @@ jobs:
         run: |
           echo "📤 Backing up paired keys (sess/) to Supabase..."
           pnpm exec node scratch/upload_current_session.js || true
+
+      - name: 🔄 Auto-retrigger Next 4-Hour Shift (24/7 Loop)
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "🚀 Triggering next 4-hour shift for 24/7 continuous operation..."
+          curl -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/${{ github.repository }}/actions/workflows/bot.yml/dispatches \
+            -d '{"ref":"main"}' || true
