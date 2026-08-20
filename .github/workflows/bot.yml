@@ -37,6 +37,13 @@ jobs:
       - name: ⚙️ Install Dependencies
         run: pnpm install --no-frozen-lockfile
 
+      - name: 🎬 Install yt-dlp & ffmpeg
+        run: |
+          pip install -U yt-dlp
+          sudo apt-get update && sudo apt-get install -y ffmpeg
+          echo "yt-dlp version: $(yt-dlp --version)"
+          echo "ffmpeg version: $(ffmpeg -version | head -1)"
+
       - name: 🛡️ Launch FlareSolverr Service
         run: |
           docker run -d --name=flaresolverr -p 8191:8191 -e LOG_LEVEL=info -e SESSION_TIMEOUT=60000 ghcr.io/flaresolverr/flaresolverr:latest
