@@ -4309,51 +4309,201 @@ const ytDefaultHeaders = {
 };
 
 async function convertYtMedia(ytUrl, audioBitrate, videoQuality, format) {
-    const tempRawPath = path.join(os.tmpdir(), `yt_raw_${Date.now()}_${Math.random().toString(36).substr(2, 5)}.${format}`);
-    const tempFixedPath = path.join(os.tmpdir(), `yt_fixed_${Date.now()}_${Math.random().toString(36).substr(2, 5)}.${format}`);
+    const tempRawPath = path.join(os.tmpdir(), `yt_raw_${Date.now()}_${Math.random().toString(36).substr(2, 5)}.${format || 'mp4'}`);
+    const tempFixedPath = path.join(os.tmpdir(), `yt_fixed_${Date.now()}_${Math.random().toString(36).substr(2, 5)}.${format || 'mp4'}`);
     try {
+        const directUrl = await downloadYoutubeVideoUrl(ytUrl, videoQuality || '720', format || 'mp4');
+        if (!directUrl) throw new Error("Direct URL resolution failed");
+
         const fetch = require('node-fetch');
-        const keyRes = await fetch("https://cnv.cx/v2/sanity/key", { headers: ytDefaultHeaders });
-        if (!keyRes.ok) throw new Error("Key fetch failed");
-        const { key } = await keyRes.json();
-        const bodyParams = new URLSearchParams({ link: ytUrl, format, audioBitrate, videoQuality, filenameStyle: "pretty", vCodec: "h264" });
-        const convRes = await fetch("https://cnv.cx/v2/converter", {
-            method: "POST",
-            headers: { ...ytDefaultHeaders, "Content-Type": "application/x-www-form-urlencoded", key },
-            body: bodyParams
-        });
-        if (!convRes.ok) throw new Error("Conversion failed");
-        const convJson = await convRes.json();
-        if (!convJson.url) throw new Error("No download URL");
-        const fileRes = await fetch(convJson.url, { headers: ytDefaultHeaders });
-        if (!fileRes.ok) throw new Error("File download failed");
+        const fileRes = await fetch(directUrl, { headers: ytDefaultHeaders });
+        if (!fileRes.ok) throw new Error(`File download failed with status ${fileRes.status}`);
+
         const fileStream = fs.createWriteStream(tempRawPath);
         await new Promise((resolve, reject) => { fileRes.body.pipe(fileStream); fileRes.body.on('error', reject); fileStream.on('finish', resolve); });
         let mime = format === 'mp4' ? "video/mp4" : "audio/mpeg";
+
         if (format === 'mp4') {
             try {
                 execSync(`ffmpeg -y -i "${tempRawPath}" -c copy -movflags +faststart "${tempFixedPath}"`, { stdio: 'ignore' });
                 if (fs.existsSync(tempFixedPath) && fs.statSync(tempFixedPath).size > 0) {
                     try { if (fs.existsSync(tempRawPath)) fs.unlinkSync(tempRawPath); } catch (_) {}
-                    return { filePath: tempFixedPath, filename: convJson.filename, mimetype: mime };
+                    return { filePath: tempFixedPath, filename: `yt_video.${format}`, mimetype: mime };
                 }
             } catch (e) {
                 try {
                     execSync(`ffmpeg -y -i "${tempRawPath}" -c:v libx264 -preset ultrafast -crf 26 -c:a aac -b:a 128k -pix_fmt yuv420p -movflags +faststart "${tempFixedPath}"`, { stdio: 'ignore' });
                     if (fs.existsSync(tempFixedPath) && fs.statSync(tempFixedPath).size > 0) {
                         try { if (fs.existsSync(tempRawPath)) fs.unlinkSync(tempRawPath); } catch (_) {}
-                        return { filePath: tempFixedPath, filename: convJson.filename, mimetype: mime };
+                        return { filePath: tempFixedPath, filename: `yt_video.${format}`, mimetype: mime };
                     }
                 } catch (_) {}
             }
         }
-        return { filePath: tempRawPath, filename: convJson.filename, mimetype: mime };
+        return { filePath: tempRawPath, filename: `yt_media.${format}`, mimetype: mime };
     } catch (err) {
         console.error("[YouTube Error]:", err.message);
         try { if (fs.existsSync(tempRawPath)) fs.unlinkSync(tempRawPath); } catch (_) {}
         try { if (fs.existsSync(tempFixedPath)) fs.unlinkSync(tempFixedPath); } catch (_) {}
         return null;
     }
+}
+
+async function downloadYoutubeMedia(inputUrlOrQuery, isAudio = false) {
+    let targetUrl = inputUrlOrQuery;
+    let videoInfo = null;
+
+    if (targetUrl.includes('music.youtube.com')) {
+        targetUrl = targetUrl.replace('music.youtube.com', 'www.youtube.com');
+    }
+
+    if (!targetUrl.includes('youtube.com') && !targetUrl.includes('youtu.be')) {
+        console.log(`[YouTubeHelper] Searching YouTube for query: "${targetUrl}"`);
+        const searchRes = await yts(targetUrl);
+        if (searchRes && searchRes.videos && searchRes.videos.length > 0) {
+            videoInfo = searchRes.videos[0];
+            targetUrl = videoInfo.url;
+            console.log(`[YouTubeHelper] Found video: "${videoInfo.title}" (${videoInfo.url})`);
+        } else {
+            throw new Error("No YouTube video found for query.");
+        }
+    } else {
+        try {
+            const searchRes = await yts(targetUrl);
+            if (searchRes && searchRes.videos && searchRes.videos.length > 0) {
+                videoInfo = searchRes.videos[0];
+            }
+        } catch (_) {}
+    }
+
+    const title = videoInfo ? videoInfo.title : 'YouTube Media';
+    const timestamp = videoInfo ? videoInfo.timestamp : '';
+    const views = videoInfo ? videoInfo.views : '';
+    const thumbnail = videoInfo ? videoInfo.thumbnail : '';
+
+    const format = isAudio ? 'mp3' : 'mp4';
+    const ext = isAudio ? 'mp3' : 'mp4';
+    const tempFile = path.join(os.tmpdir(), `yt_${Date.now()}_${Math.random().toString(36).substring(2, 6)}.${ext}`);
+
+    // Strategy 1 (Primary): Use cnv.cx direct stream resolver (SAME METHOD AS .p TRAILER DOWNLOAD)
+    try {
+        console.log(`[YouTubeHelper] Primary Engine: Resolving YouTube media using cnv.cx API...`);
+        const directVideoUrl = await downloadYoutubeVideoUrl(targetUrl, '720', format);
+        if (directVideoUrl) {
+            console.log(`[YouTubeHelper] Direct media URL resolved: ${directVideoUrl}. Downloading stream...`);
+            const fetch = require('node-fetch');
+            const mediaRes = await fetch(directVideoUrl, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36',
+                    'Referer': 'https://frame.y2meta-uk.com/',
+                    'Origin': 'https://frame.y2meta-uk.com',
+                    'Accept': '*/*'
+                }
+            });
+
+            if (mediaRes.ok) {
+                const tempRawPath = path.join(os.tmpdir(), `yt_raw_${Date.now()}.${ext}`);
+                const fileWriter = fs.createWriteStream(tempRawPath);
+                await new Promise((resolve, reject) => {
+                    mediaRes.body.pipe(fileWriter);
+                    mediaRes.body.on('error', reject);
+                    fileWriter.on('finish', resolve);
+                });
+
+                if (fs.existsSync(tempRawPath) && fs.statSync(tempRawPath).size > 1000) {
+                    if (!isAudio) {
+                        console.log(`[YouTubeHelper] Applying faststart MP4 remux for video...`);
+                        await remuxFileToFaststart(tempRawPath);
+                        return {
+                            filePath: tempRawPath,
+                            title,
+                            timestamp,
+                            views,
+                            thumbnail,
+                            targetUrl,
+                            mimetype: 'video/mp4'
+                        };
+                    } else {
+                        try {
+                            execSync(`ffmpeg -y -i "${tempRawPath}" -vn -c:a libmp3lame -b:a 128k "${tempFile}"`, { stdio: 'ignore' });
+                            if (fs.existsSync(tempFile) && fs.statSync(tempFile).size > 1000) {
+                                try { if (fs.existsSync(tempRawPath)) fs.unlinkSync(tempRawPath); } catch (_) {}
+                                return {
+                                    filePath: tempFile,
+                                    title,
+                                    timestamp,
+                                    views,
+                                    thumbnail,
+                                    targetUrl,
+                                    mimetype: 'audio/mpeg'
+                                };
+                            }
+                        } catch (_) {}
+
+                        return {
+                            filePath: tempRawPath,
+                            title,
+                            timestamp,
+                            views,
+                            thumbnail,
+                            targetUrl,
+                            mimetype: 'audio/mpeg'
+                        };
+                    }
+                }
+            }
+        }
+    } catch (cnvErr) {
+        console.warn(`[YouTubeHelper] Primary cnv.cx API strategy failed: ${cnvErr.message}`);
+    }
+
+    // Strategy 2 (Fallback): Try system / local yt-dlp binaries
+    const ytdlpLocalBin = path.join(__dirname, '..', '..', 'yt-dlp.exe');
+    const ytdlpCandidates = [
+        'yt-dlp',
+        '/usr/local/bin/yt-dlp',
+        '/home/runner/.local/bin/yt-dlp',
+    ];
+    if (fs.existsSync(ytdlpLocalBin)) {
+        ytdlpCandidates.push(`"${ytdlpLocalBin}"`);
+    }
+
+    const formatFlag = isAudio ? '-f "140/251/ba/b"' : '-f "18/b/bv*+ba"';
+    const commonFlags = '--js-runtimes node --no-playlist --no-check-certificates --socket-timeout 30';
+
+    for (const bin of ytdlpCandidates) {
+        try {
+            console.log(`[YouTubeHelper] Fallback: Trying ${bin} for "${title}"...`);
+            const strategies = [
+                '--extractor-args "youtube:player_client=android"',
+                '--extractor-args "youtube:player_client=web"',
+                '',
+            ];
+
+            for (const strategy of strategies) {
+                try {
+                    const cmd = `${bin} ${commonFlags} ${strategy} ${formatFlag} -o "${tempFile}" "${targetUrl}"`;
+                    await execPromise(cmd, { timeout: 120000 });
+
+                    if (fs.existsSync(tempFile) && fs.statSync(tempFile).size > 1000) {
+                        return {
+                            filePath: tempFile,
+                            title,
+                            timestamp,
+                            views,
+                            thumbnail,
+                            targetUrl,
+                            mimetype: isAudio ? "audio/mp4" : "video/mp4"
+                        };
+                    }
+                } catch (_) {
+                    try { if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile); } catch (_) {}
+                }
+            }
+        } catch (_) {}
+    }
+
+    throw new Error("Failed to download YouTube media. All engines failed.");
 }
 
 function extractYtId(urlStr) {
