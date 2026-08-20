@@ -255,9 +255,120 @@ async function clearSupabaseSession() {
     }
 }
 
+/**
+ * Acquire a distributed bot lock using bot_session id=2.
+ * If another instance has a heartbeat less than 3 minutes old, throws an error.
+ * Otherwise, claims the lock with the current timestamp.
+ */
+async function acquireBotLock() {
+    try {
+        const supabase = getSupabaseClient();
+        if (!supabase) {
+            console.warn('[BotLock] Supabase not configured — skipping lock.');
+            return true;
+        }
+
+        // Check for existing lock
+        const { data, error: fetchErr } = await supabase
+            .from('bot_session')
+            .select('session_data, updated_at')
+            .eq('id', 2)
+            .maybeSingle();
+
+        if (fetchErr) {
+            console.warn('[BotLock] Error checking lock:', fetchErr.message);
+            // Proceed anyway — better to risk overlap than to never start
+            return true;
+        }
+
+        if (data && data.session_data && data.session_data.heartbeat_at) {
+            const lastHeartbeat = new Date(data.session_data.heartbeat_at).getTime();
+            const age = Date.now() - lastHeartbeat;
+            const THREE_MINUTES = 3 * 60 * 1000;
+
+            if (age < THREE_MINUTES) {
+                const ageSec = Math.round(age / 1000);
+                throw new Error(`Another bot instance is still active (heartbeat ${ageSec}s ago). Waiting...`);
+            }
+
+            console.log(`[BotLock] Previous lock expired (${Math.round(age / 1000)}s ago). Claiming lock...`);
+        }
+
+        // Claim the lock
+        const now = new Date().toISOString();
+        const { error: upsertErr } = await supabase
+            .from('bot_session')
+            .upsert({
+                id: 2,
+                session_data: { locked_at: now, heartbeat_at: now, pid: process.pid },
+                updated_at: now
+            }, { onConflict: 'id' });
+
+        if (upsertErr) {
+            console.warn('[BotLock] Error claiming lock:', upsertErr.message);
+            return true; // Proceed anyway
+        }
+
+        console.log('[BotLock] ✅ Bot lock acquired successfully.');
+        return true;
+    } catch (err) {
+        if (err.message.includes('Another bot instance')) {
+            throw err; // Re-throw so caller can retry
+        }
+        console.warn('[BotLock] Unexpected error:', err.message);
+        return true; // Proceed anyway on unexpected errors
+    }
+}
+
+/**
+ * Update the bot lock heartbeat timestamp.
+ * Called periodically (every 60s) to signal the bot is still alive.
+ */
+async function heartbeatBotLock() {
+    try {
+        const supabase = getSupabaseClient();
+        if (!supabase) return;
+
+        const now = new Date().toISOString();
+        await supabase
+            .from('bot_session')
+            .update({
+                session_data: { locked_at: now, heartbeat_at: now, pid: process.pid },
+                updated_at: now
+            })
+            .eq('id', 2);
+    } catch (_) {}
+}
+
+/**
+ * Release the bot lock on shutdown.
+ * Sets the heartbeat to epoch (1970) so the next instance won't wait.
+ */
+async function releaseBotLock() {
+    try {
+        const supabase = getSupabaseClient();
+        if (!supabase) return;
+
+        const { error } = await supabase
+            .from('bot_session')
+            .update({
+                session_data: { locked_at: null, heartbeat_at: '1970-01-01T00:00:00.000Z', pid: null },
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', 2);
+
+        if (!error) {
+            console.log('[BotLock] 🔓 Bot lock released.');
+        }
+    } catch (_) {}
+}
+
 module.exports = {
     uploadSessionToSupabase,
     downloadSessionFromSupabase,
-    clearSupabaseSession
+    clearSupabaseSession,
+    acquireBotLock,
+    releaseBotLock,
+    heartbeatBotLock
 };
 

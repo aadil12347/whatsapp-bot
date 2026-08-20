@@ -1235,6 +1235,7 @@ function initUpsertListener(conn) {
     if (conn.danieDownloadUpsertRegistered) return;
     conn.danieDownloadUpsertRegistered = true;
     _connInstance = conn;
+    conn._startupTime = Date.now(); // Track startup time for grace period
 
     // Pre-prime the bot's own JID so we never send a primer message to ourselves
     if (conn.user && conn.user.id) {
@@ -1281,13 +1282,19 @@ function initUpsertListener(conn) {
             const cleanSender = cleanJid(senderJid);
 
             if (!mek.message) {
-                // Track undecryptable messages but only log a summary periodically
-                // (old queued messages from before restart will never decrypt — this is normal)
+                // Startup grace period: silently discard undecryptable messages
+                // for 60s after connect — these are old offline messages encrypted
+                // with stale E2EE sessions that can never be decrypted.
+                if (conn._startupTime && (Date.now() - conn._startupTime < 60000)) {
+                    return; // Silent discard — no logging, no counting
+                }
+
+                // After grace period, track & log summaries at reduced frequency
                 if (!conn._undecryptableCount) conn._undecryptableCount = 0;
                 if (!conn._lastUndecryptableLog) conn._lastUndecryptableLog = 0;
                 conn._undecryptableCount++;
                 const now = Date.now();
-                if (now - conn._lastUndecryptableLog > 15000) {
+                if (now - conn._lastUndecryptableLog > 60000) {
                     console.log(`[DanieWatch] ⚠️ ${conn._undecryptableCount} message(s) with undefined payload (E2EE pending/old queued messages) — Baileys is re-negotiating sessions.`);
                     conn._undecryptableCount = 0;
                     conn._lastUndecryptableLog = now;

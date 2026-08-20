@@ -65,6 +65,7 @@ const msgProtoCache = new NodeCache({ stdTTL: 300, checkperiod: 60 });
 // ── State ──
 let conn = null;
 let startupMessageSent = false;
+let _connectTime = 0; // Timestamp when connection opened — used for startup grace period
 
 // ── Auto-restart timer ──
 const AUTO_RESTART_MINUTES = parseInt(process.env.MAX_RUN_TIME_MINUTES || '0', 10);
@@ -91,7 +92,11 @@ async function connectToWA() {
         keepAliveIntervalMs: 25000,
         emitOwnEvents: false,
         generateHighQualityLinkPreview: false,
-        retryRequestDelayMs: 2000,
+        // Prevent offline message flood — these cause 30min of Bad MAC / undecryptable churn
+        syncFullHistory: false,
+        markOnlineOnConnect: false,
+        fireInitQueries: false,
+        retryRequestDelayMs: 5000, // Slower retries to reduce E2EE renegotiation storm
         getMessage: async (key) => {
             const cached = msgProtoCache.get(key.id);
             if (cached) return cached;
@@ -107,6 +112,7 @@ async function connectToWA() {
         const { connection, lastDisconnect } = update;
 
         if (connection === 'open') {
+            _connectTime = Date.now();
             console.log('🔥 DanieWatch Bot connected ✅');
 
             // Log bot identity for debugging owner/LID matching
@@ -167,11 +173,13 @@ async function connectToWA() {
                         const danie = require('./src/commands/danie_download');
                         if (danie.isTaskRunning && danie.isTaskRunning()) {
                             console.log('[DanieWatch] ⏳ Active download in progress. Deferring restart 5 min...');
-                            setTimeout(() => process.exit(0), 5 * 60 * 1000);
+                            setTimeout(async () => {
+                                await gracefulShutdown();
+                            }, 5 * 60 * 1000);
                             return;
                         }
                     } catch (_) {}
-                    process.exit(0); // start.js will handle session upload and restart
+                    await gracefulShutdown();
                 }, AUTO_RESTART_MINUTES * 60 * 1000);
             }
         }
@@ -211,7 +219,16 @@ async function connectToWA() {
         try {
             if (chatUpdate.type !== 'notify') return;
             const msg = chatUpdate.messages[0];
-            if (!msg || !msg.message) return;
+
+            // Startup grace period: silently discard undecryptable messages
+            // for 60s after connect — these are old offline messages that
+            // can never be decrypted (stale E2EE sessions).
+            if (!msg || !msg.message) {
+                if (_connectTime && (Date.now() - _connectTime < 60000)) {
+                    return; // Silent discard during grace period
+                }
+                return;
+            }
 
             // Cache message proto for retry decryption support
             if (msg.key?.id && msg.message) {
@@ -251,6 +268,32 @@ async function connectToWA() {
         }
     });
 }
+
+/**
+ * Gracefully disconnect the WebSocket before exiting.
+ * This prevents the WhatsApp server from thinking the old session is
+ * still alive, which causes status 440 (conflict) when the next instance starts.
+ */
+async function gracefulShutdown() {
+    console.log('[Shutdown] 🔌 Disconnecting WhatsApp WebSocket...');
+    try {
+        if (conn) {
+            // conn.end() sends a clean WS close frame
+            conn.end(new Error('Graceful shutdown'));
+        }
+    } catch (_) {}
+
+    // Give the WebSocket 3 seconds to fully close
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    console.log('[Shutdown] ✅ WebSocket closed. Exiting process...');
+    process.exit(0);
+}
+
+// Handle SIGTERM from start.js parent process
+process.on('SIGTERM', async () => {
+    console.log('[Shutdown] Received SIGTERM — shutting down gracefully...');
+    await gracefulShutdown();
+});
 
 // ── Start ──
 console.log('🔥> DanieWatch Bot is starting...');

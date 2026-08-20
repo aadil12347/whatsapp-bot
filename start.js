@@ -10,7 +10,7 @@ if (fs.existsSync(envPath)) {
 const { killPreviousInstances } = require('./src/Utils/singleInstance');
 killPreviousInstances();
 
-const { uploadSessionToSupabase, downloadSessionFromSupabase } = require('./src/Utils/supabaseSession');
+const { uploadSessionToSupabase, downloadSessionFromSupabase, acquireBotLock, releaseBotLock, heartbeatBotLock } = require('./src/Utils/supabaseSession');
 
 /**
  * Auto-patch libsignal's session_record.js to silence verbose session logging.
@@ -245,6 +245,23 @@ async function startBot() {
         console.warn('⚠️ Note: Supabase session sync skipped or failed:', e.message || e);
     }
 
+    // ── Acquire Supabase bot lock (wait for old instance to release) ──
+    const MAX_LOCK_RETRIES = 10;
+    const LOCK_RETRY_DELAY = 30000; // 30 seconds
+    for (let attempt = 1; attempt <= MAX_LOCK_RETRIES; attempt++) {
+        try {
+            await acquireBotLock();
+            break; // Lock acquired
+        } catch (lockErr) {
+            if (attempt < MAX_LOCK_RETRIES) {
+                console.warn(`[BotLock] Attempt ${attempt}/${MAX_LOCK_RETRIES}: ${lockErr.message}`);
+                await new Promise(r => setTimeout(r, LOCK_RETRY_DELAY));
+            } else {
+                console.warn(`[BotLock] Failed to acquire lock after ${MAX_LOCK_RETRIES} attempts. Starting anyway...`);
+            }
+        }
+    }
+
     // Auto-update: Pull fresh files from GitHub at startup
     try {
         console.log('🔄 Checking for fresh bot files from GitHub...');
@@ -292,18 +309,27 @@ async function startBot() {
         } catch (_) {}
     }, 15 * 60 * 1000);
 
+    // Bot lock heartbeat every 60 seconds — tells other instances we're alive
+    const lockHeartbeatInterval = setInterval(async () => {
+        try {
+            await heartbeatBotLock();
+        } catch (_) {}
+    }, 60 * 1000);
+
     const maxRunMinutes = parseInt(process.env.MAX_RUN_TIME_MINUTES || '0', 10);
     if (maxRunMinutes > 0) {
         console.log(`⏱️ Auto-restart timer active: Bot will exit gracefully in ${maxRunMinutes} minutes to save session & end run.`);
         setTimeout(async () => {
             console.log(`⏰ ${maxRunMinutes} minutes elapsed. Uploading session & stopping bot process...`);
             clearInterval(syncInterval);
+            clearInterval(lockHeartbeatInterval);
             try { await uploadSessionToSupabase(sessionDir); } catch (_) {}
+            try { await releaseBotLock(); } catch (_) {}
             child.kill('SIGTERM');
             setTimeout(() => {
                 if (!child.killed) child.kill('SIGKILL');
                 process.exit(0);
-            }, 5000);
+            }, 3000); // 3s escalation (down from 5s)
         }, maxRunMinutes * 60 * 1000);
     }
 
@@ -313,8 +339,10 @@ async function startBot() {
 
     child.on('exit', async (code) => {
         clearInterval(syncInterval);
+        clearInterval(lockHeartbeatInterval);
         console.log(`🤖 Bot process exited with code ${code}`);
         try { await uploadSessionToSupabase(sessionDir); } catch (_) {}
+        try { await releaseBotLock(); } catch (_) {}
         process.exit(code || 0);
     });
 }
