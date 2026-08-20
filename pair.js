@@ -7,7 +7,7 @@ const envPath = path.join(__dirname, 'config.env');
 if (fs.existsSync(envPath)) {
     require('dotenv').config({ path: envPath });
 }
-const { uploadSessionToSupabase } = require('./src/Utils/supabaseSession');
+const { uploadSessionToSupabase, clearSupabaseSession } = require('./src/Utils/supabaseSession');
 
 const SESSION_DIR = path.join(__dirname, 'session');
 const SESS_ALT_DIR = path.join(__dirname, 'sess');
@@ -49,7 +49,6 @@ function isSessionFileValid(filePath) {
         if (stat.size === 0) return false;
         
         const rawBuffer = fs.readFileSync(filePath);
-        // Detect null-byte corruption: if first 10 bytes are all 0x00, it's corrupted
         const checkLen = Math.min(rawBuffer.length, 10);
         let allNull = true;
         for (let i = 0; i < checkLen; i++) {
@@ -57,7 +56,6 @@ function isSessionFileValid(filePath) {
         }
         if (allNull) return false;
 
-        // Try parsing as JSON
         const rawData = rawBuffer.toString('utf-8');
         JSON.parse(rawData);
         return true;
@@ -67,13 +65,16 @@ function isSessionFileValid(filePath) {
 }
 
 /**
- * Aggressively nuke both session directories for a guaranteed clean slate.
+ * Aggressively nuke both session directories and Supabase remote table for a guaranteed clean slate.
  */
-function nukeAllSessions() {
-    console.log('🧹 Nuking all session data for a clean fresh start...');
+async function nukeAllSessions() {
+    console.log('🧹 Nuking all session data (local + Supabase) for a clean fresh start...');
     for (const dir of [SESSION_DIR, SESS_ALT_DIR]) {
         try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) {}
     }
+    try {
+        await clearSupabaseSession();
+    } catch (_) {}
 }
 
 /**
@@ -122,7 +123,7 @@ async function startPairing(cleanStart = true) {
     if (cleanStart) {
         pairingRetries = 0;
         // Always force-nuke on a fresh start to guarantee clean pairing
-        nukeAllSessions();
+        await nukeAllSessions();
     }
 
     if (!fs.existsSync(SESSION_DIR)) fs.mkdirSync(SESSION_DIR, { recursive: true });
