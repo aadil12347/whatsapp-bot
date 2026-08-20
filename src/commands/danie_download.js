@@ -141,7 +141,7 @@ function cleanJunkWords(text) {
 /**
  * Send WhatsApp Interactive Single Select List Options (Method 2)
  */
-async function sendInteractiveOptions(conn, from, title, bodyText, optionsList, quoted = null, posterUrl = null, footerText = "Â© DanieWatch Bot") {
+async function sendInteractiveOptions(conn, from, title, bodyText, optionsList, quoted = null, posterUrl = null, footerText = "© DanieWatch Bot") {
     const rows = (optionsList || []).map((opt, idx) => ({
         header: (opt.header || `Option ${idx + 1}`).substring(0, 24),
         title: (opt.title || opt.text || `${idx + 1}`).substring(0, 24),
@@ -150,7 +150,7 @@ async function sendInteractiveOptions(conn, from, title, bodyText, optionsList, 
     }));
 
     const buttonParamsJson = JSON.stringify({
-        title: "📋 Tap to Select Option",
+        title: "=� Tap to Select Option",
         sections: [
             {
                 title: (title || "Options").substring(0, 24),
@@ -177,7 +177,7 @@ async function sendInteractiveOptions(conn, from, title, bodyText, optionsList, 
     let posterSent = null;
     if (posterUrl && (posterUrl.startsWith('http://') || posterUrl.startsWith('https://'))) {
         try {
-            posterSent = await conn.sendMessage(from, { image: { url: posterUrl }, caption: `📱Œ *${title}*` }, quoted ? { quoted } : {});
+            posterSent = await conn.sendMessage(from, { image: { url: posterUrl }, caption: `=� *${title}*` }, quoted ? { quoted } : {});
         } catch (imgErr) {
             console.error('[InteractiveOptions] Failed to send poster:', imgErr.message);
         }
@@ -194,10 +194,10 @@ async function sendInteractiveOptions(conn, from, title, bodyText, optionsList, 
         return msg;
     } catch (err) {
         console.error('[InteractiveOptions] Interactive list send failed, falling back to text list:', err.message);
-        let fallbackText = `📋 *${title}*\n\n${bodyText}\n\n`;
+        let fallbackText = `=� *${title}*\n\n${bodyText}\n\n`;
         (optionsList || []).forEach((opt, idx) => {
             const idVal = opt.id || (idx + 1);
-            fallbackText += `  \`${idVal}\` — *${opt.title || opt.text}* ${opt.description ? `(${opt.description})` : ''}\n`;
+            fallbackText += `  \`${idVal}\`  *${opt.title || opt.text}* ${opt.description ? `(${opt.description})` : ''}\n`;
         });
         fallbackText += `\n_Reply with the number or tap option to select._`;
         return conn.sendMessage(from, { text: fallbackText }, quoted ? { quoted: posterSent || quoted } : {});
@@ -205,7 +205,7 @@ async function sendInteractiveOptions(conn, from, title, bodyText, optionsList, 
 }
 
 // =========================================================================
-//  BRANDING REPLACEMENTS — centralized list of piracy/source site names
+//  BRANDING REPLACEMENTS  centralized list of piracy/source site names
 //  All occurrences in filenames are replaced with "DanieWatch"
 // =========================================================================
 const BRANDING_REPLACEMENTS = [
@@ -274,7 +274,7 @@ function generateCustomFileName(state, primaryHost) {
     const resolution = state.selectedResolution || '';
     let episode = primaryHost ? primaryHost.episode : '';
 
-    // Sanitize episode — reject disclaimers that got misidentified as episode labels
+    // Sanitize episode  reject disclaimers that got misidentified as episode labels
     if (episode && /download\s+manager|instant\s+download|note\s*:/i.test(episode)) {
         console.log(`[DanieFileName] Rejecting junk episode label: "${episode}"`);
         episode = '';
@@ -286,7 +286,7 @@ function generateCustomFileName(state, primaryHost) {
     postTitle = postTitle.replace(/^download\s+/i, '').trim();
 
     // Remove common disclaimer/note prefixes
-    postTitle = postTitle.replace(/note\s*[:\-â€“]\s*use\s+download\s+manager.*?instant\s+download[!.\s]*/gi, '').trim();
+    postTitle = postTitle.replace(/note\s*[:\-]\s*use\s+download\s+manager.*?instant\s+download[!.\s]*/gi, '').trim();
 
     // Determine if it is a TV show
     const hasEpisode = !!episode;
@@ -296,11 +296,11 @@ function generateCustomFileName(state, primaryHost) {
 
     if (isTvShow) {
         // Keep everything up to and including "Season N" or "Season N - M" (with optional parentheses)
-        const seasonMatch = postTitle.match(/^(.*?\(?\s*season\s*\d+(?:\s*[-â€“]\s*\d+)?\s*\)?)/i);
+        const seasonMatch = postTitle.match(/^(.*?\(?\s*season\s*\d+(?:\s*[-]\s*\d+)?\s*\)?)/i);
         if (seasonMatch) {
             cleanTitle = seasonMatch[1].trim();
         } else {
-            // No season found — use full title
+            // No season found  use full title
             cleanTitle = postTitle;
         }
     } else {
@@ -309,7 +309,7 @@ function generateCustomFileName(state, primaryHost) {
         if (yearMatch) {
             cleanTitle = yearMatch[1].trim();
         } else {
-            // No year found — use full title
+            // No year found  use full title
             cleanTitle = postTitle;
         }
     }
@@ -343,7 +343,7 @@ function startSocketKeepAlive(conn) {
     stopSocketKeepAlive();
     const socket = conn || _connInstance;
     if (!socket) return;
-    console.log('[DanieWatch] 🔄 Active task started: Enabling 30s WhatsApp socket keep-alive ping...');
+    console.log('[DanieWatch] = Active task started: Enabling 30s WhatsApp socket keep-alive ping...');
     _activeKeepAliveTimer = setInterval(async () => {
         try {
             const activeConn = conn || _connInstance;
@@ -364,7 +364,7 @@ function stopSocketKeepAlive() {
     if (_activeKeepAliveTimer) {
         clearInterval(_activeKeepAliveTimer);
         _activeKeepAliveTimer = null;
-        console.log('[DanieWatch] â¹ï¸ Active task ended: Stopped WhatsApp socket keep-alive ping.');
+        console.log('[DanieWatch] ⏹� Active task ended: Stopped WhatsApp socket keep-alive ping.');
     }
 }
 
@@ -377,17 +377,17 @@ async function waitForConnectionReady(conn, maxWaitMs = 15000) {
         return true;
     }
     
-    console.log(`[DanieWatch] â³ WhatsApp WebSocket state is ${activeConn.ws.readyState}. Waiting up to ${maxWaitMs / 1000}s for reconnection...`);
+    console.log(`[DanieWatch] ⏳ WhatsApp WebSocket state is ${activeConn.ws.readyState}. Waiting up to ${maxWaitMs / 1000}s for reconnection...`);
     const startTime = Date.now();
     while (Date.now() - startTime < maxWaitMs) {
         await new Promise(r => setTimeout(r, 1000));
         const currentConn = conn || _connInstance;
         if (currentConn && (!currentConn.ws || currentConn.ws.readyState === 1 || currentConn.ws.readyState === undefined)) {
-            console.log('[DanieWatch] ✅ WhatsApp WebSocket re-connected and ready!');
+            console.log('[DanieWatch]  WhatsApp WebSocket re-connected and ready!');
             return true;
         }
     }
-    console.warn('[DanieWatch] âš ï¸ Timeout waiting for WebSocket reconnection. Attempting upload anyway...');
+    console.warn('[DanieWatch] �� Timeout waiting for WebSocket reconnection. Attempting upload anyway...');
     return false;
 }
 
@@ -415,7 +415,7 @@ async function remuxFileToFaststart(filePath) {
         await execAsync(cmdCopy, { maxBuffer: 1024 * 1024 * 50 });
         if (fs.existsSync(tmpFixed) && fs.statSync(tmpFixed).size > 0) {
             fs.copyFileSync(tmpFixed, filePath);
-            console.log(`[DanieDownload] ✅ Faststart MP4 remux applied to: ${filePath}`);
+            console.log(`[DanieDownload]  Faststart MP4 remux applied to: ${filePath}`);
             return true;
         }
     } catch (copyErr) {
@@ -430,11 +430,11 @@ async function remuxFileToFaststart(filePath) {
         await execAsync(cmdEncode, { maxBuffer: 1024 * 1024 * 50 });
         if (fs.existsSync(tmpFixed) && fs.statSync(tmpFixed).size > 0) {
             fs.copyFileSync(tmpFixed, filePath);
-            console.log(`[DanieDownload] ✅ WhatsApp H.264/AAC video re-encode applied to: ${filePath}`);
+            console.log(`[DanieDownload]  WhatsApp H.264/AAC video re-encode applied to: ${filePath}`);
             return true;
         }
     } catch (encodeErr) {
-        console.error(`[DanieDownload] âŒ FFmpeg video re-encode failed for ${filePath}:`, encodeErr.message);
+        console.error(`[DanieDownload] �R FFmpeg video re-encode failed for ${filePath}:`, encodeErr.message);
     } finally {
         try { if (fs.existsSync(tmpFixed)) fs.unlinkSync(tmpFixed); } catch (_) {}
     }
@@ -494,7 +494,7 @@ async function extractArchive(archivePath, targetDir) {
     const fileSize = fs.existsSync(archivePath) ? fs.statSync(archivePath).size : 0;
     const TWO_GIB = 2 * 1024 * 1024 * 1024; // adm-zip limit
 
-    // 1. ZIP — native system unzip (fastest C execution, 0 MB Node RAM overhead), fallback to 7z or adm-zip
+    // 1. ZIP  native system unzip (fastest C execution, 0 MB Node RAM overhead), fallback to 7z or adm-zip
     if (ext === '.zip') {
         try {
             console.log(`[DanieDownload] Extracting ZIP via native system unzip (${(fileSize / 1024 / 1024).toFixed(1)} MB)...`);
@@ -522,7 +522,7 @@ async function extractArchive(archivePath, targetDir) {
         }
     }
 
-    // 2. RAR — via system unrar (async non-blocking)
+    // 2. RAR  via system unrar (async non-blocking)
     if (ext === '.rar') {
         try {
             console.log('[DanieDownload] Extracting RAR via system unrar (async non-blocking)...');
@@ -572,7 +572,7 @@ function getAllFiles(dirPath, arrayOfFiles) {
 }
 
 // =========================================================================
-//  SETTINGS PERSISTENCE — saves to session/download_settings.json
+//  SETTINGS PERSISTENCE  saves to session/download_settings.json
 // =========================================================================
 const SETTINGS_PATH = path.join(__dirname, '..', '..', 'session', 'download_settings.json');
 
@@ -623,7 +623,7 @@ async function sendAndForwardFile(conn, targets, filePayload, sendOptions = {}) 
                 // Small delay to let the session ratchet settle
                 await new Promise(r => setTimeout(r, 2000));
             } else {
-                console.warn(`[DanieWatch] Session primer returned no valid key for ${primaryJid} — session may be broken`);
+                console.warn(`[DanieWatch] Session primer returned no valid key for ${primaryJid}  session may be broken`);
             }
         } catch (primerErr) {
             console.error(`[DanieWatch] Session primer FAILED for ${primaryJid}:`, primerErr.message);
@@ -652,7 +652,7 @@ async function sendAndForwardFile(conn, targets, filePayload, sendOptions = {}) 
         try {
             sentMsg = await conn.sendMessage(primaryJid, filePayload, sendOptions.quoted ? { quoted: sendOptions.quoted } : {});
             
-            // Verify the response has a valid message key — if not, it may be a silent failure
+            // Verify the response has a valid message key  if not, it may be a silent failure
             if (!sentMsg || !sentMsg.key || !sentMsg.key.id) {
                 console.warn(`[DanieWatch] Upload attempt ${attempt}: sendMessage returned no valid key (silent failure). Retrying...`);
                 sentMsg = null;
@@ -674,7 +674,7 @@ async function sendAndForwardFile(conn, targets, filePayload, sendOptions = {}) 
             if (attempt < maxUploadAttempts) {
                 // Wait longer for connection errors to allow Baileys to fully reconnect
                 const delayMs = isConnectionError ? 20000 : attempt * 5000;
-                console.log(`[DanieWatch] ${isConnectionError ? 'â³ Connection lost — waiting 20s for reconnection...' : `Retrying upload in ${delayMs / 1000}s...`}`);
+                console.log(`[DanieWatch] ${isConnectionError ? '⏳ Connection lost  waiting 20s for reconnection...' : `Retrying upload in ${delayMs / 1000}s...`}`);
                 await new Promise(r => setTimeout(r, delayMs));
             }
         }
@@ -683,7 +683,7 @@ async function sendAndForwardFile(conn, targets, filePayload, sendOptions = {}) 
     // --- FIX 3: Fallback using senderJid (not LID-based 'from') ---
     // If all attempts failed, fall back to the sender's own chat.
     // Use sendOptions.senderJid (the real @s.whatsapp.net JID) instead of
-    // sendOptions.from (which can be a LID like "17064693616661@lid" â†’ bogus JID).
+    // sendOptions.from (which can be a LID like "17064693616661@lid" � bogus JID).
     if (!sentMsg || !sentMsg.key) {
         const fallbackJid = cleanJid(sendOptions.senderJid || sendOptions.from || '');
         if (fallbackJid && fallbackJid !== primaryJid) {
@@ -772,7 +772,7 @@ function getActiveTargetsAndPrimary(settings, senderJid) {
 
     let destLabel = '';
     if (activeTargets.length === 1) {
-        const icon = primaryTarget.type === 'group' ? '📤 Group' : '📥 Private Chat';
+        const icon = primaryTarget.type === 'group' ? '=� Group' : '=� Private Chat';
         destLabel = `${icon}: *${primaryTarget.name}* (${primaryJid})`;
     } else {
         destLabel = `${activeTargets.length} target receiver(s) (${activeTargets.map(t => t.name).join(', ')})`;
@@ -940,7 +940,7 @@ const ROGMOVIES_DOMAIN = process.env.ROGMOVIES_DOMAIN || 'https://new1.rogmovies
 const HDHUB4U_DOMAIN = process.env.HDHUB4U_DOMAIN || 'https://new3.hdhub4u.cl';
 
 // =========================================================================
-//  TASK QUEUE MANAGER — Sequential FIFO execution for .p, .d, and searches
+//  TASK QUEUE MANAGER  Sequential FIFO execution for .p, .d, and searches
 // =========================================================================
 class TaskQueueManager {
     constructor() {
@@ -1049,7 +1049,7 @@ class TaskQueueManager {
             const oldTask = this.queue[num - 1];
             this.queue[num - 1] = {
                 ...oldTask,
-                description: `ðŸŽ¬ TMDB Task: .p ${cmdArgs.substring(0, 40)}...`,
+                description: `<� TMDB Task: .p ${cmdArgs.substring(0, 40)}...`,
                 commandText: trimmed,
                 executeFn
             };
@@ -1061,7 +1061,7 @@ class TaskQueueManager {
             const oldTask = this.queue[num - 1];
             this.queue[num - 1] = {
                 ...oldTask,
-                description: `📥 Download Task: .d ${cmdArgs.substring(0, 40)}...`,
+                description: `=� Download Task: .d ${cmdArgs.substring(0, 40)}...`,
                 commandText: trimmed,
                 executeFn
             };
@@ -1074,15 +1074,15 @@ class TaskQueueManager {
     getStatus() {
         let activeStr = 'None';
         if (this.activeTask) {
-            activeStr = `🔄 *[PROCESSING]* ${this.activeTask.description}`;
+            activeStr = `= *[PROCESSING]* ${this.activeTask.description}`;
         }
 
         let pendingStr = 'No pending items in queue.';
         if (this.queue.length > 0) {
-            pendingStr = this.queue.map((t, idx) => `  \`${idx + 1}\` — ${t.description}`).join('\n');
+            pendingStr = this.queue.map((t, idx) => `  \`${idx + 1}\`  ${t.description}`).join('\n');
         }
 
-        return `📋 *Task Queue Status*\n\n` +
+        return `=� *Task Queue Status*\n\n` +
                `*Currently Processing:*\n${activeStr}\n\n` +
                `*Pending in Queue (${this.queue.length}):*\n${pendingStr}\n\n` +
                `_Use \`.c\` to cancel all, \`.qdel <num>\` to remove an item, or \`.qedit <num> <new_cmd>\` to update._`;
@@ -1283,10 +1283,10 @@ function initUpsertListener(conn) {
 
             if (!mek.message) {
                 // Startup grace period: silently discard undecryptable messages
-                // for 60s after connect — these are old offline messages encrypted
+                // for 60s after connect  these are old offline messages encrypted
                 // with stale E2EE sessions that can never be decrypted.
                 if (conn._startupTime && (Date.now() - conn._startupTime < 60000)) {
-                    return; // Silent discard — no logging, no counting
+                    return; // Silent discard  no logging, no counting
                 }
 
                 // After grace period, track & log summaries at reduced frequency
@@ -1295,7 +1295,7 @@ function initUpsertListener(conn) {
                 conn._undecryptableCount++;
                 const now = Date.now();
                 if (now - conn._lastUndecryptableLog > 60000) {
-                    console.log(`[DanieWatch] âš ï¸ ${conn._undecryptableCount} message(s) with undefined payload (E2EE pending/old queued messages) — Baileys is re-negotiating sessions.`);
+                    console.log(`[DanieWatch] �� ${conn._undecryptableCount} message(s) with undefined payload (E2EE pending/old queued messages)  Baileys is re-negotiating sessions.`);
                     conn._undecryptableCount = 0;
                     conn._lastUndecryptableLog = now;
                 }
@@ -1312,7 +1312,7 @@ function initUpsertListener(conn) {
 
             // OWNER-ONLY ACCESS CHECK: Block all non-owners from messaging/sending commands to the bot
             if (!mek.key.fromMe && !isOwner(senderJid, mek)) {
-                console.log(`[DanieWatch] 🔒 Access denied: Message from non-owner sender ${cleanSender} (JID: ${senderJid}) ignored.`);
+                console.log(`[DanieWatch] = Access denied: Message from non-owner sender ${cleanSender} (JID: ${senderJid}) ignored.`);
                 return;
             }
 
@@ -1341,7 +1341,7 @@ function initUpsertListener(conn) {
             const trimmedText = body.trim();
             if (!trimmedText) return;
 
-            console.log(`[DanieWatch] 📱© Raw message received: from="${from}" sender="${senderJid}" cleanSender="${cleanSender}" targetJid="${targetJid}" fromMe=${mek.key.fromMe} text="${trimmedText}"`);
+            console.log(`[DanieWatch] =� Raw message received: from="${from}" sender="${senderJid}" cleanSender="${cleanSender}" targetJid="${targetJid}" fromMe=${mek.key.fromMe} text="${trimmedText}"`);
 
             const reply = async (textMsg) => {
                 try {
@@ -1404,7 +1404,7 @@ function initUpsertListener(conn) {
                     } catch (cmdErr) {
                         console.error(`[DanieWatch] Error executing command "${cmdName}":`, cmdErr);
                         try {
-                            await reply(`âŒ Command execution failed: ${cmdErr.message}`);
+                            await reply(`�R Command execution failed: ${cmdErr.message}`);
                         } catch (_) {}
                     }
                 }
@@ -1427,7 +1427,7 @@ function initUpsertListener(conn) {
             // ---- Check if it's a reply for pending search/resolution ----
             if (pendingSearch[cleanSender]) {
                 const quotedId = getQuotedMessageId(mek);
-                const isValidNumber = /^\d+$/.test(trimmedText) || /^\d+[\s,â€“\-]+/.test(trimmedText) || trimmedText.toLowerCase() === 'all';
+                const isValidNumber = /^\d+$/.test(trimmedText) || /^\d+[\s,\-]+/.test(trimmedText) || trimmedText.toLowerCase() === 'all';
                 const isInteractiveMsg = !!(mek.message.interactiveResponseMessage || mek.message.buttonsResponseMessage || mek.message.listResponseMessage || mek.message.templateButtonReplyMessage);
                 const isMatch = (quotedId && quotedId === pendingSearch[cleanSender].messageId) || 
                                 (!quotedId && isValidNumber) ||
@@ -1445,7 +1445,7 @@ function initUpsertListener(conn) {
                 const detectedUrl = urlMatch[0];
                 const lowerUrl = detectedUrl.toLowerCase();
 
-                console.log(`[DanieWatch] ðŸ”— Direct URL detected from owner: "${detectedUrl}"`);
+                console.log(`[DanieWatch] = Direct URL detected from owner: "${detectedUrl}"`);
 
                 if (lowerUrl.includes('tiktok.com')) {
                     console.log(`[DanieWatch] Auto-routing TikTok link to .tiktok handler...`);
@@ -1603,11 +1603,11 @@ function parseDownloadItem(item) {
 }
 
 // =========================================================================
-//  .config — Interactive owner-only configuration wizard
+//  .config  Interactive owner-only configuration wizard
 // =========================================================================
 cmd({
     pattern: 'config',
-    react: 'âš™ï¸',
+    react: '��',
     desc: 'Configure receiver destinations (groups & private numbers).',
     category: 'download',
     use: '.config',
@@ -1619,7 +1619,7 @@ cmd({
     try {
         const senderJid = m.sender || mek.sender || from;
         if (!isOwner(senderJid)) {
-            return reply('âŒ Only the bot owner can use this command.');
+            return reply('�R Only the bot owner can use this command.');
         }
 
         initUpsertListener(conn);
@@ -1645,11 +1645,11 @@ cmd({
         let targetText = '';
         if (current.targets && current.targets.length > 0) {
             current.targets.forEach((t, idx) => {
-                const icon = t.type === 'group' ? '📤' : '📥';
+                const icon = t.type === 'group' ? '=�' : '=�';
                 targetText += `  ${idx + 1}. ${icon} *${t.name}* (${t.jid})\n`;
             });
         } else if (current.mode === 'group' && current.groupJid) {
-            targetText += `  1. 📤 *${current.groupName || 'Group'}* (${current.groupJid})\n`;
+            targetText += `  1. =� *${current.groupName || 'Group'}* (${current.groupJid})\n`;
         } else {
             targetText = `  _Defaulting to your Private Chat (*+${cleanSender.split('@')[0]}*)_\n`;
         }
@@ -1657,21 +1657,21 @@ cmd({
         let groupListText = '';
         if (groups.length > 0) {
             groups.forEach((g, i) => {
-                groupListText += `  ${i + 1}. 📤 ${g.subject}\n`;
+                groupListText += `  ${i + 1}. =� ${g.subject}\n`;
             });
         } else {
             groupListText = '  _No active groups found. Make sure the bot number is added to your WhatsApp group(s)._\n';
         }
 
         const sent = await reply(
-            `âš™ï¸ *DanieWatch Receiver Destinations Config*\n\n` +
-            `🎯 *Current Active Receiver(s):*\n${targetText}\n` +
-            `📋 *Available WhatsApp Groups (${groups.length}):*\n${groupListText}\n` +
+            `�� *DanieWatch Receiver Destinations Config*\n\n` +
+            `<� *Current Active Receiver(s):*\n${targetText}\n` +
+            `=� *Available WhatsApp Groups (${groups.length}):*\n${groupListText}\n` +
             `*How to set receivers:*\n` +
-            `  â€¢ Reply with group serial number(s) (e.g. \`1\`, \`1, 2\`, \`1-3\`, or \`all\`)\n` +
-            `  â€¢ Reply with phone number(s) in +92 or 92 format (e.g. \`923253068800\`)\n` +
-            `  â€¢ Combine both! (e.g. \`1, 2, +923253068800\`)\n` +
-            `  â€¢ Reply \`clear\` to reset back to your default private chat.\n\n` +
+            `  " Reply with group serial number(s) (e.g. \`1\`, \`1, 2\`, \`1-3\`, or \`all\`)\n` +
+            `  " Reply with phone number(s) in +92 or 92 format (e.g. \`923253068800\`)\n` +
+            `  " Combine both! (e.g. \`1, 2, +923253068800\`)\n` +
+            `  " Reply \`clear\` to reset back to your default private chat.\n\n` +
             `_Reply to this message with your choice(s)._`
         );
         if (sent && sent.key) {
@@ -1679,7 +1679,7 @@ cmd({
         }
     } catch (error) {
         console.error('[DanieDownload] Config error:', error);
-        reply(`âŒ Config error: ${error.message}`);
+        reply(`�R Config error: ${error.message}`);
     }
 });
 
@@ -1711,7 +1711,7 @@ async function handleConfigReply(conn, mek, m, senderJid, text, reply) {
     if (['clear', 'reset', '4', 'clean'].includes(lowerText)) {
         saveSettings({ mode: 'private', targets: [], groupJid: '', groupName: '', privateJid: '', privateName: '' });
         delete pendingConfig[cleanSender];
-        return reply(`ðŸ—‘ï¸ All target receivers cleared!\n\nDefault receiver reset to your Private Chat: *+${cleanSender.split('@')[0]}*`);
+        return reply(`=�� All target receivers cleared!\n\nDefault receiver reset to your Private Chat: *+${cleanSender.split('@')[0]}*`);
     }
 
     let selectedTargets = [];
@@ -1761,9 +1761,9 @@ async function handleConfigReply(conn, mek, m, senderJid, text, reply) {
 
     if (selectedTargets.length === 0) {
         if (groups.length === 0) {
-            return reply('âŒ No active groups found for the bot. Make sure the bot WhatsApp number is added into your WhatsApp group as a member/admin, then try `.config` or `.setgroup` again.');
+            return reply('�R No active groups found for the bot. Make sure the bot WhatsApp number is added into your WhatsApp group as a member/admin, then try `.config` or `.setgroup` again.');
         }
-        return reply(`âŒ Invalid choice! Reply with group serial number(s) (e.g. \`1\` or \`1, 2\`), phone number(s) (e.g. \`923253068800\`), or \`all\`. Or reply \`clear\` to reset.`);
+        return reply(`�R Invalid choice! Reply with group serial number(s) (e.g. \`1\` or \`1, 2\`), phone number(s) (e.g. \`923253068800\`), or \`all\`. Or reply \`clear\` to reset.`);
     }
 
     const settings = loadSettings();
@@ -1793,20 +1793,20 @@ async function handleConfigReply(conn, mek, m, senderJid, text, reply) {
     saveSettings(settings);
     delete pendingConfig[cleanSender];
 
-    let resText = `✅ Saved ${selectedTargets.length} target receiver(s) for Upload & Auto-Forwarding:\n\n`;
+    let resText = ` Saved ${selectedTargets.length} target receiver(s) for Upload & Auto-Forwarding:\n\n`;
     settings.targets.forEach((t, idx) => {
-        const icon = t.type === 'group' ? '📤' : '📥';
+        const icon = t.type === 'group' ? '=�' : '=�';
         resText += `  ${idx + 1}. ${icon} *${t.name}* (${t.jid})\n`;
     });
     return reply(resText);
 }
 
 // =========================================================================
-//  .setgroup — Quick shortcut to pick a group destination
+//  .setgroup  Quick shortcut to pick a group destination
 // =========================================================================
 cmd({
     pattern: 'setgroup',
-    react: '📋',
+    react: '=�',
     desc: 'Quick-set the target group for downloads.',
     category: 'download',
     use: '.setgroup list  OR  .setgroup <number>',
@@ -1818,7 +1818,7 @@ cmd({
     try {
         const senderJid = m.sender || mek.sender || from;
         if (!isOwner(senderJid)) {
-            return reply('âŒ Only the bot owner can use this command.');
+            return reply('�R Only the bot owner can use this command.');
         }
 
         const arg = (q || '').trim().toLowerCase();
@@ -1827,7 +1827,7 @@ cmd({
         try {
             groupsObj = await conn.groupFetchAllParticipating();
         } catch (err) {
-            return reply(`âŒ Failed to fetch groups: ${err.message}`);
+            return reply(`�R Failed to fetch groups: ${err.message}`);
         }
 
         const groups = Object.values(groupsObj).map(g => ({
@@ -1836,7 +1836,7 @@ cmd({
         }));
 
         if (groups.length === 0) {
-            return reply('âŒ No groups found.');
+            return reply('�R No groups found.');
         }
 
         const cleanSender = cleanJid(senderJid);
@@ -1844,9 +1844,9 @@ cmd({
         if (!arg || arg === 'list') {
             pendingConfig[cleanSender] = { step: 'group', groups };
 
-            let list = '📋 *Your Groups:*\n\n';
+            let list = '=� *Your Groups:*\n\n';
             groups.forEach((g, i) => {
-                list += `  \`${i + 1}\` — ${g.subject}\n`;
+                list += `  \`${i + 1}\`  ${g.subject}\n`;
             });
             list += `\n_Reply with just the number to select._`;
             return reply(list);
@@ -1854,7 +1854,7 @@ cmd({
 
         const num = parseInt(arg, 10);
         if (isNaN(num) || num < 1 || num > groups.length) {
-            return reply(`âŒ Invalid selection. Use a number from 1 to ${groups.length}.\nUse \`.setgroup list\` to see all groups.`);
+            return reply(`�R Invalid selection. Use a number from 1 to ${groups.length}.\nUse \`.setgroup list\` to see all groups.`);
         }
 
         const chosen = groups[num - 1];
@@ -1868,11 +1868,11 @@ cmd({
         };
         saveSettings(settings);
         delete pendingConfig[cleanSender];
-        return reply(`✅ Download target set to group: *${chosen.subject}*\nðŸ†” \`${chosen.jid}\``);
+        return reply(` Download target set to group: *${chosen.subject}*\n<� \`${chosen.jid}\``);
 
     } catch (error) {
         console.error('[DanieDownload] Setgroup error:', error);
-        reply(`âŒ Error: ${error.message}`);
+        reply(`�R Error: ${error.message}`);
     }
 });
 
@@ -1929,7 +1929,7 @@ function parseQueryToItems(q) {
 }
 
 // =========================================================================
-//  .download — Enhanced: supports multiple files, movie scraping, TMDB info
+//  .download  Enhanced: supports multiple files, movie scraping, TMDB info
 // =========================================================================
 async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal = null, activeDownloadRef = null, preferredServer = null, silentErrors = false) {
     console.log("=== DOWNLOAD COMMAND TRIGGERED ===");
@@ -1937,7 +1937,7 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
     try {
         if (!q) {
             return reply(
-                'âŒ Please provide a download link!\n\n' +
+                '�R Please provide a download link!\n\n' +
                 '*Usage:*\n' +
                 '`.d https://example.com/file.zip`\n' +
                 '`.d myname.zip = https://example.com/file.zip`\n' +
@@ -1961,14 +1961,14 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
             let targetFilename = customFilename;
 
             if (items.length > 1) {
-                await reply(`â³ Processing file *${i + 1}/${items.length}*...\n📱 Target: ${targetFilename || 'Auto-detect'}`);
+                await reply(`⏳ Processing file *${i + 1}/${items.length}*...\n=� Target: ${targetFilename || 'Auto-detect'}`);
             }
 
             // Direct download bypass (no movie scraping/resolution)
 
             // Basic URL validation
             if (!url.startsWith('http://') && !url.startsWith('https://')) {
-                await reply(`âŒ Invalid link format for item ${i + 1}! Skipping.\nParsed URL: \`${url}\``);
+                await reply(`�R Invalid link format for item ${i + 1}! Skipping.\nParsed URL: \`${url}\``);
                 continue;
             }
 
@@ -2081,15 +2081,15 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
                               ['application/zip', 'application/x-tar', 'application/x-rar-compressed', 'application/x-gzip', 'application/x-zip-compressed'].includes(mime.toLowerCase());
 
             // 2GB size limit applies ONLY to non-archive files.
-            // Archives can be any size — individual files inside are checked after extraction.
+            // Archives can be any size  individual files inside are checked after extraction.
             if (!isArchive && sizeInBytes > 2000 * 1024 * 1024) {
                 try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch (_) {}
-                await reply(`âŒ File ${tempFilename} is too large (${sizeInMB} MB). Max upload limit is 2 GB.`);
+                await reply(`�R File ${tempFilename} is too large (${sizeInMB} MB). Max upload limit is 2 GB.`);
                 continue;
             }
 
             if (isArchive) {
-                await reply(`📱¦ Archive detected: *${tempFilename}* (${sizeInMB} MB). Extracting files...`);
+                await reply(`=� Archive detected: *${tempFilename}* (${sizeInMB} MB). Extracting files...`);
                 const targetDir = path.join(__dirname, 'extracted_' + Date.now());
                 try {
                     await extractArchive(tempFilePath, targetDir);
@@ -2147,7 +2147,7 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
                         const fileSizeInMB = (fileSizeInBytes / (1024 * 1024)).toFixed(2);
                         
                         if (fileSizeInBytes > 2000 * 1024 * 1024) {
-                            await reply(`âš ï¸ Skipping *${baseName}* — exceeds 2 GB limit (${fileSizeInMB} MB).`);
+                            await reply(`�� Skipping *${baseName}*  exceeds 2 GB limit (${fileSizeInMB} MB).`);
                             skippedCount++;
                             // Delete oversized file immediately
                             try { if (fs.existsSync(extractedFilePath)) fs.unlinkSync(extractedFilePath); } catch (_) {}
@@ -2182,7 +2182,7 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
                             finalFileName += '.' + fileExt;
                         }
                         
-                        await reply(`📤 Uploading *${fi + 1}/${totalFiles}*: *${path.basename(finalFileName)}* (${fileSizeInMB} MB)`);
+                        await reply(`=� Uploading *${fi + 1}/${totalFiles}*: *${path.basename(finalFileName)}* (${fileSizeInMB} MB)`);
                         
                         try {
                             await sendAndForwardFile(conn, activeTargets, {
@@ -2193,7 +2193,7 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
                             
                             uploadedCount++;
                             uploadedFiles.push(path.basename(finalFileName));
-                            console.log(`[DanieDownload] ✅ Uploaded & deleted: ${finalFileName} (${fileSizeInMB} MB)`);
+                            console.log(`[DanieDownload]  Uploaded & deleted: ${finalFileName} (${fileSizeInMB} MB)`);
                         } catch (uploadErr) {
                             if (uploadErr.message === 'Aborted' || (abortSignal && abortSignal.aborted)) {
                                 console.log('[DanieDownload] Archive upload aborted by user.');
@@ -2201,30 +2201,30 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
                             }
                             failedCount++;
                             failedFiles.push({ name: path.basename(finalFileName), error: uploadErr.message });
-                            console.error(`[DanieDownload] âŒ Upload failed for ${finalFileName}: ${uploadErr.message}`);
-                            await reply(`âŒ Failed to upload *${path.basename(finalFileName)}*: ${uploadErr.message}`);
+                            console.error(`[DanieDownload] �R Upload failed for ${finalFileName}: ${uploadErr.message}`);
+                            await reply(`�R Failed to upload *${path.basename(finalFileName)}*: ${uploadErr.message}`);
                         }
 
                         // Delete file immediately after upload attempt (success or fail) to free disk space
                         try { if (fs.existsSync(extractedFilePath)) fs.unlinkSync(extractedFilePath); } catch (_) {}
                     }
                     
-                    let summaryMsg = `✅ *Archive Complete!*\n📱¦ Total files: *${totalFiles}*\n📤 Uploaded: *${uploadedCount}*`;
-                    if (skippedCount > 0) summaryMsg += `\nâš ï¸ Skipped (too large): *${skippedCount}*`;
+                    let summaryMsg = ` *Archive Complete!*\n=� Total files: *${totalFiles}*\n=� Uploaded: *${uploadedCount}*`;
+                    if (skippedCount > 0) summaryMsg += `\n�� Skipped (too large): *${skippedCount}*`;
                     if (failedCount > 0) {
-                        summaryMsg += `\nâŒ Failed: *${failedCount}*`;
+                        summaryMsg += `\n�R Failed: *${failedCount}*`;
                         failedFiles.forEach(f => {
-                            summaryMsg += `\n   â€¢ ${f.name}: ${f.error}`;
+                            summaryMsg += `\n   " ${f.name}: ${f.error}`;
                         });
                     }
-                    summaryMsg += `\n🎯 *Sent to:* ${destLabel}`;
+                    summaryMsg += `\n<� *Sent to:* ${destLabel}`;
                     await reply(summaryMsg);
                 } catch (err) {
                     if (err.message === 'Aborted' || (abortSignal && abortSignal.aborted)) {
                         console.log('[DanieDownload] Archive process aborted cleanly.');
                         throw err;
                     }
-                    await reply(`âŒ Failed to extract or process archive: ${err.message}`);
+                    await reply(`�R Failed to extract or process archive: ${err.message}`);
                 } finally {
                     // Clean up extracted directory (should be mostly empty now)
                     try {
@@ -2262,7 +2262,7 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
 
                 // Send completion message
                 try {
-                    await reply(`✅ *Download Complete!*\n📱„ *File:* ${finalFileName}\n📱¦ *Size:* ${sizeInMB} MB\n🎯 *Sent to:* ${destLabel}`);
+                    await reply(` *Download Complete!*\n=� *File:* ${finalFileName}\n=� *Size:* ${sizeInMB} MB\n<� *Sent to:* ${destLabel}`);
                 } catch (_) {}
 
                 // Delete temporary file
@@ -2278,7 +2278,7 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
         console.error('Download command error:', error);
         if (!silentErrors) {
             try {
-                await reply(`âŒ Failed to download/upload file: ${error.message}`);
+                await reply(`�R Failed to download/upload file: ${error.message}`);
             } catch (replyErr) {
                 console.error('[DanieDownload] Failed to send error reply (connection likely closed):', replyErr.message);
             }
@@ -2335,58 +2335,58 @@ async function handlePullDownStatus(conn, mek, from, reply) {
     const uptime = formatUptime(process.uptime());
     const memUsed = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1);
 
-    let statusText = `╭─── ⋆ ⋅ ✦ ⋅ ⋆ ───╮\n`;
-    statusText += `   📊 *DANIEWATCH STATUS*\n`;
-    statusText += `╰─── ⋆ ⋅ ✦ ⋅ ⋆ ───╯\n\n`;
+    let statusText = `m    � � & � �    n\n`;
+    statusText += `   =� *DANIEWATCH STATUS*\n`;
+    statusText += `p    � � & � �    o\n\n`;
 
     // System info
-    statusText += `├──✦ ’ *System*\n`;
-    statusText += `│  â±ï¸ Uptime: *${uptime}*\n`;
-    statusText += `│  🧠 Memory: *${memUsed} MB*\n`;
-    statusText += `└─────────────\n\n`;
+    statusText += `  & � *System*\n`;
+    statusText += `  ⏱� Uptime: *${uptime}*\n`;
+    statusText += `  >� Memory: *${memUsed} MB*\n`;
+    statusText += `             \n\n`;
 
     // Active task
     if (globalProgressState.active && globalProgressState.percentage < 100) {
-        statusText += `├──✦ ’ *Active Download*\n`;
-        statusText += `│  ðŸŽ¬ File: *${globalProgressState.fileName}*\n`;
-        if (globalProgressState.quality) statusText += `│  📱º Quality: *${globalProgressState.quality}*\n`;
-        statusText += `│  📱¦ Progress: *${globalProgressState.downloadedMB} MB / ~${globalProgressState.totalEstMB} MB (${globalProgressState.percentage}%)*\n`;
-        statusText += `│  🚀 Speed: *${globalProgressState.speedMBs} MB/s*\n`;
-        statusText += `└─────────────\n\n`;
+        statusText += `  & � *Active Download*\n`;
+        statusText += `  <� File: *${globalProgressState.fileName}*\n`;
+        if (globalProgressState.quality) statusText += `  =� Quality: *${globalProgressState.quality}*\n`;
+        statusText += `  =� Progress: *${globalProgressState.downloadedMB} MB / ~${globalProgressState.totalEstMB} MB (${globalProgressState.percentage}%)*\n`;
+        statusText += `  =� Speed: *${globalProgressState.speedMBs} MB/s*\n`;
+        statusText += `             \n\n`;
     } else if (isTaskRunning) {
-        statusText += `├──✦ ’ *Active Task*\n`;
-        statusText += `│  âš™ï¸ ${globalTaskQueue.activeTask.description || 'Processing...'}\n`;
-        statusText += `│  📱Œ Phase: ${globalProgressState.phaseText || 'In Progress'}\n`;
-        statusText += `└─────────────\n\n`;
+        statusText += `  & � *Active Task*\n`;
+        statusText += `  �� ${globalTaskQueue.activeTask.description || 'Processing...'}\n`;
+        statusText += `  =� Phase: ${globalProgressState.phaseText || 'In Progress'}\n`;
+        statusText += `             \n\n`;
     } else {
-        statusText += `ðŸŸ¢ *No active tasks running.*\n\n`;
+        statusText += `=� *No active tasks running.*\n\n`;
     }
 
     // Queue
     if (pendingCount > 0) {
-        statusText += `├──✦ ’ *Pending Queue (${pendingCount})*\n`;
+        statusText += `  & � *Pending Queue (${pendingCount})*\n`;
         globalTaskQueue.queue.forEach((t, idx) => {
-            statusText += `│   ${idx + 1}. ${t.description}\n`;
+            statusText += `   ${idx + 1}. ${t.description}\n`;
         });
-        statusText += `└─────────────\n\n`;
+        statusText += `             \n\n`;
     } else {
-        statusText += `📥 *Queue:* Empty\n\n`;
+        statusText += `=� *Queue:* Empty\n\n`;
     }
 
     // Config
     let targetSummary = 'Self (Private Chat)';
     if (settings.targets && settings.targets.length > 0) {
         targetSummary = settings.targets.map(t => {
-            const icon = t.type === 'group' ? '📤' : '📥';
+            const icon = t.type === 'group' ? '=�' : '=�';
             return `${icon} ${t.name}`;
         }).join(', ');
     } else if (settings.mode === 'group' && settings.groupName) {
-        targetSummary = `📤 ${settings.groupName}`;
+        targetSummary = `=� ${settings.groupName}`;
     }
-    statusText += `├──✦ ’ *Config*\n`;
-    statusText += `│  🔒 Mode: *${settings.mode || 'private'}*\n`;
-    statusText += `│  🎯 Targets: *${targetSummary}*\n`;
-    statusText += `└─────────────\n\n`;
+    statusText += `  & � *Config*\n`;
+    statusText += `  = Mode: *${settings.mode || 'private'}*\n`;
+    statusText += `  <� Targets: *${targetSummary}*\n`;
+    statusText += `             \n\n`;
 
     statusText += '_Send `.s` anytime to refresh. Use `.c` to cancel all._';
 
@@ -2402,14 +2402,14 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
     try {
         if (!q) {
             return reply(
-                'âŒ Please provide a TMDB link and download url(s)!\n\n' +
+                '�R Please provide a TMDB link and download url(s)!\n\n' +
                 '*Usage:*\n' +
                 '`.p https://www.themoviedb.org/movie/550 = https://example.com/file1.mp4`\n' +
                 '`.p https://www.themoviedb.org/movie/550 = https://example.com/file1.mp4, Episode 2 = https://example.com/file2.mp4`'
             );
         }
 
-        let statusMsg = await reply('â³ *[1/3] Fetching TMDB metadata & poster...*');
+        let statusMsg = await reply('⏳ *[1/3] Fetching TMDB metadata & poster...*');
         globalProgressState.statusMsg = statusMsg && statusMsg.key ? { key: statusMsg.key, from } : null;
         globalProgressState.active = true;
         globalProgressState.phaseText = '[1/3] Fetching TMDB metadata';
@@ -2435,7 +2435,7 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
         }
 
         if (!tmdbUrl) {
-            return updatePStatus('âŒ Error: First item must specify a valid TMDB URL (e.g. `.p https://www.themoviedb.org/movie/550 = ...`)');
+            return updatePStatus('�R Error: First item must specify a valid TMDB URL (e.g. `.p https://www.themoviedb.org/movie/550 = ...`)');
         }
 
         const match = tmdbUrl.match(/themoviedb\.org\/(movie|tv)\/(\d+)/i);
@@ -2448,7 +2448,7 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
         const tmdb = await fetchTmdbById(tmdbId, mediaType, specifiedSeason);
 
         if (!tmdb) {
-            return updatePStatus('âŒ Error: Could not fetch metadata for that TMDB URL.');
+            return updatePStatus('❌ Error: Could not fetch metadata for that TMDB URL.');
         }
 
         const settings = loadSettings();
@@ -2463,8 +2463,8 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
                 const targetSeason = tmdb.seasons.find(s => s.season_number === specifiedSeason);
                 const epCount = targetSeason ? targetSeason.episode_count : 0;
                 const sLabel = `S${String(specifiedSeason).padStart(2, '0')}`;
-                seasonText = `📱º *Season:* *${sLabel}*\n`;
-                episodeText = `ðŸ”¢ *Episodes:* *E01 - E${String(epCount).padStart(2, '0')}*\n`;
+                seasonText = `📺 *Season:* *${sLabel}*\n`;
+                episodeText = `🔢 *Episodes:* *E01 - E${String(epCount).padStart(2, '0')}*\n`;
                 
                 if (targetSeason && targetSeason.overview) {
                     tmdb.overview = targetSeason.overview;
@@ -2478,26 +2478,26 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
                     const maxLabel = `S${String(maxSeason).padStart(2, '0')}`;
                     
                     if (minSeason === maxSeason) {
-                        seasonText = `📱º *Season:* *${minLabel}*\n`;
+                        seasonText = `📺 *Season:* *${minLabel}*\n`;
                     } else {
-                        seasonText = `📱º *Season:* *${minLabel} - ${maxLabel}*\n`;
+                        seasonText = `📺 *Season:* *${minLabel} - ${maxLabel}*\n`;
                     }
                     
-                    episodeText = `ðŸ”¢ *Episodes:*\n`;
+                    episodeText = `🔢 *Episodes:*\n`;
                     validSeasons.forEach(s => {
                         const epCount = s.episode_count;
-                        episodeText += `   â€¢ Season ${s.season_number}: *E01 - E${String(epCount).padStart(2, '0')}*\n`;
+                        episodeText += `   • Season ${s.season_number}: *E01 - E${String(epCount).padStart(2, '0')}*\n`;
                     });
                 }
             }
         }
 
-        let detailsMessage = `📱 *Title:* *${tmdb.title}*\n`;
-        detailsMessage += `📱… *Year:* *${tmdb.year}*\n`;
+        let detailsMessage = `🎬 *Title:* *${tmdb.title}*\n`;
+        detailsMessage += `📅 *Year:* *${tmdb.year}*\n`;
         if (seasonText) detailsMessage += seasonText;
-        detailsMessage += `ðŸŽ­ *Genre:* *${tmdb.genres}*\n`;
+        detailsMessage += `🎭 *Genre:* *${tmdb.genres}*\n`;
         if (episodeText) detailsMessage += episodeText;
-        detailsMessage += `\n👑 *ã€Ž \u{1D403}\u{1D400}\u{1D40D}\u{1D408}\u{1D404}\u{1D416}\u{1D400}\u{1D413}\u{1D402}\u{1D407} ã€* 👑`;
+        detailsMessage += `\n💚 *DANIEWATCH*`;
 
         // 2. Download and send poster image first to configured destJid
         const posterUrl = tmdb.posterUrl;
@@ -2553,7 +2553,7 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
             }
         }
         
-        await updatePStatus(`✅ *[1/3] TMDB details & poster sent to:* *${destLabel}*`, true);
+        await updatePStatus(` *[1/3] TMDB details & poster sent to:* *${destLabel}*`, true);
 
         // 3. Fetch and send trailer video from YouTube if available
         if (tmdb && tmdb.trailerUrl) {
@@ -2562,7 +2562,7 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
             try {
                 const directVideoUrl = await downloadYoutubeVideoUrl(tmdb.trailerUrl);
                 if (directVideoUrl) {
-                    await updatePStatus(`â³ *[2/3] Downloading trailer video from YouTube...*`, true);
+                    await updatePStatus(`⏳ *[2/3] Downloading trailer video from YouTube...*`, true);
                     const fetch = require('node-fetch');
                     const videoResponse = await fetch(directVideoUrl, {
                         headers: {
@@ -2607,7 +2607,7 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
 
                             const videoPayload = {
                                 video: { url: tempTrailerPath },
-                                caption: `ðŸŽ¬ *Trailer:* *${tmdb.title}*`
+                                caption: `🎬 *Trailer:* *${tmdb.title}*`
                             };
                             if (videoThumbBuf) {
                                 videoPayload.jpegThumbnail = videoThumbBuf;
@@ -2642,22 +2642,22 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
         if (downloadItems.length > 0) {
             const downloadQuery = downloadItems.join(', ');
             console.log(`[DanieWatch] Executing media downloads for .p command: ${downloadQuery}`);
-            await updatePStatus(`â³ *[3/3] Initializing media download(s)...*`, true);
+            await updatePStatus(`⏳ *[3/3] Initializing media download(s)...*`, true);
             await downloadCommandHandler(conn, mek, from, senderJid, downloadQuery, reply, abortSignal, activeDownloadRef, null, true);
-            await updatePStatus(`✅ *[3/3] Completed processing for:* *${tmdb.title}*`, true);
+            await updatePStatus(` *[3/3] Completed processing for:* *${tmdb.title}*`, true);
         } else {
-            await updatePStatus(`✅ *Processing completed for:* *${tmdb.title}*`, true);
+            await updatePStatus(` *Processing completed for:* *${tmdb.title}*`, true);
         }
 
     } catch (error) {
         console.error('P command error:', error);
-        reply(`âŒ Failed to process P command: ${error.message}`);
+        reply(`�R Failed to process P command: ${error.message}`);
     }
 }
 
 cmd({
     pattern: 'd',
-    react: '📥',
+    react: '=�',
     desc: 'Downloads files. Supports multiple files separated by commas, Vegamovies/Rogmovies/HDHub4u auto-scraping, and TMDB integration.',
     category: 'download',
     use: '.d <link>  OR  .d name = <link>  OR  .d name1 = link1, name2 link2',
@@ -2672,7 +2672,7 @@ cmd({
 
 cmd({
     pattern: 'p',
-    react: 'ðŸŽ¬',
+    react: '<�',
     desc: 'Downloads files with TMDB metadata. The first item\'s name should be a TMDB URL.',
     category: 'download',
     use: '.p <TMDB_URL> = <link1>, <name2> = <link2>, ...',
@@ -2688,7 +2688,7 @@ cmd({
 cmd({
     pattern: 's',
     alias: ['status', 'progress'],
-    react: '⚡',
+    react: '�',
     desc: 'Pulls down the active download progress card to the bottom of the chat, deleting the old message higher up.',
     category: 'download',
     use: '.s',
@@ -2701,11 +2701,11 @@ cmd({
 });
 
 // =========================================================================
-//  .groupid — unchanged from original
+//  .groupid  unchanged from original
 // =========================================================================
 cmd({
     pattern: 'groupid',
-    react: 'ðŸ†”',
+    react: '<�',
     desc: 'Get the ID of the current group/chat.',
     category: 'download',
     filename: __filename
@@ -2717,17 +2717,17 @@ cmd({
         await reply(`*Current Chat ID:* \`${from}\``);
     } catch (error) {
         console.error(error);
-        reply(`âŒ Failed to get JID: ${error.message}`);
+        reply(`�R Failed to get JID: ${error.message}`);
     }
 });
 
 // =========================================================================
-//  .status — Show current download destination configuration
+//  .status  Show current download destination configuration
 // =========================================================================
 cmd({
     pattern: 'dlstatus',
     alias: ['downloadstatus', 'dlconfig'],
-    react: '📊',
+    react: '=�',
     desc: 'Show current download destination configuration.',
     category: 'download',
     use: '.dlstatus',
@@ -2742,13 +2742,13 @@ cmd({
         let targetText = '';
         if (activeTargets.length > 0) {
             activeTargets.forEach((t, idx) => {
-                const icon = t.type === 'group' ? '📤' : '📥';
+                const icon = t.type === 'group' ? '=�' : '=�';
                 targetText += `  ${idx + 1}. ${icon} *${t.name}* (${t.jid})\n`;
             });
         }
-        await reply(`📊 *Download Config Status*\n\nâš™ï¸ Mode: *${settings.mode}*\n🎯 Active Target Receiver(s):\n${targetText}\n_Use \`.config\` to change._`);
+        await reply(`=� *Download Config Status*\n\n�� Mode: *${settings.mode}*\n<� Active Target Receiver(s):\n${targetText}\n_Use \`.config\` to change._`);
     } catch (error) {
-        reply(`âŒ Error: ${error.message}`);
+        reply(`�R Error: ${error.message}`);
     }
 });
 
@@ -2763,7 +2763,7 @@ DANIE_COMMANDS['status'] = DANIE_COMMANDS['s'];
 DANIE_COMMANDS['progress'] = DANIE_COMMANDS['s'];
 
 DANIE_COMMANDS['config'] = async (conn, mek, from, senderJid, args, reply) => {
-    if (!isOwner(senderJid)) return reply('âŒ Only the bot owner can use this command.');
+    if (!isOwner(senderJid)) return reply('�R Only the bot owner can use this command.');
     initUpsertListener(conn);
     const cleanSender = cleanJid(senderJid);
 
@@ -2787,11 +2787,11 @@ DANIE_COMMANDS['config'] = async (conn, mek, from, senderJid, args, reply) => {
     let targetText = '';
     if (current.targets && current.targets.length > 0) {
         current.targets.forEach((t, idx) => {
-            const icon = t.type === 'group' ? '📤' : '📥';
+            const icon = t.type === 'group' ? '=�' : '=�';
             targetText += `  ${idx + 1}. ${icon} *${t.name}* (${t.jid})\n`;
         });
     } else if (current.mode === 'group' && current.groupJid) {
-        targetText += `  1. 📤 *${current.groupName || 'Group'}* (${current.groupJid})\n`;
+        targetText += `  1. =� *${current.groupName || 'Group'}* (${current.groupJid})\n`;
     } else {
         targetText = `  _Defaulting to your Private Chat (*+${cleanSender.split('@')[0]}*)_\n`;
     }
@@ -2799,21 +2799,21 @@ DANIE_COMMANDS['config'] = async (conn, mek, from, senderJid, args, reply) => {
     let groupListText = '';
     if (groups.length > 0) {
         groups.forEach((g, i) => {
-            groupListText += `  ${i + 1}. 📤 ${g.subject}\n`;
+            groupListText += `  ${i + 1}. =� ${g.subject}\n`;
         });
     } else {
         groupListText = '  _No active groups found. Make sure the bot number is added to your WhatsApp group(s)._\n';
     }
 
     const sent = await reply(
-        `âš™ï¸ *DanieWatch Receiver Destinations Config*\n\n` +
-        `🎯 *Current Active Receiver(s):*\n${targetText}\n` +
-        `📋 *Available WhatsApp Groups (${groups.length}):*\n${groupListText}\n` +
+        `�� *DanieWatch Receiver Destinations Config*\n\n` +
+        `<� *Current Active Receiver(s):*\n${targetText}\n` +
+        `=� *Available WhatsApp Groups (${groups.length}):*\n${groupListText}\n` +
         `*How to set receivers:*\n` +
-        `  â€¢ Reply with group serial number(s) (e.g. \`1\`, \`1, 2\`, \`1-3\`, or \`all\`)\n` +
-        `  â€¢ Reply with phone number(s) in +92 or 92 format (e.g. \`923253068800\`)\n` +
-        `  â€¢ Combine both! (e.g. \`1, 2, +923253068800\`)\n` +
-        `  â€¢ Reply \`clear\` to reset back to your default private chat.\n\n` +
+        `  " Reply with group serial number(s) (e.g. \`1\`, \`1, 2\`, \`1-3\`, or \`all\`)\n` +
+        `  " Reply with phone number(s) in +92 or 92 format (e.g. \`923253068800\`)\n` +
+        `  " Combine both! (e.g. \`1, 2, +923253068800\`)\n` +
+        `  " Reply \`clear\` to reset back to your default private chat.\n\n` +
         `_Reply to this message with your choice(s)._`
     );
     if (sent && sent.key) {
@@ -2822,19 +2822,19 @@ DANIE_COMMANDS['config'] = async (conn, mek, from, senderJid, args, reply) => {
 };
 
 DANIE_COMMANDS['setgroup'] = async (conn, mek, from, senderJid, args, reply) => {
-    if (!isOwner(senderJid)) return reply('âŒ Only the bot owner can use this command.');
+    if (!isOwner(senderJid)) return reply('�R Only the bot owner can use this command.');
     initUpsertListener(conn);
     let groupsObj;
-    try { groupsObj = await conn.groupFetchAllParticipating(); } catch (err) { return reply(`âŒ Failed to fetch groups: ${err.message}`); }
-    try { groupsObj = await conn.groupFetchAllParticipating(); } catch (err) { return reply(`❌ Failed to fetch groups: ${err.message}`); }
+    try { groupsObj = await conn.groupFetchAllParticipating(); } catch (err) { return reply(`�R Failed to fetch groups: ${err.message}`); }
+    try { groupsObj = await conn.groupFetchAllParticipating(); } catch (err) { return reply(`L Failed to fetch groups: ${err.message}`); }
     const groups = Object.values(groupsObj).map(g => ({ jid: g.id, subject: g.subject || 'Unknown Group' }));
-    if (groups.length === 0) return reply('❌ No groups found.');
+    if (groups.length === 0) return reply('L No groups found.');
     const cleanSender = cleanJid(senderJid);
     const arg = (args || '').trim().toLowerCase();
     if (!arg || arg === 'list') {
         pendingConfig[cleanSender] = { step: 'group', groups, messageId: null };
-        let list = '📋 *Your Groups:*\n\n';
-        groups.forEach((g, i) => { list += `  \`${i + 1}\` — ${g.subject}\n`; });
+        let list = '=� *Your Groups:*\n\n';
+        groups.forEach((g, i) => { list += `  \`${i + 1}\`  ${g.subject}\n`; });
         list += `\n_Reply with just the number to select._`;
         const sent = await reply(list);
         if (sent && sent.key) {
@@ -2843,7 +2843,7 @@ DANIE_COMMANDS['setgroup'] = async (conn, mek, from, senderJid, args, reply) => 
         return sent;
     }
     const num = parseInt(arg, 10);
-    if (isNaN(num) || num < 1 || num > groups.length) return reply(`❌ Invalid selection. Use a number from 1 to ${groups.length}.`);
+    if (isNaN(num) || num < 1 || num > groups.length) return reply(`L Invalid selection. Use a number from 1 to ${groups.length}.`);
     const chosen = groups[num - 1];
     saveSettings({
         mode: 'group',
@@ -2853,7 +2853,7 @@ DANIE_COMMANDS['setgroup'] = async (conn, mek, from, senderJid, args, reply) => 
         privateName: '',
         targets: [{ jid: cleanJid(chosen.jid), name: chosen.subject, type: 'group' }]
     });
-    return reply(`✅ Download target set to group: *${chosen.subject}*\n🆔 \`${chosen.jid}\``);
+    return reply(` Download target set to group: *${chosen.subject}*\n<� \`${chosen.jid}\``);
 };
 
 DANIE_COMMANDS['groupid'] = async (conn, mek, from, senderJid, args, reply) => {
@@ -2863,7 +2863,7 @@ DANIE_COMMANDS['groupid'] = async (conn, mek, from, senderJid, args, reply) => {
 DANIE_COMMANDS['jid'] = async (conn, mek, from, senderJid, args, reply) => {
     const targetJid = cleanJid(from);
     const sender = cleanJid(senderJid || from);
-    await reply(`📱 *Current Chat JID:* \`${targetJid}\`\n👤 *Your JID:* \`${sender}\``);
+    await reply(`=� *Current Chat JID:* \`${targetJid}\`\n=d *Your JID:* \`${sender}\``);
 };
 
 DANIE_COMMANDS['dlstatus'] = async (conn, mek, from, senderJid, args, reply) => {
@@ -2872,23 +2872,23 @@ DANIE_COMMANDS['dlstatus'] = async (conn, mek, from, senderJid, args, reply) => 
     let targetText = '';
     if (activeTargets.length > 0) {
         activeTargets.forEach((t, idx) => {
-            const icon = t.type === 'group' ? '📤' : '📥';
+            const icon = t.type === 'group' ? '=�' : '=�';
             targetText += `  ${idx + 1}. ${icon} *${t.name}* (${t.jid})\n`;
         });
     }
-    await reply(`📊 *Download Config Status*\n\n⚙️ Mode: *${settings.mode}*\n🎯 Active Target Receiver(s):\n${targetText}\n_Use \`.config\` to change._`);
+    await reply(`=� *Download Config Status*\n\n� Mode: *${settings.mode}*\n<� Active Target Receiver(s):\n${targetText}\n_Use \`.config\` to change._`);
 };
 DANIE_COMMANDS['dlconfig'] = DANIE_COMMANDS['dlstatus'];
 DANIE_COMMANDS['downloadstatus'] = DANIE_COMMANDS['dlstatus'];
 
 DANIE_COMMANDS['d'] = async (conn, mek, from, senderJid, args, reply) => {
     if (!args || !args.trim()) {
-        return reply('❌ Please provide a download link!');
+        return reply('L Please provide a download link!');
     }
     const label = args.length > 50 ? args.substring(0, 47) + '...' : args;
     const task = {
         type: 'd_command',
-        description: `📥 Download Task: .d ${label}`,
+        description: `=� Download Task: .d ${label}`,
         commandText: `.d ${args}`,
         senderJid,
         from,
@@ -2898,18 +2898,18 @@ DANIE_COMMANDS['d'] = async (conn, mek, from, senderJid, args, reply) => {
     };
     const queuedTask = globalTaskQueue.add(task);
     if (globalTaskQueue.activeTask && globalTaskQueue.activeTask.id !== queuedTask.id) {
-        await reply(`📥 *Added to Queue* (Position #${globalTaskQueue.queue.length}):\n📥 Download Task: \`.d ${label}\``);
+        await reply(`=� *Added to Queue* (Position #${globalTaskQueue.queue.length}):\n=� Download Task: \`.d ${label}\``);
     }
 };
 
 DANIE_COMMANDS['p'] = async (conn, mek, from, senderJid, args, reply) => {
     if (!args || !args.trim()) {
-        return reply('❌ Please provide a TMDB link and download url(s)!');
+        return reply('L Please provide a TMDB link and download url(s)!');
     }
     const label = args.length > 50 ? args.substring(0, 47) + '...' : args;
     const task = {
         type: 'p_command',
-        description: `🎬 TMDB Task: .p ${label}`,
+        description: `<� TMDB Task: .p ${label}`,
         commandText: `.p ${args}`,
         senderJid,
         from,
@@ -2919,7 +2919,7 @@ DANIE_COMMANDS['p'] = async (conn, mek, from, senderJid, args, reply) => {
     };
     const queuedTask = globalTaskQueue.add(task);
     if (globalTaskQueue.activeTask && globalTaskQueue.activeTask.id !== queuedTask.id) {
-        await reply(`📥 *Added to Queue* (Position #${globalTaskQueue.queue.length}):\n🎬 TMDB Task: \`.p ${label}\``);
+        await reply(`=� *Added to Queue* (Position #${globalTaskQueue.queue.length}):\n<� TMDB Task: \`.p ${label}\``);
     }
 };
 
@@ -2963,12 +2963,12 @@ DANIE_COMMANDS['c'] = async (conn, mek, from, senderJid, args, reply) => {
         }
     } catch (_) {}
 
-    let msg = `🛑 *All Operations Cancelled & Reset!*`;
-    if (activeAborted) msg += `\n❌ Aborted active download/task.`;
-    if (count > 0) msg += `\n🗑️ Cleared *${count}* pending queued task(s).`;
-    msg += `\n🔄 Reset all progress states.`;
-    msg += `\n🧹 Cleaned temp files.`;
-    msg += `\n\n✅ _Bot is now in fresh idle state. Ready for new commands!_`;
+    let msg = `=� *All Operations Cancelled & Reset!*`;
+    if (activeAborted) msg += `\nL Aborted active download/task.`;
+    if (count > 0) msg += `\n=� Cleared *${count}* pending queued task(s).`;
+    msg += `\n= Reset all progress states.`;
+    msg += `\n>� Cleaned temp files.`;
+    msg += `\n\n _Bot is now in fresh idle state. Ready for new commands!_`;
     await reply(msg);
 };
 DANIE_COMMANDS['cancel'] = DANIE_COMMANDS['c'];
@@ -2983,81 +2983,81 @@ DANIE_COMMANDS['qstatus'] = DANIE_COMMANDS['que'];
 
 DANIE_COMMANDS['qdel'] = async (conn, mek, from, senderJid, args, reply) => {
     if (!args || !args.trim()) {
-        return reply('âŒ Please specify the queue item number to delete (e.g. `.qdel 1`).');
+        return reply('�R Please specify the queue item number to delete (e.g. `.qdel 1`).');
     }
     const removed = globalTaskQueue.remove(args.trim());
     if (removed) {
-        await reply(`✅ Removed item from queue:\n*${removed.description}*`);
+        await reply(` Removed item from queue:\n*${removed.description}*`);
     } else {
-        await reply(`âŒ Invalid queue position. Use \`.que\` to check active queue items.`);
+        await reply(`�R Invalid queue position. Use \`.que\` to check active queue items.`);
     }
 };
 DANIE_COMMANDS['qremove'] = DANIE_COMMANDS['qdel'];
 
 DANIE_COMMANDS['qedit'] = async (conn, mek, from, senderJid, args, reply) => {
     if (!args || !args.trim()) {
-        return reply('âŒ Usage: `.qedit <number> <new_command>`\nExample: `.qedit 1 .p https://tmdb.org/... = link`');
+        return reply('�R Usage: `.qedit <number> <new_command>`\nExample: `.qedit 1 .p https://tmdb.org/... = link`');
     }
     const parts = args.trim().split(/\s+/);
     const indexNum = parts[0];
     const newCmd = parts.slice(1).join(' ');
 
     if (!newCmd) {
-        return reply('âŒ Please provide the new command string after the index number.');
+        return reply('�R Please provide the new command string after the index number.');
     }
 
     const res = globalTaskQueue.updateCommand(indexNum, newCmd, conn, mek, from, senderJid, reply);
     if (res.error) {
-        await reply(`âŒ ${res.error}`);
+        await reply(`�R ${res.error}`);
     } else {
-        await reply(`✅ Updated queue item #${indexNum}:\n*${res.item.description}*`);
+        await reply(` Updated queue item #${indexNum}:\n*${res.item.description}*`);
     }
 };
 DANIE_COMMANDS['allow'] = async (conn, mek, from, senderJid, args, reply) => {
-    if (!isOwner(senderJid)) return reply('âŒ Only the bot owner can use this command.');
+    if (!isOwner(senderJid)) return reply('�R Only the bot owner can use this command.');
     let num = (args || '').replace(/[^0-9]/g, '');
     if (!num && mek.message?.extendedTextMessage?.contextInfo?.participant) {
         num = cleanJid(mek.message.extendedTextMessage.contextInfo.participant).split('@')[0];
     }
-    if (!num) return reply('âŒ Please provide a WhatsApp phone number!\n*Example:* `.allow 923013068663` or reply to a message with `.allow`');
+    if (!num) return reply('�R Please provide a WhatsApp phone number!\n*Example:* `.allow 923013068663` or reply to a message with `.allow`');
     const currentSudo = loadSudo();
-    if (currentSudo.includes(num)) return reply(`âš ï¸ Phone number *${num}* is already allowed!`);
+    if (currentSudo.includes(num)) return reply(`�� Phone number *${num}* is already allowed!`);
     currentSudo.push(num);
     saveSudo(currentSudo);
-    await reply(`✅ Successfully allowed *${num}* to use DanieWatch Bot commands!`);
+    await reply(` Successfully allowed *${num}* to use DanieWatch Bot commands!`);
 };
 DANIE_COMMANDS['addowner'] = DANIE_COMMANDS['allow'];
 DANIE_COMMANDS['addsudo'] = DANIE_COMMANDS['allow'];
 
 DANIE_COMMANDS['disallow'] = async (conn, mek, from, senderJid, args, reply) => {
-    if (!isOwner(senderJid)) return reply('âŒ Only the bot owner can use this command.');
+    if (!isOwner(senderJid)) return reply('�R Only the bot owner can use this command.');
     let num = (args || '').replace(/[^0-9]/g, '');
     if (!num && mek.message?.extendedTextMessage?.contextInfo?.participant) {
         num = cleanJid(mek.message.extendedTextMessage.contextInfo.participant).split('@')[0];
     }
-    if (!num) return reply('âŒ Please provide a WhatsApp phone number!\n*Example:* `.disallow 923013068663` or reply to a message with `.disallow`');
+    if (!num) return reply('�R Please provide a WhatsApp phone number!\n*Example:* `.disallow 923013068663` or reply to a message with `.disallow`');
     let currentSudo = loadSudo();
-    if (!currentSudo.includes(num)) return reply(`âš ï¸ Phone number *${num}* is not in the allowed list!`);
+    if (!currentSudo.includes(num)) return reply(`�� Phone number *${num}* is not in the allowed list!`);
     currentSudo = currentSudo.filter(n => n !== num);
     saveSudo(currentSudo);
-    await reply(`✅ Successfully removed *${num}* from allowed users!`);
+    await reply(` Successfully removed *${num}* from allowed users!`);
 };
 DANIE_COMMANDS['delowner'] = DANIE_COMMANDS['disallow'];
 DANIE_COMMANDS['delsudo'] = DANIE_COMMANDS['disallow'];
 
 DANIE_COMMANDS['allowed'] = async (conn, mek, from, senderJid, args, reply) => {
-    if (!isOwner(senderJid)) return reply('âŒ Only the bot owner can use this command.');
+    if (!isOwner(senderJid)) return reply('�R Only the bot owner can use this command.');
     const ownerNum = (process.env.NUMBER || process.env.BOT_NUMBER || '').trim().replace(/[^0-9]/g, '');
     const envSudoNums = (process.env.SUDO || '').split(',').map(n => n.trim().replace(/[^0-9]/g, '')).filter(Boolean);
     const dynamicSudo = loadSudo();
     
-    let text = `👑 *DanieWatch Allowed Users:*\n\n`;
-    text += `📱 *Primary Owner:* *${ownerNum || 'N/A'}*\n`;
+    let text = `=Q *DanieWatch Allowed Users:*\n\n`;
+    text += `=� *Primary Owner:* *${ownerNum || 'N/A'}*\n`;
     if (envSudoNums.length) {
-        text += `âš™ï¸ *Config Sudo:* *${envSudoNums.join(', ')}*\n`;
+        text += `�� *Config Sudo:* *${envSudoNums.join(', ')}*\n`;
     }
     if (dynamicSudo.length) {
-        text += `👍¤ *Allowed Users:*\n`;
+        text += `=d *Allowed Users:*\n`;
         dynamicSudo.forEach((n, idx) => {
             text += `  ${idx + 1}. *${n}*\n`;
         });
@@ -3077,7 +3077,7 @@ DANIE_COMMANDS['alive'] = async (conn, mek, from, senderJid, args, reply) => {
     } catch(e) {}
 
     const settings = loadSettings();
-    const modeLabel = settings.mode === 'group' ? '📤 Group' : '📥 Private';
+    const modeLabel = settings.mode === 'group' ? '👥 Group' : '👤 Private';
     const uptime = formatUptime(process.uptime());
     const memUsed = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1);
     const platform = process.platform === 'linux' ? '🐧 Linux' : (process.platform === 'win32' ? '🪟 Windows' : `💻 ${process.platform}`);
@@ -3090,20 +3090,16 @@ DANIE_COMMANDS['alive'] = async (conn, mek, from, senderJid, args, reply) => {
     }
 
     const caption =
-        `╭─── ⋆ ⋅ ✦ ⋅ ⋆ ───╮\n` +
-        `   ✨ *DANIEWATCH BOT* ✨\n` +
-        `╰─── ⋆ ⋅ ✦ ⋅ ⋆ ───╯\n\n` +
         `┌── *Bot Status*\n` +
         `│ ⚡ Status: *Online & Active*\n` +
         `│ 👑 Dev: *Daniyal Aadil*\n` +
         `│ ⏱️ Uptime: *${uptime}*\n` +
-        `│ 🧠 Memory: *${memUsed} MB*\n` +
-        `│ ${platform}\n` +
-        `├── *Config*\n` +
-        `│ 🔒 Mode: *${modeLabel}*\n` +
+        `│ 💻 Memory: *${memUsed} MB*\n` +
+        `│ 🖥️ OS: *${platform}*\n` +
+        `├──✦ *Config*\n` +
+        `│ ⚙️ Mode: *${modeLabel}*\n` +
         `│ 🎯 Targets: *${targetSummary}*\n` +
-        `└─────────────────\n\n` +
-        `🚀 _Ready for movie & video downloads!_`;
+        `└──✦ _Ready for movie & video downloads!_`;
 
     const logoPath = path.join(__dirname, '..', '..', 'assets', 'daniewatch_logo.png');
     if (fs.existsSync(logoPath)) {
@@ -3128,37 +3124,11 @@ DANIE_COMMANDS['help'] = async (conn, mek, from, senderJid, args, reply) => {
     } catch(e) {}
 
     const helpText =
-        `╭─── ⋆ ⋅ ✦ ⋅ ⋆ ───╮\n` +
-        `   📖 *DANIEWATCH HELP*\n` +
-        `╰─── ⋆ ⋅ ✦ ⋅ ⋆ ───╯\n\n` +
+        `  \`.help\`  Show this help message\n` +
+        `                 \n\n` +
 
-        `├──✦ ’ *âš™ï¸ Configuration*\n` +
-        `│  \`.config\` — Set download destinations\n` +
-        `│  \`.setgroup\` — Quick-set target group\n` +
-        `│  \`.setgroup <num>\` — Set group by number\n` +
-        `│  \`.dlstatus\` — View download config\n` +
-        `└─────────────────\n\n` +
-
-        `├──✦ ’ *👑 Access Control*\n` +
-        `│  \`.allow <number>\` — Grant bot access\n` +
-        `│  \`.disallow <number>\` — Revoke bot access\n` +
-        `│  \`.allowed\` — List all allowed users\n` +
-        `└─────────────────\n\n` +
-
-        `├──✦ ’ *🎵 Media*\n` +
-        `│  \`.song <query>\` — Download song (audio)\n` +
-        `│  \`.video <query>\` — Download video\n` +
-        `└─────────────────\n\n` +
-
-        `├──✦ ’ *📊 Status & Info*\n` +
-        `│  \`.alive\` — Check bot status & info\n` +
-        `│  \`.status\` / \`.s\` — View all process status\n` +
-        `│  \`.jid\` — Show current chat JID\n` +
-        `│  \`.help\` — Show this help message\n` +
-        `└─────────────────\n\n` +
-
-        `💡 _All commands use the_ \`.\` _prefix._\n` +
-        `👍¨â€💻 _DanieWatch Bot by Daniyal Aadil_`;
+        `=� _All commands use the_ \`.\` _prefix._\n` +
+        `=M�⬍=� _DanieWatch Bot by Daniyal Aadil_`;
 
     const logoPath = path.join(__dirname, '..', '..', 'assets', 'daniewatch_logo.png');
     if (fs.existsSync(logoPath)) {
@@ -3299,11 +3269,11 @@ function generateFallbackQueries(query) {
 async function streamImdbSearchHandler(conn, mek, from, senderJid, q, reply) {
     try {
         if (!q || !q.trim()) {
-            return reply('âŒ Please provide a movie or TV show title to search!\n\n*Usage:*\n`.si The House That Jack Built`');
+            return reply('�R Please provide a movie or TV show title to search!\n\n*Usage:*\n`.si The House That Jack Built`');
         }
 
         const query = q.trim();
-        await reply(`ðŸ” Searching IMDb/TMDB & EmbedMaster for *"${query}"*...`);
+        await reply(`�x� Searching IMDb/TMDB & EmbedMaster for *"${query}"*...`);
 
         initUpsertListener(conn);
 
@@ -3370,7 +3340,7 @@ async function streamImdbSearchHandler(conn, mek, from, senderJid, q, reply) {
         }
 
         if (!results || results.length === 0) {
-            return reply(`âŒ No IMDb/TMDB search results found for *"${query}"*.\n\n💡 *Tip:* Try searching with main title keywords (e.g. \`.si house\`).`);
+            return reply(`�R No IMDb/TMDB search results found for *"${query}"*.\n\n=� *Tip:* Try searching with main title keywords (e.g. \`.si house\`).`);
         }
 
         const cleanSender = cleanJid(senderJid);
@@ -3381,7 +3351,7 @@ async function streamImdbSearchHandler(conn, mek, from, senderJid, q, reply) {
         };
 
         const optionsList = results.map((r, idx) => {
-            const typeLabel = r.type === 'tv' ? '📱º TV Series' : 'ðŸŽ¥ Movie';
+            const typeLabel = r.type === 'tv' ? '=� TV Series' : '<�� Movie';
             const yearLabel = r.year ? `(${r.year})` : '';
             return {
                 id: String(idx + 1),
@@ -3390,20 +3360,20 @@ async function streamImdbSearchHandler(conn, mek, from, senderJid, q, reply) {
             };
         });
 
-        let responseText = `ðŸŽ¬ *IMDb / EmbedMaster Results for "${query}":*\n`;
+        let responseText = `<� *IMDb / EmbedMaster Results for "${query}":*\n`;
         if (fallbackQueryUsed) {
-            responseText += `â„¹ï¸ _(Showing closest matches for "${fallbackQueryUsed}")_\n`;
+            responseText += `��� _(Showing closest matches for "${fallbackQueryUsed}")_\n`;
         }
         responseText += `\nClick the option menu below to select your title:`;
 
         const sendableFrom = mek.key.remoteJid;
-        const sent = await sendInteractiveOptions(conn, sendableFrom, `ðŸŽ¬ IMDb: "${query}"`, responseText, optionsList, mek, null, `Â© DanieWatch Bot`);
+        const sent = await sendInteractiveOptions(conn, sendableFrom, `<� IMDb: "${query}"`, responseText, optionsList, mek, null, `© DanieWatch Bot`);
         if (sent && sent.key) {
             pendingSearch[cleanSender].messageId = sent.key.id;
         }
     } catch (err) {
         console.error('[StreamIMDB] Search failed:', err.message);
-        reply(`âŒ Search failed: ${err.message}`);
+        reply(`�R Search failed: ${err.message}`);
     }
 }
 
@@ -3426,11 +3396,11 @@ async function searchCommandHandler(conn, mek, from, senderJid, q, reply, source
         }
 
         if (!q || !q.trim()) {
-            return reply(`âŒ Please provide a search keyword!\n\n*Usage:*\n\`${cmdHint} Money Heist\``);
+            return reply(`�R Please provide a search keyword!\n\n*Usage:*\n\`${cmdHint} Money Heist\``);
         }
 
         const query = q.trim();
-        await reply(`ðŸ” Searching ${siteName} for *"${query}"*...`);
+        await reply(`�x� Searching ${siteName} for *"${query}"*...`);
 
         initUpsertListener(conn);
 
@@ -3471,7 +3441,7 @@ async function searchCommandHandler(conn, mek, from, senderJid, q, reply, source
         }
 
         if (!results || results.length === 0) {
-            return reply(`âŒ No search results found for *"${query}"* on ${siteName}.`);
+            return reply(`�R No search results found for *"${query}"* on ${siteName}.`);
         }
 
         const cleanSender = cleanJid(senderJid);
@@ -3488,22 +3458,22 @@ async function searchCommandHandler(conn, mek, from, senderJid, q, reply, source
             description: `Tap to select result #${idx + 1}`
         }));
 
-        let responseText = `ðŸ” *${siteName} Search Results for "${query}":*\nFound ${results.length} item(s). Click below to select:`;
+        let responseText = `�x� *${siteName} Search Results for "${query}":*\nFound ${results.length} item(s). Click below to select:`;
         const sendableFrom = mek.key.remoteJid;
-        const sent = await sendInteractiveOptions(conn, sendableFrom, `ðŸ” ${siteName} Results`, responseText, optionsList, mek, null, `Â© DanieWatch Bot`);
+        const sent = await sendInteractiveOptions(conn, sendableFrom, `�x� ${siteName} Results`, responseText, optionsList, mek, null, `© DanieWatch Bot`);
         if (sent && sent.key) {
             pendingSearch[cleanSender].messageId = sent.key.id;
         }
     } catch(err) {
         console.error('[DanieSearch] Search failed:', err.message);
-        reply(`âŒ Search failed: ${err.message}`);
+        reply(`�R Search failed: ${err.message}`);
     }
 }
 
 async function executeFallbackDownload(conn, mek, from, senderJid, state, chosenHosts, reply) {
     const hostsList = Array.isArray(chosenHosts) ? chosenHosts : [chosenHosts];
     if (!hostsList || hostsList.length === 0) {
-        return reply(`âŒ No download links found for this item. Please try a different search.`);
+        return reply(`�R No download links found for this item. Please try a different search.`);
     }
 
     // Transition step back so user can make another search choice if desired
@@ -3520,7 +3490,7 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
 
     const task = {
         type: 'search_download',
-        description: `ðŸ¿ Search Download: ${labelTitle}`,
+        description: `�x�� Search Download: ${labelTitle}`,
         commandText: `Search Download: ${labelTitle}`,
         senderJid,
         from,
@@ -3538,7 +3508,7 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
 
             if (vcloudHosts.length === 0) {
                 console.log(`[DanieSearch] No V-Cloud download links available for this item.`);
-                await reply(`âŒ No V-Cloud download links found for this selection.`);
+                await reply(`�R No V-Cloud download links found for this selection.`);
                 throw new Error('No V-Cloud download links available for this item.');
             }
 
@@ -3576,7 +3546,7 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
 
             if (candidates.length === 0) {
                 console.log(`[DanieSearch] No VCloud download links available for this item.`);
-                await reply(`âŒ VCloud link resolution returned no candidates.`);
+                await reply(`�R VCloud link resolution returned no candidates.`);
                 throw new Error('No VCloud download links available for this item.');
             }
 
@@ -3623,7 +3593,7 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
 
             if (!downloadSuccess) {
                 const errorMsg = lastError ? lastError.message : 'VCloud link resolution failed.';
-                await reply(`âŒ *VCloud Download Failed:*\n${errorMsg}\n\n_Please try selecting a different quality or option._`);
+                await reply(`�R *VCloud Download Failed:*\n${errorMsg}\n\n_Please try selecting a different quality or option._`);
                 throw lastError || new Error('VCloud download failed.');
             } else {
                 const isTvShow = state.episodesList && state.episodesList.length > 0;
@@ -3636,7 +3606,7 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
 
     const queuedTask = globalTaskQueue.add(task);
     if (globalTaskQueue.activeTask && globalTaskQueue.activeTask.id !== queuedTask.id) {
-        await reply(`📥 *Added to Queue* (Position #${globalTaskQueue.queue.length}):\nðŸ¿ Download: *${labelTitle}*`);
+        await reply(`=� *Added to Queue* (Position #${globalTaskQueue.queue.length}):\n�x�� Download: *${labelTitle}*`);
     }
 }
 
@@ -3650,7 +3620,7 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
     if (state.step === 'song_select') {
         const results = state.results || [];
         if (isNaN(num) || num < 1 || num > results.length) {
-            return reply(`âŒ Invalid selection. Reply with a number from 1 to ${results.length}.`);
+            return reply(`�R Invalid selection. Reply with a number from 1 to ${results.length}.`);
         }
         const selected = results[num - 1];
         delete pendingSearch[cleanSender];
@@ -3664,7 +3634,7 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
     if (state.step === 'yts_select') {
         const results = state.results || [];
         if (isNaN(num) || num < 1 || num > results.length) {
-            return reply(`âŒ Invalid selection. Reply with a number from 1 to ${results.length}.`);
+            return reply(`�R Invalid selection. Reply with a number from 1 to ${results.length}.`);
         }
         const selected = results[num - 1];
         delete pendingSearch[cleanSender];
@@ -3678,12 +3648,12 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
     if (state.step === 'streamimdb_select') {
         const results = state.results || [];
         if (isNaN(num) || num < 1 || num > results.length) {
-            return reply(`âŒ Invalid selection. Reply with a number from 1 to ${results.length}.`);
+            return reply(`�R Invalid selection. Reply with a number from 1 to ${results.length}.`);
         }
 
         const selected = results[num - 1];
         const posterUrl = selected.poster || '';
-        await reply(`â³ *Fetching details & poster for:* "${selected.title}"...`);
+        await reply(`⏳ *Fetching details & poster for:* "${selected.title}"...`);
 
         try {
             let details = null;
@@ -3699,7 +3669,7 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
             const mediaYear = details.year || selected.year || '';
             const overview = details.overview || selected.overview || '';
             const imdbId = (await fetchImdbId(selected.tmdbId, selected.type || 'movie')) || selected.imdbId || null;
-            const imdbDisplay = imdbId ? `ðŸ†” *IMDb ID:* \`${imdbId}\` | *TMDB:* \`${selected.tmdbId}\`` : `ðŸ†” *TMDB ID:* \`${selected.tmdbId}\``;
+            const imdbDisplay = imdbId ? `<� *IMDb ID:* \`${imdbId}\` | *TMDB:* \`${selected.tmdbId}\`` : `<� *TMDB ID:* \`${selected.tmdbId}\``;
 
             if (selected.type === 'tv' || (details.isTv && details.seasons && details.seasons.length > 0)) {
                 // TV Series - Show Seasons
@@ -3717,8 +3687,8 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                     };
                 });
 
-                let seasonText = `📱º *${mediaTitle}* ${mediaYear ? `(${mediaYear})` : ''}\n${imdbDisplay}\n_${overview ? overview.substring(0, 150) + '...' : ''}_\n\n*Select a Season:*`;
-                const sent = await sendInteractiveOptions(conn, from, mediaTitle, seasonText, optionsList, mek, mediaPoster, `Â© DanieWatch Bot`);
+                let seasonText = `=� *${mediaTitle}* ${mediaYear ? `(${mediaYear})` : ''}\n${imdbDisplay}\n_${overview ? overview.substring(0, 150) + '...' : ''}_\n\n*Select a Season:*`;
+                const sent = await sendInteractiveOptions(conn, from, mediaTitle, seasonText, optionsList, mek, mediaPoster, `© DanieWatch Bot`);
                 pendingSearch[cleanSender] = {
                     step: 'streamimdb_season',
                     title: mediaTitle,
@@ -3741,8 +3711,8 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                     description: `Tap to download stream`
                 }));
 
-                let qualityText = `ðŸŽ¬ *${mediaTitle}* ${mediaYear ? `(${mediaYear})` : ''}\n${imdbDisplay}\n_${overview ? overview.substring(0, 150) + '...' : ''}_\n\n*Select Download Quality:*`;
-                const sent = await sendInteractiveOptions(conn, from, mediaTitle, qualityText, optionsList, mek, mediaPoster, `Â© DanieWatch Bot`);
+                let qualityText = `<� *${mediaTitle}* ${mediaYear ? `(${mediaYear})` : ''}\n${imdbDisplay}\n_${overview ? overview.substring(0, 150) + '...' : ''}_\n\n*Select Download Quality:*`;
+                const sent = await sendInteractiveOptions(conn, from, mediaTitle, qualityText, optionsList, mek, mediaPoster, `© DanieWatch Bot`);
                 pendingSearch[cleanSender] = {
                     step: 'streamimdb_quality',
                     title: mediaTitle,
@@ -3755,7 +3725,7 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
             }
         } catch (err) {
             console.error('[StreamIMDB] Details fetch error:', err);
-            return reply(`âŒ Error loading media details: ${err.message}`);
+            return reply(`�R Error loading media details: ${err.message}`);
         }
         return;
     }
@@ -3763,7 +3733,7 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
     if (state.step === 'streamimdb_season') {
         const seasons = state.seasons || [];
         if (isNaN(num) || num < 1 || num > seasons.length) {
-            return reply(`âŒ Invalid season. Reply with a number from 1 to ${seasons.length}.`);
+            return reply(`�R Invalid season. Reply with a number from 1 to ${seasons.length}.`);
         }
 
         const chosenSeason = seasons[num - 1];
@@ -3773,8 +3743,8 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
             description: (ep.title || `Episode ${ep.epNum}`).substring(0, 70)
         }));
 
-        let epText = `📱º *${state.title}* - *Season ${chosenSeason.seasonNum}*\n\n*Select an Episode to Download:*`;
-        const sent = await sendInteractiveOptions(conn, from, `${state.title} S${chosenSeason.seasonNum}`, epText, optionsList, mek, state.poster, `Â© DanieWatch Bot`);
+        let epText = `=� *${state.title}* - *Season ${chosenSeason.seasonNum}*\n\n*Select an Episode to Download:*`;
+        const sent = await sendInteractiveOptions(conn, from, `${state.title} S${chosenSeason.seasonNum}`, epText, optionsList, mek, state.poster, `© DanieWatch Bot`);
         pendingSearch[cleanSender] = {
             step: 'streamimdb_episode',
             title: state.title,
@@ -3789,17 +3759,17 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
     if (state.step === 'streamimdb_episode') {
         const episodes = state.episodes || [];
         if (isNaN(num) || num < 1 || num > episodes.length) {
-            return reply(`âŒ Invalid episode. Reply with a number from 1 to ${episodes.length}.`);
+            return reply(`�R Invalid episode. Reply with a number from 1 to ${episodes.length}.`);
         }
 
         const chosenEpisode = episodes[num - 1];
         const fullTitle = `${state.title} S${state.seasonNum}E${chosenEpisode.epNum} - ${chosenEpisode.title}`;
-        await reply(`â³ *Fetching stream qualities for:* "${fullTitle}"...`);
+        await reply(`⏳ *Fetching stream qualities for:* "${fullTitle}"...`);
 
         try {
             const embedUrl = await getEpisodeEmbedUrl(chosenEpisode.href);
             if (!embedUrl) {
-                return reply(`âŒ Could not extract player embed URL for episode: "${fullTitle}".`);
+                return reply(`�R Could not extract player embed URL for episode: "${fullTitle}".`);
             }
             const qualities = await resolveStreamOptions(embedUrl);
             const optionsList = qualities.map((q, idx) => ({
@@ -3807,8 +3777,8 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                 title: q.quality,
                 description: `Tap to download episode stream`
             }));
-            let qualityText = `📱º *${fullTitle}*\n\n*Select Episode Quality:*`;
-            const sent = await sendInteractiveOptions(conn, from, fullTitle, qualityText, optionsList, mek, state.poster, `Â© DanieWatch Bot`);
+            let qualityText = `=� *${fullTitle}*\n\n*Select Episode Quality:*`;
+            const sent = await sendInteractiveOptions(conn, from, fullTitle, qualityText, optionsList, mek, state.poster, `© DanieWatch Bot`);
             pendingSearch[cleanSender] = {
                 step: 'streamimdb_quality',
                 title: fullTitle,
@@ -3818,7 +3788,7 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
             };
         } catch (err) {
             console.error('[StreamIMDB] Episode embed error:', err);
-            return reply(`âŒ Error resolving episode stream: ${err.message}`);
+            return reply(`�R Error resolving episode stream: ${err.message}`);
         }
         return;
     }
@@ -3826,7 +3796,7 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
     if (state.step === 'streamimdb_quality') {
         const qualities = state.qualities || [];
         if (isNaN(num) || num < 1 || num > qualities.length) {
-            return reply(`âŒ Invalid quality selection. Reply with a number from 1 to ${qualities.length}.`);
+            return reply(`�R Invalid quality selection. Reply with a number from 1 to ${qualities.length}.`);
         }
 
         const chosenQuality = qualities[num - 1];
@@ -3835,7 +3805,7 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
         
         delete pendingSearch[cleanSender];
 
-        let statusMsg = await reply(`⚡ *Starting Download:* "${formattedFileName}"\n📱¦ Initializing EmbedMaster stream engine...`);
+        let statusMsg = await reply(`� *Starting Download:* "${formattedFileName}"\n=� Initializing EmbedMaster stream engine...`);
         globalProgressState.statusMsg = statusMsg && statusMsg.key ? { key: statusMsg.key, from } : null;
         globalProgressState.active = true;
         globalProgressState.fileName = formattedFileName;
@@ -3870,7 +3840,7 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                         const now = Date.now();
                         if (now - lastUpdate > 3000 || info.percentage === 100) {
                             lastUpdate = now;
-                            const updateText = `⚡ *EmbedMaster Download Progress:*\nðŸŽ¬ *File:* "${formattedFileName}"\n📱º *Quality:* ${chosenQuality.quality}\n📱¦ *Downloaded:* ${info.downloadedMB} MB / ~${info.totalEstMB} MB (${info.percentage}%)\n🚀 *Speed:* ${info.speedMBs} MB/s`;
+                            const updateText = `� *EmbedMaster Download Progress:*\n<� *File:* "${formattedFileName}"\n=� *Quality:* ${chosenQuality.quality}\n=� *Downloaded:* ${info.downloadedMB} MB / ~${info.totalEstMB} MB (${info.percentage}%)\n=� *Speed:* ${info.speedMBs} MB/s`;
                             if (globalProgressState.statusMsg && globalProgressState.statusMsg.key) {
                                 try {
                                     await conn.sendMessage(globalProgressState.statusMsg.from || from, { text: updateText, edit: globalProgressState.statusMsg.key });
@@ -3888,13 +3858,13 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                     globalProgressState.phaseText = `Uploading (${verification.sizeMB.toFixed(2)} MB)`;
                     
                     const durationMins = (verification.duration / 60).toFixed(1);
-                    let durationText = `â±ï¸ *Duration:* ${durationMins} mins`;
+                    let durationText = `⏱� *Duration:* ${durationMins} mins`;
                     if (verification.duration < 1800 && !state.seasonNum) {
-                        durationText += `\nâš ï¸ *Notice:* EmbedMaster CDN provider provided a sample/short clip (${durationMins}m). For full 2hr movie files, use \`.d ${title}\`!`;
+                        durationText += `\n�� *Notice:* EmbedMaster CDN provider provided a sample/short clip (${durationMins}m). For full 2hr movie files, use \`.d ${title}\`!`;
                     }
 
                     try {
-                        const uploadText = `📤 *Uploading to WhatsApp:* "${formattedFileName}"\n📱¦ *File Size:* ${verification.sizeMB.toFixed(2)} MB\n${durationText}\nâ³ Sending video document to chat...`;
+                        const uploadText = `=� *Uploading to WhatsApp:* "${formattedFileName}"\n=� *File Size:* ${verification.sizeMB.toFixed(2)} MB\n${durationText}\n⏳ Sending video document to chat...`;
                         if (globalProgressState.statusMsg && globalProgressState.statusMsg.key) {
                             await conn.sendMessage(globalProgressState.statusMsg.from || from, { text: uploadText, edit: globalProgressState.statusMsg.key });
                         }
@@ -3904,13 +3874,13 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                         document: { url: tempFilePath },
                         mimetype: 'video/mp4',
                         fileName: formattedFileName,
-                        caption: `ðŸŽ¬ *${formattedFileName.replace(/\.mp4$/i, '')}*\n📱º *Quality:* ${chosenQuality.quality}\n📱¦ *Size:* ${verification.sizeMB.toFixed(2)}MB\n${durationText}\n\nDownloaded via DanieBot (.si)`
+                        caption: `<� *${formattedFileName.replace(/\.mp4$/i, '')}*\n=� *Quality:* ${chosenQuality.quality}\n=� *Size:* ${verification.sizeMB.toFixed(2)}MB\n${durationText}\n\nDownloaded via DanieBot (.si)`
                     };
 
                     await sendAndForwardFile(conn, activeTargets, filePayload, { from: mek.key.remoteJid, senderJid: cleanJid(senderJid) });
 
                     try {
-                        const completeText = `✅ *Upload Completed:* "${formattedFileName}" (${verification.sizeMB.toFixed(2)} MB)\n${durationText}`;
+                        const completeText = ` *Upload Completed:* "${formattedFileName}" (${verification.sizeMB.toFixed(2)} MB)\n${durationText}`;
                         if (statusMsg && statusMsg.key) {
                             await conn.sendMessage(from, { text: completeText, edit: statusMsg.key });
                         }
@@ -3919,9 +3889,9 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                     console.error('[StreamIMDB] Download/upload error:', dlErr);
                     try {
                         if (statusMsg && statusMsg.key) {
-                            await conn.sendMessage(from, { text: `âŒ StreamIMDB download/upload failed for "${formattedFileName}": ${dlErr.message}`, edit: statusMsg.key });
+                            await conn.sendMessage(from, { text: `�R StreamIMDB download/upload failed for "${formattedFileName}": ${dlErr.message}`, edit: statusMsg.key });
                         } else {
-                            await reply(`âŒ StreamIMDB download/upload failed for "${formattedFileName}": ${dlErr.message}`);
+                            await reply(`�R StreamIMDB download/upload failed for "${formattedFileName}": ${dlErr.message}`);
                         }
                     } catch (_) {}
                 } finally {
@@ -3934,7 +3904,7 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
 
         const queuedTask = globalTaskQueue.add(task);
         if (globalTaskQueue.activeTask && globalTaskQueue.activeTask.id !== queuedTask.id) {
-            await reply(`📥 *Position in Queue (#${globalTaskQueue.queue.length}):* "${formattedFileName}"`);
+            await reply(`=� *Position in Queue (#${globalTaskQueue.queue.length}):* "${formattedFileName}"`);
         }
         return;
     }
@@ -3942,7 +3912,7 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
     if (state.step === 'select_movie') {
         const movies = state.results || [];
         if (isNaN(num) || num < 1 || num > movies.length) {
-            return reply(`âŒ Invalid movie number. Reply with a number from 1 to ${movies.length}.`);
+            return reply(`�R Invalid movie number. Reply with a number from 1 to ${movies.length}.`);
         }
 
         const selectedMovie = movies[num - 1];
@@ -3966,7 +3936,7 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
 
             if (validLinks.length === 0) {
                 delete pendingSearch[cleanSender];
-                return reply(`âŒ No valid download links could be parsed from this post.`);
+                return reply(`�R No valid download links could be parsed from this post.`);
             }
 
             // Deduplicate links by href
@@ -3990,19 +3960,19 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
             };
 
             const optionsList = displayLinks.map((l, i) => {
-                const cleanText = l.text.replace(/⚡\s*/g, '').replace(/\[?DanieWatch\]?/gi, '').trim();
+                const cleanText = l.text.replace(/�\s*/g, '').replace(/\[?DanieWatch\]?/gi, '').trim();
                 const isZipOrPack = l.isPack || /\bzip\b|\brar\b|\bpack\b|\bbatch\b/i.test(cleanText) || /\bzip\b|\brar\b|\bpack\b|\bbatch\b/i.test(l.href);
                 
                 let titleLabel = '';
                 if (isZipOrPack) {
-                    titleLabel = `📱¦ ${l.resolution && l.resolution !== 'Unknown' ? l.resolution : 'Zip / Batch'}`;
+                    titleLabel = `=� ${l.resolution && l.resolution !== 'Unknown' ? l.resolution : 'Zip / Batch'}`;
                 } else if (l.resolution && l.resolution !== 'Unknown') {
-                    titleLabel = `ðŸŽ¬ ${l.resolution} Quality`;
+                    titleLabel = `<� ${l.resolution} Quality`;
                 } else {
                     titleLabel = (cleanText || `Option ${i + 1}`).substring(0, 24);
                 }
 
-                const descText = (l.heading ? `${l.heading} — ${cleanText}` : cleanText).substring(0, 70);
+                const descText = (l.heading ? `${l.heading}  ${cleanText}` : cleanText).substring(0, 70);
 
                 return {
                     id: String(i + 1),
@@ -4011,20 +3981,20 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                 };
             });
 
-            let bodyText = `ðŸŽ¬ *${selectedMovie.title}*\n\nSelect a download quality / link option:`;
-            const sent = await sendInteractiveOptions(conn, from, selectedMovie.title, bodyText, optionsList, mek, selectedMovie.thumbnail, `Â© DanieWatch Bot`);
+            let bodyText = `<� *${selectedMovie.title}*\n\nSelect a download quality / link option:`;
+            const sent = await sendInteractiveOptions(conn, from, selectedMovie.title, bodyText, optionsList, mek, selectedMovie.thumbnail, `© DanieWatch Bot`);
             if (sent && sent.key) {
                 pendingSearch[cleanSender].messageId = sent.key.id;
             }
         } catch (err) {
             console.error('[DanieSearch] Failed to load movie post details:', err.message);
             delete pendingSearch[cleanSender];
-            reply(`âŒ Failed to load movie details: ${err.message}`);
+            reply(`�R Failed to load movie details: ${err.message}`);
         }
     } else if (state.step === 'select_resolution') {
         const links = state.links || [];
         if (isNaN(num) || num < 1 || num > links.length) {
-            return reply(`âŒ Invalid resolution number. Reply with a number from 1 to ${links.length}.`);
+            return reply(`�R Invalid resolution number. Reply with a number from 1 to ${links.length}.`);
         }
 
         // If there's an active download running, abort it before proceeding with the new choice
@@ -4074,7 +4044,7 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                 directHosts = await extractDirectDownloadLinks(selectedLink.href);
 
                 if (!directHosts || directHosts.length === 0) {
-                    return reply(`âŒ No direct download links could be resolved for this resolution.`);
+                    return reply(`�R No direct download links could be resolved for this resolution.`);
                 }
 
                 directHosts.forEach(h => {
@@ -4112,12 +4082,12 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
                 }));
                 optionsList.push({
                     id: String(state.episodesList.length + 1),
-                    title: `📥 Download All Episodes`,
+                    title: `=� Download All Episodes`,
                     description: `Download all ${state.episodesList.length} episodes`
                 });
 
-                let episodeListText = `ðŸŒ *${selectedLink.heading || selectedLink.text}*\n\nSelect episode(s) to download:`;
-                const sent = await sendInteractiveOptions(conn, from, `TV Series Episodes`, episodeListText, optionsList, mek, null, `Â© DanieWatch Bot`);
+                let episodeListText = `�xR� *${selectedLink.heading || selectedLink.text}*\n\nSelect episode(s) to download:`;
+                const sent = await sendInteractiveOptions(conn, from, `TV Series Episodes`, episodeListText, optionsList, mek, null, `© DanieWatch Bot`);
                 if (sent && sent.key) {
                     state.messageId = sent.key.id;
                 }
@@ -4128,7 +4098,7 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
             }
         } catch (err) {
             console.error('[DanieSearch] Failed to resolve hosts:', err.message);
-            reply(`âŒ Failed to resolve download hosts: ${err.message}`);
+            reply(`�R Failed to resolve download hosts: ${err.message}`);
         }
     } else if (state.step === 'select_episode') {
         const epList = state.episodesList || [];
@@ -4161,10 +4131,10 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
         }
 
         if (selectedIndices.length === 0) {
-            return reply(`âŒ Invalid episode selection. Reply with episode number(s) (e.g. \`1\`, \`1, 3, 5\`, \`1-5\`), or \`${downloadAllOption}\` for All Episodes.`);
+            return reply(`�R Invalid episode selection. Reply with episode number(s) (e.g. \`1\`, \`1, 3, 5\`, \`1-5\`), or \`${downloadAllOption}\` for All Episodes.`);
         }
 
-        await reply(`📥 *Adding ${selectedIndices.length} episode(s) to download queue...*`);
+        await reply(`=� *Adding ${selectedIndices.length} episode(s) to download queue...*`);
 
         for (const idx of selectedIndices) {
             const epLabel = epList[idx];
@@ -4172,7 +4142,7 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
             if (episodeHosts.length > 0) {
                 await executeFallbackDownload(conn, mek, from, senderJid, state, episodeHosts, reply);
             } else {
-                await reply(`âš ï¸ Skipping *${epLabel}* — no download hosts found.`);
+                await reply(`�� Skipping *${epLabel}*  no download hosts found.`);
             }
         }
     }
@@ -4180,7 +4150,7 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
 
 cmd({
     pattern: 'sv',
-    react: 'ðŸ”',
+    react: '�x�',
     desc: 'Searches for movies/series on Vegamovies and allows interactive resolution selection and download.',
     category: 'download',
     use: '.sv <keyword>',
@@ -4195,7 +4165,7 @@ cmd({
 
 cmd({
     pattern: 'sr',
-    react: 'ðŸ”',
+    react: '�x�',
     desc: 'Searches for movies/series on Rogmovies and allows interactive resolution selection and download.',
     category: 'download',
     use: '.sr <keyword>',
@@ -4211,7 +4181,7 @@ cmd({
 cmd({
     pattern: 'se',
     alias: ['serieslinks', 'nexdrive', 'vcloudlinks'],
-    react: '📱º',
+    react: '=�',
     desc: 'Extracts all episode direct download links (10Gbps > FSLv2 > FSL) from a Nextdrive series page and returns a WhatsApp copyable message.',
     category: 'download',
     use: '.se <nextdrive_url>',
@@ -4222,15 +4192,15 @@ cmd({
     };
 
     if (!q || !q.trim()) {
-        return reply('âŒ Please provide a Nextdrive landing page URL!\n\n*Example:* `.se https://nexdrive.fit/genxfm784776495266/`');
+        return reply('�R Please provide a Nextdrive landing page URL!\n\n*Example:* `.se https://nexdrive.fit/genxfm784776495266/`');
     }
 
     const nextdriveUrl = q.trim();
     if (!nextdriveUrl.startsWith('http')) {
-        return reply('âŒ Invalid URL! Please provide a valid HTTP/HTTPS Nextdrive URL.');
+        return reply('�R Invalid URL! Please provide a valid HTTP/HTTPS Nextdrive URL.');
     }
 
-    await reply(`â³ *Extracting episode links from Nextdrive...*\n⚡ *Concurrency:* 2 links simultaneously | â±ï¸ *Timeout:* 20s per link`);
+    await reply(`⏳ *Extracting episode links from Nextdrive...*\n� *Concurrency:* 2 links simultaneously | ⏱� *Timeout:* 20s per link`);
 
     try {
         const result = await extractSeriesVcloudLinks(nextdriveUrl, {
@@ -4241,13 +4211,13 @@ cmd({
         await reply(result.whatsappMessage);
     } catch (err) {
         console.error('[SeriesExtractor] Command failed:', err);
-        reply(`âŒ Failed to extract series episode links: ${err.message}`);
+        reply(`�R Failed to extract series episode links: ${err.message}`);
     }
 });
 
 cmd({
     pattern: 'si',
-    react: 'ðŸŽ¬',
+    react: '<�',
     desc: 'Searches StreamIMDB.ru for movies & TV series to stream and download directly.',
     category: 'download',
     use: '.si <keyword>',
@@ -4260,22 +4230,22 @@ cmd({
     const cleanSender = cleanJid(senderJid);
 
     if (!q || !q.trim()) {
-        return reply('âŒ Please provide a movie or TV show name to search!\n\n*Example:* `.si Interstellar`');
+        return reply('�R Please provide a movie or TV show name to search!\n\n*Example:* `.si Interstellar`');
     }
 
     const query = q.trim();
-    await reply(`ðŸ” *Searching StreamIMDB for:* "${query}"...`);
+    await reply(`�x� *Searching StreamIMDB for:* "${query}"...`);
 
     try {
         const results = await searchStreamImdb(query);
         if (!results || results.length === 0) {
-            return reply(`âŒ No results found on StreamIMDB for "${query}".`);
+            return reply(`�R No results found on StreamIMDB for "${query}".`);
         }
 
-        let listText = `ðŸŽ¬ *StreamIMDB Search Results for:* _"${query}"_\n\n`;
+        let listText = `<� *StreamIMDB Search Results for:* _"${query}"_\n\n`;
         results.forEach((item, idx) => {
-            const badge = item.type === 'tv' ? '📱º TV Series' : 'ðŸŽ¥ Movie';
-            listText += `  \`${idx + 1}\` — *${item.title}* (${item.year}) [${badge}]\n`;
+            const badge = item.type === 'tv' ? '=� TV Series' : '<�� Movie';
+            listText += `  \`${idx + 1}\`  *${item.title}* (${item.year}) [${badge}]\n`;
         });
         listText += `\n_Reply with a number (1-${results.length}) to select._`;
 
@@ -4287,7 +4257,7 @@ cmd({
         };
     } catch (err) {
         console.error('[StreamIMDB] Search error:', err);
-        return reply(`âŒ Failed to search StreamIMDB: ${err.message}`);
+        return reply(`�R Failed to search StreamIMDB: ${err.message}`);
     }
 });
 
@@ -4295,9 +4265,9 @@ function isTaskRunning() {
     return globalTaskQueue.isProcessing || globalTaskQueue.queue.length > 0;
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// �"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"�
 //  YOUTUBE COMMANDS (migrated from youtube.js)
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// �"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"�
 // execSync already imported at top of file (line 270)
 const yts = require('yt-search');
 
@@ -4517,27 +4487,27 @@ function normalizeYtUrl(urlStr) {
     return id ? `https://www.youtube.com/watch?v=${id}` : urlStr;
 }
 
-// .song — search YouTube and list results
+// .song  search YouTube and list results
 DANIE_COMMANDS['song'] = async (conn, mek, from, senderJid, args, reply) => {
     try {
-        if (!args) return reply("🎵 Please provide a search query.\nExample: `.song Shape of You`");
+        if (!args) return reply("<� Please provide a search query.\nExample: `.song Shape of You`");
         const searchRes = await yts(args);
         const videos = searchRes.videos.slice(0, 10);
-        if (!videos.length) return reply("âŒ No songs found.");
+        if (!videos.length) return reply("�R No songs found.");
         
         const optionsList = videos.map((item, idx) => ({
             id: String(idx + 1),
             title: item.title,
             description: `${item.timestamp} | ${item.views} views`
         }));
-        let listText = `🎵 *Song Search Results for:* _"${args}"_\n\nClick below to select:`;
+        let listText = `<� *Song Search Results for:* _"${args}"_\n\nClick below to select:`;
         const sendableFrom = mek.key.remoteJid;
-        const sent = await sendInteractiveOptions(conn, sendableFrom, `🎵 Song Search: "${args}"`, listText, optionsList, mek, null, `Â© DanieWatch Bot`);
+        const sent = await sendInteractiveOptions(conn, sendableFrom, `<� Song Search: "${args}"`, listText, optionsList, mek, null, `© DanieWatch Bot`);
         pendingSearch[cleanJid(senderJid)] = { step: 'song_select', results: videos, messageId: sent && sent.key ? sent.key.id : null };
-    } catch (err) { reply(`âŒ Error: ${err.message}`); }
+    } catch (err) { reply(`�R Error: ${err.message}`); }
 };
 
-// .songdl — download audio from YouTube URL
+// .songdl  download audio from YouTube URL
 DANIE_COMMANDS['songdl'] = async (conn, mek, from, senderJid, args, reply) => {
     let dl = null;
     try {
@@ -4545,17 +4515,17 @@ DANIE_COMMANDS['songdl'] = async (conn, mek, from, senderJid, args, reply) => {
         const cleanUrl = normalizeYtUrl(args);
         const searchRes = await yts(cleanUrl);
         const info = searchRes.videos[0];
-        if (!info) return reply("âŒ No video found.");
-        await reply(`â³ *Downloading:* "${info.title}"...`);
+        if (!info) return reply("�R No video found.");
+        await reply(`⏳ *Downloading:* "${info.title}"...`);
         dl = await convertYtMedia(info.url, "128", "480", "mp3");
         if (!dl || !dl.filePath || !fs.existsSync(dl.filePath)) throw new Error("Audio download failed.");
         await conn.sendMessage(from, { audio: { url: dl.filePath }, mimetype: "audio/mpeg", fileName: `${info.title}.mp3`, ptt: false }, { quoted: mek });
-        await reply(`✅ *${info.title}* — ${info.timestamp}`);
-    } catch (err) { reply(`âŒ Failed: ${err.message}`); }
+        await reply(` *${info.title}*  ${info.timestamp}`);
+    } catch (err) { reply(`�R Failed: ${err.message}`); }
     finally { if (dl && dl.filePath && fs.existsSync(dl.filePath)) { try { fs.unlinkSync(dl.filePath); } catch (_) {} } }
 };
 
-// .yt1s — download audio with format choice (1=audio, 2=doc, 3=voice)
+// .yt1s  download audio with format choice (1=audio, 2=doc, 3=voice)
 DANIE_COMMANDS['yt1s'] = async (conn, mek, from, senderJid, args, reply) => {
     let dl = null;
     try {
@@ -4574,52 +4544,52 @@ DANIE_COMMANDS['yt1s'] = async (conn, mek, from, senderJid, args, reply) => {
         } else if (choice.trim() === '3') {
             await conn.sendMessage(from, { audio: { url: dl.filePath }, mimetype: "audio/mp4", ptt: true });
         }
-    } catch (err) { reply(`âŒ Failed: ${err.message}`); }
+    } catch (err) { reply(`�R Failed: ${err.message}`); }
     finally { if (dl && dl.filePath && fs.existsSync(dl.filePath)) { try { fs.unlinkSync(dl.filePath); } catch (_) {} } }
 };
 
-// .yts — search YouTube videos
+// .yts  search YouTube videos
 DANIE_COMMANDS['yts'] = async (conn, mek, from, senderJid, args, reply) => {
     try {
-        if (!args) return reply("ðŸŽ¥ Please provide a search query.");
+        if (!args) return reply("<�� Please provide a search query.");
         const searchRes = await yts(args);
         const videos = searchRes.videos.slice(0, 10);
-        if (!videos.length) return reply("âŒ No videos found.");
+        if (!videos.length) return reply("�R No videos found.");
         
         const optionsList = videos.map((item, idx) => ({
             id: String(idx + 1),
             title: item.title,
             description: `${item.timestamp} | ${item.views} views`
         }));
-        let listText = `ðŸŽ¥ *Video Search Results for:* _"${args}"_\n\nClick below to select:`;
+        let listText = `<�� *Video Search Results for:* _"${args}"_\n\nClick below to select:`;
         const sendableFrom = mek.key.remoteJid;
-        const sent = await sendInteractiveOptions(conn, sendableFrom, `ðŸŽ¥ Video Search: "${args}"`, listText, optionsList, mek, null, `Â© DanieWatch Bot`);
+        const sent = await sendInteractiveOptions(conn, sendableFrom, `<�� Video Search: "${args}"`, listText, optionsList, mek, null, `© DanieWatch Bot`);
         pendingSearch[cleanJid(senderJid)] = { step: 'yts_select', results: videos, messageId: sent && sent.key ? sent.key.id : null };
-    } catch (err) { reply(`âŒ Error: ${err.message}`); }
+    } catch (err) { reply(`�R Error: ${err.message}`); }
 };
 DANIE_COMMANDS['yts1'] = DANIE_COMMANDS['yts'];
 
-// .video / .ytv / .yt — download YouTube video directly
+// .video / .ytv / .yt  download YouTube video directly
 DANIE_COMMANDS['video'] = async (conn, mek, from, senderJid, args, reply) => {
     let dl = null;
     try {
-        if (!args) return reply("ðŸŽ¥ Please provide a YouTube URL or title.\nExample: `.video Shape of You`");
+        if (!args) return reply("<�� Please provide a YouTube URL or title.\nExample: `.video Shape of You`");
         const cleanUrl = normalizeYtUrl(args);
         const searchRes = await yts(cleanUrl);
         const info = (searchRes && searchRes.videos && searchRes.videos.length > 0) ? searchRes.videos[0] : null;
-        if (!info) return reply("âŒ No YouTube video found.");
-        await reply(`â³ *Downloading:* "${info.title}"...`);
+        if (!info) return reply("�R No YouTube video found.");
+        await reply(`⏳ *Downloading:* "${info.title}"...`);
         dl = await convertYtMedia(info.url, "128", "720", "mp4");
         if (!dl || !dl.filePath || !fs.existsSync(dl.filePath)) throw new Error("Video download failed.");
-        const caption = `ðŸŽ¥ *${info.title}*\nâ±ï¸ ${info.timestamp} | 👍ï¸ ${info.views}\nðŸ”— ${info.url}`;
+        const caption = `<�� *${info.title}*\n⏱� ${info.timestamp} | =M�� ${info.views}\n= ${info.url}`;
         await conn.sendMessage(from, { video: { url: dl.filePath }, mimetype: "video/mp4", caption, fileName: `${info.title}.mp4` }, { quoted: mek });
-    } catch (err) { reply(`âŒ Failed: ${err.message}`); }
+    } catch (err) { reply(`�R Failed: ${err.message}`); }
     finally { if (dl && dl.filePath && fs.existsSync(dl.filePath)) { try { fs.unlinkSync(dl.filePath); } catch (_) {} } }
 };
 DANIE_COMMANDS['ytv'] = DANIE_COMMANDS['video'];
 DANIE_COMMANDS['yt'] = DANIE_COMMANDS['video'];
 
-// .yt2s — download video at specific quality (inline)
+// .yt2s  download video at specific quality (inline)
 DANIE_COMMANDS['yt2s'] = async (conn, mek, from, senderJid, args, reply) => {
     let dl = null;
     try {
@@ -4628,15 +4598,15 @@ DANIE_COMMANDS['yt2s'] = async (conn, mek, from, senderJid, args, reply) => {
         const targetUrl = parts[0]; const quality = parts[1] || "360";
         const searchRes = await yts(targetUrl);
         const info = searchRes.videos[0];
-        if (!info) return reply("âŒ No video found.");
+        if (!info) return reply("�R No video found.");
         dl = await convertYtMedia(info.url, "128", quality, "mp4");
         if (!dl || !dl.filePath || !fs.existsSync(dl.filePath)) throw new Error("Video download failed.");
-        await conn.sendMessage(from, { video: { url: dl.filePath }, mimetype: "video/mp4", caption: `ðŸŽ¥ *${info.title}* (${quality}p)`, fileName: "video.mp4" });
-    } catch (err) { reply(`âŒ Failed: ${err.message}`); }
+        await conn.sendMessage(from, { video: { url: dl.filePath }, mimetype: "video/mp4", caption: `<�� *${info.title}* (${quality}p)`, fileName: "video.mp4" });
+    } catch (err) { reply(`�R Failed: ${err.message}`); }
     finally { if (dl && dl.filePath && fs.existsSync(dl.filePath)) { try { fs.unlinkSync(dl.filePath); } catch (_) {} } }
 };
 
-// .yt3s — download video as document at specific quality
+// .yt3s  download video as document at specific quality
 DANIE_COMMANDS['yt3s'] = async (conn, mek, from, senderJid, args, reply) => {
     let dl = null;
     try {
@@ -4645,15 +4615,15 @@ DANIE_COMMANDS['yt3s'] = async (conn, mek, from, senderJid, args, reply) => {
         const targetUrl = parts[0]; const quality = parts[1] || "360";
         const searchRes = await yts(targetUrl);
         const info = searchRes.videos[0];
-        if (!info) return reply("âŒ No video found.");
+        if (!info) return reply("�R No video found.");
         dl = await convertYtMedia(info.url, "128", quality, "mp4");
         if (!dl || !dl.filePath || !fs.existsSync(dl.filePath)) throw new Error("Video download failed.");
-        await conn.sendMessage(from, { document: { url: dl.filePath }, mimetype: "video/mp4", fileName: `${info.title}.mp4`, caption: `ðŸŽ¥ *${info.title}* (${quality}p)` });
-    } catch (err) { reply(`âŒ Failed: ${err.message}`); }
+        await conn.sendMessage(from, { document: { url: dl.filePath }, mimetype: "video/mp4", fileName: `${info.title}.mp4`, caption: `<�� *${info.title}* (${quality}p)` });
+    } catch (err) { reply(`�R Failed: ${err.message}`); }
     finally { if (dl && dl.filePath && fs.existsSync(dl.filePath)) { try { fs.unlinkSync(dl.filePath); } catch (_) {} } }
 };
 
-// .csong — channel song (search + send to JID)
+// .csong  channel song (search + send to JID)
 DANIE_COMMANDS['csong'] = async (conn, mek, from, senderJid, args, reply) => {
     let dl = null;
     try {
@@ -4666,44 +4636,44 @@ DANIE_COMMANDS['csong'] = async (conn, mek, from, senderJid, args, reply) => {
         if (!info) return reply("No song found.");
         dl = await convertYtMedia(info.url, "128", "480", "mp3");
         if (!dl || !dl.filePath || !fs.existsSync(dl.filePath)) throw new Error("Audio download failed.");
-        await conn.sendMessage(`${jidStr}`, { image: { url: info.thumbnail }, caption: `🎵 *${info.title}*\nâ±ï¸ ${info.timestamp}` });
+        await conn.sendMessage(`${jidStr}`, { image: { url: info.thumbnail }, caption: `<� *${info.title}*\n⏱� ${info.timestamp}` });
         await conn.sendMessage(`${jidStr}`, { audio: { url: dl.filePath }, mimetype: "audio/mpeg", fileName: dl.filename, ptt: true });
-        await reply(`✅ Sent to channel.`);
-    } catch (err) { reply(`âŒ Failed: ${err.message}`); }
+        await reply(` Sent to channel.`);
+    } catch (err) { reply(`�R Failed: ${err.message}`); }
     finally { if (dl && dl.filePath && fs.existsSync(dl.filePath)) { try { fs.unlinkSync(dl.filePath); } catch (_) {} } }
 };
 DANIE_COMMANDS['csongdl'] = DANIE_COMMANDS['csong'];
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// �"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"�
 //  SOCIAL MEDIA DOWNLOAD COMMANDS (ig, fb, tiktok, twitter)
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// �"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"�
 
-// .fb — Facebook video download
+// .fb  Facebook video download
 DANIE_COMMANDS['fb'] = async (conn, mek, from, senderJid, args, reply) => {
     try {
         if (!args || !args.includes('facebook.com') && !args.includes('fb.watch')) {
-            return reply("📥 *Facebook Downloader*\nPlease provide a Facebook video URL.\nExample: `.fb https://www.facebook.com/watch?v=...`");
+            return reply("=� *Facebook Downloader*\nPlease provide a Facebook video URL.\nExample: `.fb https://www.facebook.com/watch?v=...`");
         }
-        await reply(`â³ *Downloading Facebook video...*`);
+        await reply(`⏳ *Downloading Facebook video...*`);
         const fbdl = require('@xaviabot/fb-downloader');
         const result = await fbdl(args.trim());
         if (!result || !result.sd) throw new Error("Could not extract video from this Facebook URL.");
         const videoUrl = result.hd || result.sd;
-        const caption = `💬¢ *DANIEWATCH FB DOWNLOADER* 💬¢\n\nðŸŽž *Title:* ${result.title || 'Facebook Video'}\nðŸ”— ${args.trim()}`;
+        const caption = `=�� *DANIEWATCH FB DOWNLOADER* =��\n\n<�~ *Title:* ${result.title || 'Facebook Video'}\n= ${args.trim()}`;
         await conn.sendMessage(from, { video: { url: videoUrl }, mimetype: "video/mp4", caption, fileName: "fb_video.mp4" }, { quoted: mek });
     } catch (err) {
         console.error('[FB Download Error]:', err.message);
-        reply(`âŒ Failed to download Facebook video: ${err.message}`);
+        reply(`�R Failed to download Facebook video: ${err.message}`);
     }
 };
 
-// .ig — Instagram reel/post download
+// .ig  Instagram reel/post download
 DANIE_COMMANDS['ig'] = async (conn, mek, from, senderJid, args, reply) => {
     try {
         if (!args || !args.includes('instagram.com')) {
-            return reply("📥 *Instagram Downloader*\nPlease provide an Instagram URL.\nExample: `.ig https://www.instagram.com/reel/...`");
+            return reply("=� *Instagram Downloader*\nPlease provide an Instagram URL.\nExample: `.ig https://www.instagram.com/reel/...`");
         }
-        await reply(`â³ *Downloading Instagram content...*`);
+        await reply(`⏳ *Downloading Instagram content...*`);
         const fetch = require('node-fetch');
         // Use a public IG download API
         const apiUrl = `https://api.cobalt.tools/api/json`;
@@ -4714,14 +4684,14 @@ DANIE_COMMANDS['ig'] = async (conn, mek, from, senderJid, args, reply) => {
         });
         const data = await res.json();
         if (data.url) {
-            await conn.sendMessage(from, { video: { url: data.url }, mimetype: "video/mp4", caption: `📱¸ *DANIEWATCH IG DOWNLOADER*\nðŸ”— ${args.trim()}`, fileName: "ig_video.mp4" }, { quoted: mek });
+            await conn.sendMessage(from, { video: { url: data.url }, mimetype: "video/mp4", caption: `=� *DANIEWATCH IG DOWNLOADER*\n= ${args.trim()}`, fileName: "ig_video.mp4" }, { quoted: mek });
         } else if (data.picker && data.picker.length > 0) {
             // Multiple images/slides
             for (const item of data.picker.slice(0, 10)) {
                 if (item.type === 'video') {
                     await conn.sendMessage(from, { video: { url: item.url }, mimetype: "video/mp4" });
                 } else {
-                    await conn.sendMessage(from, { image: { url: item.url }, caption: `📱¸ Instagram Slide` });
+                    await conn.sendMessage(from, { image: { url: item.url }, caption: `=� Instagram Slide` });
                 }
             }
         } else {
@@ -4735,12 +4705,12 @@ DANIE_COMMANDS['ig'] = async (conn, mek, from, senderJid, args, reply) => {
             const result = await igdl(args.trim());
             if (result && result.data && result.data.length > 0) {
                 for (const item of result.data.slice(0, 5)) {
-                    await conn.sendMessage(from, { video: { url: item.url }, mimetype: "video/mp4", caption: `📱¸ *DANIEWATCH IG DOWNLOADER*` }, { quoted: mek });
+                    await conn.sendMessage(from, { video: { url: item.url }, mimetype: "video/mp4", caption: `=� *DANIEWATCH IG DOWNLOADER*` }, { quoted: mek });
                 }
                 return;
             }
         } catch (_) {}
-        reply(`âŒ Failed to download Instagram content: ${err.message}`);
+        reply(`�R Failed to download Instagram content: ${err.message}`);
     }
 };
 
@@ -4785,15 +4755,15 @@ async function downloadTikTokMedia(url) {
     throw new Error('Could not extract TikTok video from link.');
 }
 
-// .tiktok — TikTok video download
+// .tiktok  TikTok video download
 DANIE_COMMANDS['tiktok'] = async (conn, mek, from, senderJid, args, reply) => {
     try {
         if (!args || (!args.includes('tiktok.com') && !args.includes('vt.tiktok.com'))) {
-            return reply("ðŸŽŸï¸ *TikTok Downloader*\nPlease provide a TikTok video URL.\nExample: `.tk https://vt.tiktok.com/...` or `.tiktok https://www.tiktok.com/@user/video/...`");
+            return reply("<�x� *TikTok Downloader*\nPlease provide a TikTok video URL.\nExample: `.tk https://vt.tiktok.com/...` or `.tiktok https://www.tiktok.com/@user/video/...`");
         }
-        await reply(`â³ *Downloading TikTok video (HD / No Watermark)...*`);
+        await reply(`⏳ *Downloading TikTok video (HD / No Watermark)...*`);
         const result = await downloadTikTokMedia(args.trim());
-        const caption = `ðŸŽŸï¸ *DANIEWATCH TIKTOK DOWNLOADER* ðŸŽŸï¸\n\n📱 *Title:* ${result.title}\n👍¤ *Author:* ${result.author || 'TikTok Creator'}\nðŸ”— ${args.trim()}`;
+        const caption = `<�x� *DANIEWATCH TIKTOK DOWNLOADER* <�x�\n\n=� *Title:* ${result.title}\n=d *Author:* ${result.author || 'TikTok Creator'}\n= ${args.trim()}`;
         await conn.sendMessage(from, {
             video: { url: result.videoUrl },
             mimetype: "video/mp4",
@@ -4802,17 +4772,17 @@ DANIE_COMMANDS['tiktok'] = async (conn, mek, from, senderJid, args, reply) => {
         }, { quoted: mek });
     } catch (err) {
         console.error('[TikTok Download Error]:', err.message);
-        reply(`âŒ Failed to download TikTok video: ${err.message}`);
+        reply(`�R Failed to download TikTok video: ${err.message}`);
     }
 };
 
-// .twitter — Twitter/X video download
+// .twitter  Twitter/X video download
 DANIE_COMMANDS['twitter'] = async (conn, mek, from, senderJid, args, reply) => {
     try {
         if (!args || (!args.includes('twitter.com') && !args.includes('x.com'))) {
-            return reply("📥 *Twitter/X Downloader*\nPlease provide a Twitter/X URL.\nExample: `.twitter https://x.com/user/status/...`");
+            return reply("=� *Twitter/X Downloader*\nPlease provide a Twitter/X URL.\nExample: `.twitter https://x.com/user/status/...`");
         }
-        await reply(`â³ *Downloading Twitter video...*`);
+        await reply(`⏳ *Downloading Twitter video...*`);
         const fetch = require('node-fetch');
         const res = await fetch('https://www.tikwm.com/api/', {
             method: 'POST',
@@ -4821,13 +4791,13 @@ DANIE_COMMANDS['twitter'] = async (conn, mek, from, senderJid, args, reply) => {
         });
         const data = await res.json();
         if (data && data.data && data.data.play) {
-            await conn.sendMessage(from, { video: { url: data.data.play }, mimetype: "video/mp4", caption: `💬¢ *DANIEWATCH TWITTER DOWNLOADER*\nðŸ”— ${args.trim()}`, fileName: "twitter_video.mp4" }, { quoted: mek });
+            await conn.sendMessage(from, { video: { url: data.data.play }, mimetype: "video/mp4", caption: `=�� *DANIEWATCH TWITTER DOWNLOADER*\n= ${args.trim()}`, fileName: "twitter_video.mp4" }, { quoted: mek });
         } else {
             throw new Error("Could not extract video from this link.");
         }
     } catch (err) {
         console.error('[Twitter Download Error]:', err.message);
-        reply(`âŒ Failed to download Twitter video: ${err.message}`);
+        reply(`�R Failed to download Twitter video: ${err.message}`);
     }
 };
 
@@ -4846,7 +4816,7 @@ async function downloadYouTubeMediaHelper(queryOrUrl, isAudio = false) {
     let videoInfo = null;
     let targetUrl = queryOrUrl.trim();
 
-    // Handle music.youtube.com URLs — normalize to standard youtube.com
+    // Handle music.youtube.com URLs  normalize to standard youtube.com
     if (targetUrl.includes('music.youtube.com')) {
         targetUrl = targetUrl.replace('music.youtube.com', 'www.youtube.com');
     }
@@ -4915,7 +4885,7 @@ async function downloadYouTubeMediaHelper(queryOrUrl, isAudio = false) {
 
                     if (fs.existsSync(tempFile) && fs.statSync(tempFile).size > 1000) {
                         const fileSize = fs.statSync(tempFile).size;
-                        console.log(`[YouTubeHelper] ✅ SUCCESS via ${engineLabel}: ${tempFile} (${(fileSize / 1024 / 1024).toFixed(2)} MB)`);
+                        console.log(`[YouTubeHelper]  SUCCESS via ${engineLabel}: ${tempFile} (${(fileSize / 1024 / 1024).toFixed(2)} MB)`);
                         return {
                             filePath: tempFile,
                             title,
@@ -4939,13 +4909,13 @@ async function downloadYouTubeMediaHelper(queryOrUrl, isAudio = false) {
         }
     }
 
-    // Last resort: Try convertYtMedia (cnv.cx API) — may be dead but costs nothing to try
+    // Last resort: Try convertYtMedia (cnv.cx API)  may be dead but costs nothing to try
     try {
         console.log(`[YouTubeHelper] Last resort: Trying cnv.cx API...`);
         const format = isAudio ? "mp3" : "mp4";
         const convResult = await convertYtMedia(targetUrl, "128", "720", format);
         if (convResult && convResult.filePath && fs.existsSync(convResult.filePath)) {
-            console.log(`[YouTubeHelper] ✅ cnv.cx API SUCCESS: ${convResult.filePath}`);
+            console.log(`[YouTubeHelper]  cnv.cx API SUCCESS: ${convResult.filePath}`);
             return {
                 filePath: convResult.filePath,
                 title,
@@ -4964,19 +4934,19 @@ async function downloadYouTubeMediaHelper(queryOrUrl, isAudio = false) {
 }
 
 
-// .yt / .ytv / .video — YouTube Video download
+// .yt / .ytv / .video  YouTube Video download
 DANIE_COMMANDS['yt'] = async (conn, mek, from, senderJid, args, reply) => {
     let res = null;
     try {
         if (!args) {
-            return reply("ðŸŽ¥ *YouTube Video Downloader*\nPlease provide a YouTube URL or title search.\nExample: `.yt https://www.youtube.com/watch?v=...` or `.yt Shape of You`");
+            return reply("<�� *YouTube Video Downloader*\nPlease provide a YouTube URL or title search.\nExample: `.yt https://www.youtube.com/watch?v=...` or `.yt Shape of You`");
         }
-        await reply(`â³ *Searching and downloading YouTube video...*`);
+        await reply(`⏳ *Searching and downloading YouTube video...*`);
         res = await downloadYouTubeMediaHelper(args, false);
         if (!res || !res.filePath || !fs.existsSync(res.filePath)) throw new Error("Could not download video.");
 
         console.log(`[YouTube Video] Sending video file to WhatsApp (${from})...`);
-        const caption = `ðŸŽ¥ *${res.title}*\nâ±ï¸ ${res.timestamp} | 👍ï¸ ${res.views}\nðŸ”— ${res.targetUrl}`;
+        const caption = `<�� *${res.title}*\n⏱� ${res.timestamp} | =M�� ${res.views}\n= ${res.targetUrl}`;
         await conn.sendMessage(from, {
             video: { url: res.filePath },
             mimetype: "video/mp4",
@@ -4986,7 +4956,7 @@ DANIE_COMMANDS['yt'] = async (conn, mek, from, senderJid, args, reply) => {
         console.log(`[YouTube Video] Video successfully sent to ${from}!`);
     } catch (err) {
         console.error('[YouTube Video Error]:', err.message);
-        reply(`âŒ Failed to download YouTube video: ${err.message}`);
+        reply(`�R Failed to download YouTube video: ${err.message}`);
     } finally {
         if (res && res.filePath && fs.existsSync(res.filePath)) {
             try { fs.unlinkSync(res.filePath); } catch (_) {}
@@ -4996,14 +4966,14 @@ DANIE_COMMANDS['yt'] = async (conn, mek, from, senderJid, args, reply) => {
 DANIE_COMMANDS['ytv'] = DANIE_COMMANDS['yt'];
 DANIE_COMMANDS['video'] = DANIE_COMMANDS['yt'];
 
-// .ytm / .song / .songdl / .music / .yta — YouTube Music / Audio download
+// .ytm / .song / .songdl / .music / .yta  YouTube Music / Audio download
 DANIE_COMMANDS['ytm'] = async (conn, mek, from, senderJid, args, reply) => {
     let res = null;
     try {
         if (!args) {
-            return reply("🎵 *YouTube Music Downloader*\nPlease provide a song title or YouTube link.\nExample: `.ytm Shape of You` or `.songdl https://youtu.be/...`");
+            return reply("<� *YouTube Music Downloader*\nPlease provide a song title or YouTube link.\nExample: `.ytm Shape of You` or `.songdl https://youtu.be/...`");
         }
-        await reply(`â³ *Searching and downloading audio...*`);
+        await reply(`⏳ *Searching and downloading audio...*`);
         res = await downloadYouTubeMediaHelper(args, true);
         if (!res || !res.filePath || !fs.existsSync(res.filePath)) throw new Error("Could not download audio.");
 
@@ -5014,11 +4984,11 @@ DANIE_COMMANDS['ytm'] = async (conn, mek, from, senderJid, args, reply) => {
             fileName: `${res.title.replace(/[^a-zA-Z0-9 ]/g, '')}.m4a`,
             ptt: false
         }, { quoted: mek });
-        await reply(`✅ *${res.title}* ${res.timestamp ? `(${res.timestamp})` : ''}\nðŸ”— ${res.targetUrl}`);
+        await reply(` *${res.title}* ${res.timestamp ? `(${res.timestamp})` : ''}\n= ${res.targetUrl}`);
         console.log(`[YouTube Music] Audio successfully sent to ${from}!`);
     } catch (err) {
         console.error('[YouTube Music Error]:', err.message);
-        reply(`âŒ Failed to download audio: ${err.message}`);
+        reply(`�R Failed to download audio: ${err.message}`);
     } finally {
         if (res && res.filePath && fs.existsSync(res.filePath)) {
             try { fs.unlinkSync(res.filePath); } catch (_) {}
