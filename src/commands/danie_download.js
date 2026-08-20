@@ -1295,7 +1295,7 @@ function initUpsertListener(conn) {
                 conn._undecryptableCount++;
                 const now = Date.now();
                 if (now - conn._lastUndecryptableLog > 60000) {
-                    console.log(`[DanieWatch] �� ${conn._undecryptableCount} message(s) with undefined payload (E2EE pending/old queued messages)  Baileys is re-negotiating sessions.`);
+                    console.log(`[DanieWatch] ⚠️ ${conn._undecryptableCount} message(s) with undefined payload (E2EE pending/old queued messages) — Baileys is re-negotiating sessions.`);
                     conn._undecryptableCount = 0;
                     conn._lastUndecryptableLog = now;
                 }
@@ -1312,7 +1312,7 @@ function initUpsertListener(conn) {
 
             // OWNER-ONLY ACCESS CHECK: Block all non-owners from messaging/sending commands to the bot
             if (!mek.key.fromMe && !isOwner(senderJid, mek)) {
-                console.log(`[DanieWatch] = Access denied: Message from non-owner sender ${cleanSender} (JID: ${senderJid}) ignored.`);
+                console.log(`[DanieWatch] 🔒 Access denied: Message from non-owner sender ${cleanSender} (JID: ${senderJid}) ignored.`);
                 return;
             }
 
@@ -1341,7 +1341,7 @@ function initUpsertListener(conn) {
             const trimmedText = body.trim();
             if (!trimmedText) return;
 
-            console.log(`[DanieWatch] =� Raw message received: from="${from}" sender="${senderJid}" cleanSender="${cleanSender}" targetJid="${targetJid}" fromMe=${mek.key.fromMe} text="${trimmedText}"`);
+            console.log(`[DanieWatch] 📱 Raw message received: from="${from}" sender="${senderJid}" cleanSender="${cleanSender}" targetJid="${targetJid}" fromMe=${mek.key.fromMe} text="${trimmedText}"`);
 
             const reply = async (textMsg) => {
                 try {
@@ -1404,7 +1404,7 @@ function initUpsertListener(conn) {
                     } catch (cmdErr) {
                         console.error(`[DanieWatch] Error executing command "${cmdName}":`, cmdErr);
                         try {
-                            await reply(`�R Command execution failed: ${cmdErr.message}`);
+                            await reply(`❌ Command execution failed: ${cmdErr.message}`);
                         } catch (_) {}
                     }
                 }
@@ -1427,7 +1427,7 @@ function initUpsertListener(conn) {
             // ---- Check if it's a reply for pending search/resolution ----
             if (pendingSearch[cleanSender]) {
                 const quotedId = getQuotedMessageId(mek);
-                const isValidNumber = /^\d+$/.test(trimmedText) || /^\d+[\s,\-]+/.test(trimmedText) || trimmedText.toLowerCase() === 'all';
+                const isValidNumber = /^\d+$/.test(trimmedText) || /^\d+[\s, \-]+/.test(trimmedText) || trimmedText.toLowerCase() === 'all';
                 const isInteractiveMsg = !!(mek.message.interactiveResponseMessage || mek.message.buttonsResponseMessage || mek.message.listResponseMessage || mek.message.templateButtonReplyMessage);
                 const isMatch = (quotedId && quotedId === pendingSearch[cleanSender].messageId) || 
                                 (!quotedId && isValidNumber) ||
@@ -1445,7 +1445,7 @@ function initUpsertListener(conn) {
                 const detectedUrl = urlMatch[0];
                 const lowerUrl = detectedUrl.toLowerCase();
 
-                console.log(`[DanieWatch] = Direct URL detected from owner: "${detectedUrl}"`);
+                console.log(`[DanieWatch] 🔗 Direct URL detected from owner: "${detectedUrl}"`);
 
                 if (lowerUrl.includes('tiktok.com')) {
                     console.log(`[DanieWatch] Auto-routing TikTok link to .tiktok handler...`);
@@ -4636,81 +4636,113 @@ DANIE_COMMANDS['csong'] = async (conn, mek, from, senderJid, args, reply) => {
         if (!info) return reply("No song found.");
         dl = await convertYtMedia(info.url, "128", "480", "mp3");
         if (!dl || !dl.filePath || !fs.existsSync(dl.filePath)) throw new Error("Audio download failed.");
-        await conn.sendMessage(`${jidStr}`, { image: { url: info.thumbnail }, caption: `<� *${info.title}*\n⏱� ${info.timestamp}` });
+        await conn.sendMessage(`${jidStr}`, { image: { url: info.thumbnail }, caption: `*${info.title}*\n⏱️ ${info.timestamp}` });
         await conn.sendMessage(`${jidStr}`, { audio: { url: dl.filePath }, mimetype: "audio/mpeg", fileName: dl.filename, ptt: true });
-        await reply(` Sent to channel.`);
-    } catch (err) { reply(`�R Failed: ${err.message}`); }
+        await reply(`  Sent to channel.`);
+    } catch (err) { reply(`❌ Failed: ${err.message}`); }
     finally { if (dl && dl.filePath && fs.existsSync(dl.filePath)) { try { fs.unlinkSync(dl.filePath); } catch (_) {} } }
 };
 DANIE_COMMANDS['csongdl'] = DANIE_COMMANDS['csong'];
 
-// �"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"�
-//  SOCIAL MEDIA DOWNLOAD COMMANDS (ig, fb, tiktok, twitter)
-// �"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"�
-
-// .fb  Facebook video download
+// .fb — Facebook video download
 DANIE_COMMANDS['fb'] = async (conn, mek, from, senderJid, args, reply) => {
     try {
-        if (!args || !args.includes('facebook.com') && !args.includes('fb.watch')) {
-            return reply("=� *Facebook Downloader*\nPlease provide a Facebook video URL.\nExample: `.fb https://www.facebook.com/watch?v=...`");
+        if (!args || (!args.includes('facebook.com') && !args.includes('fb.watch'))) {
+            return reply("📘 *Facebook Downloader*\nPlease provide a Facebook video URL.");
         }
-        await reply(`⏳ *Downloading Facebook video...*`);
         const fbdl = require('@xaviabot/fb-downloader');
         const result = await fbdl(args.trim());
         if (!result || !result.sd) throw new Error("Could not extract video from this Facebook URL.");
         const videoUrl = result.hd || result.sd;
-        const caption = `=�� *DANIEWATCH FB DOWNLOADER* =��\n\n<�~ *Title:* ${result.title || 'Facebook Video'}\n= ${args.trim()}`;
+        const caption = `🎬 *Title:* ${result.title || 'Facebook Video'}`;
         await conn.sendMessage(from, { video: { url: videoUrl }, mimetype: "video/mp4", caption, fileName: "fb_video.mp4" }, { quoted: mek });
     } catch (err) {
         console.error('[FB Download Error]:', err.message);
-        reply(`�R Failed to download Facebook video: ${err.message}`);
+        reply(`❌ Failed to download Facebook video: ${err.message}`);
     }
 };
 
-// .ig  Instagram reel/post download
-DANIE_COMMANDS['ig'] = async (conn, mek, from, senderJid, args, reply) => {
+// Helper: Download Instagram Media with 3 engines (API, Ruhend, & native yt-dlp)
+async function downloadInstagramMedia(url) {
+    const fetch = require('node-fetch');
+    const util = require('util');
+    const execPromise = util.promisify(require('child_process').exec);
+
+    // Engine 1: TikWM / Indown API
     try {
-        if (!args || !args.includes('instagram.com')) {
-            return reply("=� *Instagram Downloader*\nPlease provide an Instagram URL.\nExample: `.ig https://www.instagram.com/reel/...`");
-        }
-        await reply(`⏳ *Downloading Instagram content...*`);
-        const fetch = require('node-fetch');
-        // Use a public IG download API
-        const apiUrl = `https://api.cobalt.tools/api/json`;
-        const res = await fetch(apiUrl, {
+        const res = await fetch('https://www.tikwm.com/api/', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-            body: JSON.stringify({ url: args.trim(), vQuality: '720' })
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ url: url.trim(), hd: 1 })
         });
         const data = await res.json();
-        if (data.url) {
-            await conn.sendMessage(from, { video: { url: data.url }, mimetype: "video/mp4", caption: `=� *DANIEWATCH IG DOWNLOADER*\n= ${args.trim()}`, fileName: "ig_video.mp4" }, { quoted: mek });
-        } else if (data.picker && data.picker.length > 0) {
-            // Multiple images/slides
-            for (const item of data.picker.slice(0, 10)) {
-                if (item.type === 'video') {
-                    await conn.sendMessage(from, { video: { url: item.url }, mimetype: "video/mp4" });
-                } else {
-                    await conn.sendMessage(from, { image: { url: item.url }, caption: `=� Instagram Slide` });
-                }
+        if (data && data.data && (data.data.play || data.data.hdplay)) {
+            return {
+                videoUrl: data.data.hdplay || data.data.play,
+                title: data.data.title || 'Instagram Video'
+            };
+        }
+    } catch (_) {}
+
+    // Engine 2: Ruhend Scraper igdl
+    try {
+        const { igdl } = require('ruhend-scraper');
+        const result = await igdl(url.trim());
+        if (result && result.data && result.data.length > 0 && result.data[0].url) {
+            return {
+                videoUrl: result.data[0].url,
+                title: 'Instagram Video'
+            };
+        }
+    } catch (_) {}
+
+    // Engine 3: Native yt-dlp Instagram Video Extractor
+    const tempFile = path.join(os.tmpdir(), `ig_${Date.now()}_${Math.random().toString(36).substring(2, 6)}.mp4`);
+    const ytdlpCandidates = ['yt-dlp', '/usr/local/bin/yt-dlp', '/home/runner/.local/bin/yt-dlp'];
+    for (const bin of ytdlpCandidates) {
+        try {
+            console.log(`[Instagram] Trying native ${bin} for reel extraction...`);
+            const cmd = `${bin} --no-playlist --no-check-certificates --socket-timeout 30 -f "b/bv*+ba" -o "${tempFile}" "${url.trim()}"`;
+            await execPromise(cmd, { timeout: 120000 });
+            if (fs.existsSync(tempFile) && fs.statSync(tempFile).size > 1000) {
+                return {
+                    filePath: tempFile,
+                    title: 'Instagram Video'
+                };
             }
+        } catch (_) {
+            try { if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile); } catch (_) {}
+        }
+    }
+
+    throw new Error('Could not extract media from this Instagram URL.');
+}
+
+// .ig — Instagram reel/post download
+DANIE_COMMANDS['ig'] = async (conn, mek, from, senderJid, args, reply) => {
+    let tempPath = null;
+    try {
+        if (!args || !args.includes('instagram.com')) {
+            return reply("📸 *Instagram Downloader*\nPlease provide an Instagram URL.\nExample: `.ig https://www.instagram.com/reel/...`");
+        }
+        const result = await downloadInstagramMedia(args.trim());
+        const caption = `🎬 *Instagram Video*`;
+
+        if (result.videoUrl) {
+            await conn.sendMessage(from, { video: { url: result.videoUrl }, mimetype: "video/mp4", caption, fileName: "ig_video.mp4" }, { quoted: mek });
+        } else if (result.filePath && fs.existsSync(result.filePath)) {
+            tempPath = result.filePath;
+            await conn.sendMessage(from, { video: { url: result.filePath }, mimetype: "video/mp4", caption, fileName: "ig_video.mp4" }, { quoted: mek });
         } else {
             throw new Error("Could not extract media from this Instagram URL.");
         }
     } catch (err) {
         console.error('[IG Download Error]:', err.message);
-        // Fallback: try ruhend-scraper
-        try {
-            const { igdl } = require('ruhend-scraper');
-            const result = await igdl(args.trim());
-            if (result && result.data && result.data.length > 0) {
-                for (const item of result.data.slice(0, 5)) {
-                    await conn.sendMessage(from, { video: { url: item.url }, mimetype: "video/mp4", caption: `=� *DANIEWATCH IG DOWNLOADER*` }, { quoted: mek });
-                }
-                return;
-            }
-        } catch (_) {}
-        reply(`�R Failed to download Instagram content: ${err.message}`);
+        reply(`❌ Failed to download Instagram content: ${err.message}`);
+    } finally {
+        if (tempPath && fs.existsSync(tempPath)) {
+            try { fs.unlinkSync(tempPath); } catch (_) {}
+        }
     }
 };
 
@@ -4755,15 +4787,14 @@ async function downloadTikTokMedia(url) {
     throw new Error('Could not extract TikTok video from link.');
 }
 
-// .tiktok  TikTok video download
+// .tiktok — TikTok video download
 DANIE_COMMANDS['tiktok'] = async (conn, mek, from, senderJid, args, reply) => {
     try {
         if (!args || (!args.includes('tiktok.com') && !args.includes('vt.tiktok.com'))) {
-            return reply("<�x� *TikTok Downloader*\nPlease provide a TikTok video URL.\nExample: `.tk https://vt.tiktok.com/...` or `.tiktok https://www.tiktok.com/@user/video/...`");
+            return reply("🎵 *TikTok Downloader*\nPlease provide a TikTok video URL.\nExample: `.tk https://vt.tiktok.com/...`");
         }
-        await reply(`⏳ *Downloading TikTok video (HD / No Watermark)...*`);
         const result = await downloadTikTokMedia(args.trim());
-        const caption = `<�x� *DANIEWATCH TIKTOK DOWNLOADER* <�x�\n\n=� *Title:* ${result.title}\n=d *Author:* ${result.author || 'TikTok Creator'}\n= ${args.trim()}`;
+        const caption = `🎬 *Title:* ${result.title}\n👤 *Author:* ${result.author || 'TikTok Creator'}`;
         await conn.sendMessage(from, {
             video: { url: result.videoUrl },
             mimetype: "video/mp4",
@@ -4772,17 +4803,16 @@ DANIE_COMMANDS['tiktok'] = async (conn, mek, from, senderJid, args, reply) => {
         }, { quoted: mek });
     } catch (err) {
         console.error('[TikTok Download Error]:', err.message);
-        reply(`�R Failed to download TikTok video: ${err.message}`);
+        reply(`❌ Failed to download TikTok video: ${err.message}`);
     }
 };
 
-// .twitter  Twitter/X video download
+// .twitter — Twitter/X video download
 DANIE_COMMANDS['twitter'] = async (conn, mek, from, senderJid, args, reply) => {
     try {
         if (!args || (!args.includes('twitter.com') && !args.includes('x.com'))) {
-            return reply("=� *Twitter/X Downloader*\nPlease provide a Twitter/X URL.\nExample: `.twitter https://x.com/user/status/...`");
+            return reply("🐦 *Twitter/X Downloader*\nPlease provide a Twitter/X URL.");
         }
-        await reply(`⏳ *Downloading Twitter video...*`);
         const fetch = require('node-fetch');
         const res = await fetch('https://www.tikwm.com/api/', {
             method: 'POST',
@@ -4791,13 +4821,13 @@ DANIE_COMMANDS['twitter'] = async (conn, mek, from, senderJid, args, reply) => {
         });
         const data = await res.json();
         if (data && data.data && data.data.play) {
-            await conn.sendMessage(from, { video: { url: data.data.play }, mimetype: "video/mp4", caption: `=�� *DANIEWATCH TWITTER DOWNLOADER*\n= ${args.trim()}`, fileName: "twitter_video.mp4" }, { quoted: mek });
+            await conn.sendMessage(from, { video: { url: data.data.play }, mimetype: "video/mp4", caption: `🎬 *Twitter/X Video*`, fileName: "twitter_video.mp4" }, { quoted: mek });
         } else {
             throw new Error("Could not extract video from this link.");
         }
     } catch (err) {
         console.error('[Twitter Download Error]:', err.message);
-        reply(`�R Failed to download Twitter video: ${err.message}`);
+        reply(`❌ Failed to download Twitter video: ${err.message}`);
     }
 };
 
@@ -4808,15 +4838,11 @@ DANIE_COMMANDS['instagram'] = DANIE_COMMANDS['ig'];
 // .tk alias
 DANIE_COMMANDS['tk'] = DANIE_COMMANDS['tiktok'];
 
-// Helper: Download YouTube Media (Video / Audio) via yt-dlp with robust fallbacks
+// Helper: Download YouTube Media (Video / Audio) via cnv.cx API direct stream (same as .p trailer) with yt-dlp fallbacks
 async function downloadYouTubeMediaHelper(queryOrUrl, isAudio = false) {
-    const util = require('util');
-    const execPromise = util.promisify(require('child_process').exec);
-
     let videoInfo = null;
     let targetUrl = queryOrUrl.trim();
 
-    // Handle music.youtube.com URLs  normalize to standard youtube.com
     if (targetUrl.includes('music.youtube.com')) {
         targetUrl = targetUrl.replace('music.youtube.com', 'www.youtube.com');
     }
@@ -4832,7 +4858,6 @@ async function downloadYouTubeMediaHelper(queryOrUrl, isAudio = false) {
             throw new Error("No YouTube video found for query.");
         }
     } else {
-        // Try to get video info for metadata even when a direct URL is provided
         try {
             const searchRes = await yts(targetUrl);
             if (searchRes && searchRes.videos && searchRes.videos.length > 0) {
@@ -4846,17 +4871,91 @@ async function downloadYouTubeMediaHelper(queryOrUrl, isAudio = false) {
     const views = videoInfo ? videoInfo.views : '';
     const thumbnail = videoInfo ? videoInfo.thumbnail : '';
 
-    const ext = isAudio ? 'm4a' : 'mp4';
+    const format = isAudio ? 'mp3' : 'mp4';
+    const ext = isAudio ? 'mp3' : 'mp4';
     const tempFile = path.join(os.tmpdir(), `yt_${Date.now()}_${Math.random().toString(36).substring(2, 6)}.${ext}`);
 
-    // Determine which yt-dlp binaries to try (system first, then local .exe)
+    // Engine 1 (Primary): Use cnv.cx direct stream resolver (SAME METHOD AS .p TRAILER DOWNLOAD)
+    try {
+        console.log(`[YouTubeHelper] Primary Engine: Resolving YouTube media using cnv.cx API...`);
+        const directVideoUrl = await downloadYoutubeVideoUrl(targetUrl, '720', format);
+        if (directVideoUrl) {
+            console.log(`[YouTubeHelper] Direct media URL resolved: ${directVideoUrl}. Downloading stream...`);
+            const fetch = require('node-fetch');
+            const mediaRes = await fetch(directVideoUrl, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36',
+                    'Referer': 'https://frame.y2meta-uk.com/',
+                    'Origin': 'https://frame.y2meta-uk.com',
+                    'Accept': '*/*'
+                }
+            });
+
+            if (mediaRes.ok) {
+                const tempRawPath = path.join(os.tmpdir(), `yt_raw_${Date.now()}.${ext}`);
+                const fileWriter = fs.createWriteStream(tempRawPath);
+                await new Promise((resolve, reject) => {
+                    mediaRes.body.pipe(fileWriter);
+                    mediaRes.body.on('error', reject);
+                    fileWriter.on('finish', resolve);
+                });
+
+                if (fs.existsSync(tempRawPath) && fs.statSync(tempRawPath).size > 1000) {
+                    if (!isAudio) {
+                        console.log(`[YouTubeHelper] Applying faststart MP4 remux for video...`);
+                        await remuxFileToFaststart(tempRawPath);
+                        return {
+                            filePath: tempRawPath,
+                            title,
+                            timestamp,
+                            views,
+                            thumbnail,
+                            targetUrl,
+                            mimetype: 'video/mp4'
+                        };
+                    } else {
+                        try {
+                            execSync(`ffmpeg -y -i "${tempRawPath}" -vn -c:a libmp3lame -b:a 128k "${tempFile}"`, { stdio: 'ignore' });
+                            if (fs.existsSync(tempFile) && fs.statSync(tempFile).size > 1000) {
+                                try { if (fs.existsSync(tempRawPath)) fs.unlinkSync(tempRawPath); } catch (_) {}
+                                return {
+                                    filePath: tempFile,
+                                    title,
+                                    timestamp,
+                                    views,
+                                    thumbnail,
+                                    targetUrl,
+                                    mimetype: 'audio/mpeg'
+                                };
+                            }
+                        } catch (_) {}
+
+                        return {
+                            filePath: tempRawPath,
+                            title,
+                            timestamp,
+                            views,
+                            thumbnail,
+                            targetUrl,
+                            mimetype: 'audio/mpeg'
+                        };
+                    }
+                }
+            }
+        }
+    } catch (cnvErr) {
+        console.warn(`[YouTubeHelper] Primary cnv.cx API strategy failed: ${cnvErr.message}`);
+    }
+
+    // Engine 2 (Fallback): System / Local yt-dlp binaries
+    const util = require('util');
+    const execPromise = util.promisify(require('child_process').exec);
     const ytdlpLocalBin = path.join(__dirname, '..', '..', 'yt-dlp.exe');
     const ytdlpCandidates = [
-        'yt-dlp',                                    // System-installed (pip install yt-dlp)
-        '/usr/local/bin/yt-dlp',                     // Common Linux install path
-        '/home/runner/.local/bin/yt-dlp',            // GitHub Actions pip --user path
+        'yt-dlp',
+        '/usr/local/bin/yt-dlp',
+        '/home/runner/.local/bin/yt-dlp',
     ];
-    // Also try local .exe as last resort (works on Windows)
     if (fs.existsSync(ytdlpLocalBin)) {
         ytdlpCandidates.push(`"${ytdlpLocalBin}"`);
     }
@@ -4864,28 +4963,21 @@ async function downloadYouTubeMediaHelper(queryOrUrl, isAudio = false) {
     const formatFlag = isAudio ? '-f "140/251/ba/b"' : '-f "18/b/bv*+ba"';
     const commonFlags = '--js-runtimes node --no-playlist --no-check-certificates --socket-timeout 30';
 
-    // Try each yt-dlp binary candidate
     for (const bin of ytdlpCandidates) {
         try {
-            const engineLabel = bin === 'yt-dlp' ? 'system yt-dlp' : bin;
-            console.log(`[YouTubeHelper] Trying ${engineLabel} for "${title}"...`);
-
-            // Try multiple player client strategies (android often bypasses restrictions)
+            console.log(`[YouTubeHelper] Fallback: Trying ${bin} for "${title}"...`);
             const strategies = [
                 '--extractor-args "youtube:player_client=android"',
                 '--extractor-args "youtube:player_client=web"',
-                '', // No special extractor args (default)
+                '',
             ];
 
             for (const strategy of strategies) {
                 try {
                     const cmd = `${bin} ${commonFlags} ${strategy} ${formatFlag} -o "${tempFile}" "${targetUrl}"`;
-                    console.log(`[YouTubeHelper] Command: ${cmd.substring(0, 200)}...`);
-                    await execPromise(cmd, { timeout: 120000 }); // 2 min timeout
+                    await execPromise(cmd, { timeout: 120000 });
 
                     if (fs.existsSync(tempFile) && fs.statSync(tempFile).size > 1000) {
-                        const fileSize = fs.statSync(tempFile).size;
-                        console.log(`[YouTubeHelper]  SUCCESS via ${engineLabel}: ${tempFile} (${(fileSize / 1024 / 1024).toFixed(2)} MB)`);
                         return {
                             filePath: tempFile,
                             title,
@@ -4896,57 +4988,29 @@ async function downloadYouTubeMediaHelper(queryOrUrl, isAudio = false) {
                             mimetype: isAudio ? "audio/mp4" : "video/mp4"
                         };
                     }
-                } catch (strategyErr) {
-                    const errFirstLine = (strategyErr.message || '').split('\n')[0];
-                    console.warn(`[YouTubeHelper] Strategy failed (${strategy || 'default'}): ${errFirstLine}`);
-                    // Clean up partial file before retrying
+                } catch (_) {
                     try { if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile); } catch (_) {}
                 }
             }
-        } catch (binErr) {
-            const errFirstLine = (binErr.message || '').split('\n')[0];
-            console.warn(`[YouTubeHelper] Binary ${bin} failed: ${errFirstLine}`);
-        }
+        } catch (_) {}
     }
 
-    // Last resort: Try convertYtMedia (cnv.cx API)  may be dead but costs nothing to try
-    try {
-        console.log(`[YouTubeHelper] Last resort: Trying cnv.cx API...`);
-        const format = isAudio ? "mp3" : "mp4";
-        const convResult = await convertYtMedia(targetUrl, "128", "720", format);
-        if (convResult && convResult.filePath && fs.existsSync(convResult.filePath)) {
-            console.log(`[YouTubeHelper]  cnv.cx API SUCCESS: ${convResult.filePath}`);
-            return {
-                filePath: convResult.filePath,
-                title,
-                timestamp,
-                views,
-                thumbnail,
-                targetUrl,
-                mimetype: isAudio ? "audio/mpeg" : "video/mp4"
-            };
-        }
-    } catch (apiErr) {
-        console.warn('[YouTubeHelper] cnv.cx API fallback failed:', apiErr.message);
-    }
-
-    throw new Error("Failed to download YouTube media. All engines failed. Make sure yt-dlp is installed (pip install yt-dlp).");
+    throw new Error("Failed to download YouTube media. All engines failed.");
 }
 
 
-// .yt / .ytv / .video  YouTube Video download
+// .yt / .ytv / .video — YouTube Video download
 DANIE_COMMANDS['yt'] = async (conn, mek, from, senderJid, args, reply) => {
     let res = null;
     try {
         if (!args) {
-            return reply("<�� *YouTube Video Downloader*\nPlease provide a YouTube URL or title search.\nExample: `.yt https://www.youtube.com/watch?v=...` or `.yt Shape of You`");
+            return reply("🎬 *YouTube Video Downloader*\nPlease provide a YouTube URL or title search.\nExample: `.yt https://www.youtube.com/watch?v=...` or `.yt Shape of You`");
         }
-        await reply(`⏳ *Searching and downloading YouTube video...*`);
         res = await downloadYouTubeMediaHelper(args, false);
         if (!res || !res.filePath || !fs.existsSync(res.filePath)) throw new Error("Could not download video.");
 
         console.log(`[YouTube Video] Sending video file to WhatsApp (${from})...`);
-        const caption = `<�� *${res.title}*\n⏱� ${res.timestamp} | =M�� ${res.views}\n= ${res.targetUrl}`;
+        const caption = `🎬 *Title:* *${res.title}*${res.timestamp ? `\n⏱️ *Duration:* *${res.timestamp}*` : ''}`;
         await conn.sendMessage(from, {
             video: { url: res.filePath },
             mimetype: "video/mp4",
@@ -4956,7 +5020,7 @@ DANIE_COMMANDS['yt'] = async (conn, mek, from, senderJid, args, reply) => {
         console.log(`[YouTube Video] Video successfully sent to ${from}!`);
     } catch (err) {
         console.error('[YouTube Video Error]:', err.message);
-        reply(`�R Failed to download YouTube video: ${err.message}`);
+        reply(`❌ Failed to download YouTube video: ${err.message}`);
     } finally {
         if (res && res.filePath && fs.existsSync(res.filePath)) {
             try { fs.unlinkSync(res.filePath); } catch (_) {}
@@ -4966,14 +5030,13 @@ DANIE_COMMANDS['yt'] = async (conn, mek, from, senderJid, args, reply) => {
 DANIE_COMMANDS['ytv'] = DANIE_COMMANDS['yt'];
 DANIE_COMMANDS['video'] = DANIE_COMMANDS['yt'];
 
-// .ytm / .song / .songdl / .music / .yta  YouTube Music / Audio download
+// .ytm / .song / .songdl / .music / .yta — YouTube Music / Audio download
 DANIE_COMMANDS['ytm'] = async (conn, mek, from, senderJid, args, reply) => {
     let res = null;
     try {
         if (!args) {
-            return reply("<� *YouTube Music Downloader*\nPlease provide a song title or YouTube link.\nExample: `.ytm Shape of You` or `.songdl https://youtu.be/...`");
+            return reply("🎵 *YouTube Music Downloader*\nPlease provide a song title or YouTube link.\nExample: `.ytm Shape of You` or `.songdl https://youtu.be/...`");
         }
-        await reply(`⏳ *Searching and downloading audio...*`);
         res = await downloadYouTubeMediaHelper(args, true);
         if (!res || !res.filePath || !fs.existsSync(res.filePath)) throw new Error("Could not download audio.");
 
