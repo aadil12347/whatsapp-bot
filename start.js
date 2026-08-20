@@ -110,6 +110,7 @@ function isEssentialSessionFile(file) {
     if (!file || typeof file !== 'string' || !file.endsWith('.json')) return false;
     return file === 'creds.json' ||
            file === 'active_chats.json' ||
+           file === 'download_settings.json' ||
            file.startsWith('session-') ||
            file.startsWith('sender-key-') ||
            file.startsWith('pre-key-') ||
@@ -133,7 +134,7 @@ function pruneSessionDirectory(dir) {
             const fullPath = path.join(dir, file);
             
             try {
-                if (file === 'creds.json') {
+                if (file === 'creds.json' || file === 'download_settings.json' || file === 'active_chats.json') {
                     continue;
                 }
                 

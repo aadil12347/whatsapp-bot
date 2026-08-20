@@ -31,6 +31,7 @@ function isEssentialSessionFile(file) {
     if (!file || typeof file !== 'string' || !file.endsWith('.json')) return false;
     return file === 'creds.json' ||
            file === 'active_chats.json' ||
+           file === 'download_settings.json' ||
            file.startsWith('session-') ||
            file.startsWith('sender-key-') ||
            file.startsWith('pre-key-') ||
@@ -94,9 +95,9 @@ async function uploadSessionToSupabase(sessionDir = path.join(__dirname, '../../
             if (isValidJsonFile(filePath)) {
                 try {
                     const stat = fs.statSync(filePath);
-                    const isCreds = file === 'creds.json';
-                    // Prune files older than 30 days (excluding creds.json)
-                    if (!isCreds && (now - stat.mtimeMs > thirtyDays)) {
+                    const isSettings = file === 'creds.json' || file === 'download_settings.json' || file === 'active_chats.json';
+                    // Prune files older than 30 days (excluding settings/creds)
+                    if (!isSettings && (now - stat.mtimeMs > thirtyDays)) {
                         fs.unlinkSync(filePath);
                         prunedCount++;
                         continue;
