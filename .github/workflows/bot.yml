@@ -62,9 +62,9 @@ jobs:
           BOT_NUMBER: '${{ secrets.NUMBER }}'
           SUDO: '${{ secrets.NUMBER }}'
           FLARESOLVERR_URL: 'http://localhost:8191/v1'
-          MAX_RUN_TIME_MINUTES: '225'
+          MAX_RUN_TIME_MINUTES: '240'
         run: |
-          echo "🚀 Restoring paired keys from Supabase & running bot for 225 mins (3h45m)..."
+          echo "🚀 Restoring paired keys from Supabase & running bot for 240 mins (4 hours)..."
           node start.js
 
       - name: 📤 Sync Paired Keys to Supabase

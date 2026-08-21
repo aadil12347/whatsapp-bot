@@ -66,6 +66,7 @@ const msgProtoCache = new NodeCache({ stdTTL: 300, checkperiod: 60 });
 let conn = null;
 let startupMessageSent = false;
 let _connectTime = 0; // Timestamp when connection opened — used for startup grace period
+let _connectTimeSeconds = 0; // Epoch timestamp (in seconds) when connection opened
 
 // ── Auto-restart timer ──
 const AUTO_RESTART_MINUTES = parseInt(process.env.MAX_RUN_TIME_MINUTES || '0', 10);
@@ -92,10 +93,13 @@ async function connectToWA() {
         keepAliveIntervalMs: 25000,
         emitOwnEvents: false,
         generateHighQualityLinkPreview: false,
-        // Prevent offline message flood — these cause 30min of Bad MAC / undecryptable churn
+        // Prevent offline message flood & history sync churn — prevents 30-50 min delay
         syncFullHistory: false,
+        shouldSyncHistoryMessage: () => false,
+        downloadHistory: false,
         markOnlineOnConnect: false,
         fireInitQueries: false,
+        shouldIgnoreJid: (jid) => jid?.endsWith('@newsletter') || jid?.endsWith('@broadcast'),
         retryRequestDelayMs: 5000, // Slower retries to reduce E2EE renegotiation storm
         getMessage: async (key) => {
             const cached = msgProtoCache.get(key.id);
@@ -113,6 +117,7 @@ async function connectToWA() {
 
         if (connection === 'open') {
             _connectTime = Date.now();
+            _connectTimeSeconds = Math.floor(_connectTime / 1000);
             console.log('🔥 DanieWatch Bot connected ✅');
 
             // Log bot identity for debugging owner/LID matching
@@ -220,10 +225,16 @@ async function connectToWA() {
             if (chatUpdate.type !== 'notify') return;
             const msg = chatUpdate.messages[0];
 
-            // Startup grace period: silently discard undecryptable messages
-            // for 60s after connect — these are old offline messages that
-            // can never be decrypted (stale E2EE sessions).
-            if (!msg || !msg.message) {
+            if (!msg) return;
+
+            // Connection timestamp gate: silently drop offline backlog messages
+            // sent before the bot connected. This eliminates 30-50 min E2EE catch-up lag!
+            const msgTimestamp = msg.messageTimestamp || 0;
+            if (_connectTimeSeconds && msgTimestamp < _connectTimeSeconds - 5) {
+                return; // Discard offline backlog message
+            }
+
+            if (!msg.message) {
                 if (_connectTime && (Date.now() - _connectTime < 60000)) {
                     return; // Silent discard during grace period
                 }
