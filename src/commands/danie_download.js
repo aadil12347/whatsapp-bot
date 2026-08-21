@@ -2492,12 +2492,15 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
             }
         }
 
-        let detailsMessage = `🎬 *Title:* *${tmdb.title}*\n`;
-        detailsMessage += `📅 *Year:* *${tmdb.year}*\n`;
+        let detailsMessage = `🎬 *『 𝑫𝑨𝑵𝑰𝑬𝑾𝑨𝑻𝑪𝑯 』* 🍿\n` +
+                             `───────────────────\n` +
+                             `📝 *Title:* *${tmdb.title}*\n` +
+                             `📅 *Year:* *${tmdb.year}*\n`;
         if (seasonText) detailsMessage += seasonText;
         detailsMessage += `🎭 *Genre:* *${tmdb.genres}*\n`;
         if (episodeText) detailsMessage += episodeText;
-        detailsMessage += `\n💚 *DANIEWATCH*`;
+        detailsMessage += `───────────────────\n` +
+                             `👑 *『 𝑫𝑨𝑵𝑰𝑬𝑾𝑨𝑻𝑪𝑯 』* 👑`;
 
         // 2. Download and send poster image first to configured destJid
         const posterUrl = tmdb.posterUrl;
@@ -5047,11 +5050,10 @@ DANIE_COMMANDS['ytm'] = async (conn, mek, from, senderJid, args, reply) => {
             fileName: `${res.title.replace(/[^a-zA-Z0-9 ]/g, '')}.m4a`,
             ptt: false
         }, { quoted: mek });
-        await reply(` *${res.title}* ${res.timestamp ? `(${res.timestamp})` : ''}\n= ${res.targetUrl}`);
         console.log(`[YouTube Music] Audio successfully sent to ${from}!`);
     } catch (err) {
         console.error('[YouTube Music Error]:', err.message);
-        reply(`�R Failed to download audio: ${err.message}`);
+        reply(`❌ Failed to download audio: ${err.message}`);
     } finally {
         if (res && res.filePath && fs.existsSync(res.filePath)) {
             try { fs.unlinkSync(res.filePath); } catch (_) {}
