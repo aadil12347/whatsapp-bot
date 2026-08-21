@@ -1,5 +1,5 @@
 const os = require("os");
-const packageJson = require("./package.json"); // Get package details
+const packageJson = require("./package.json");
 
 function formatUptime(seconds) {
   let d = Math.floor(seconds / (3600 * 24));
@@ -15,85 +15,102 @@ function formatUptime(seconds) {
 
 module.exports = {
   IMG: "./assets/daniewatch_logo.png",
-  ARTISTS:[
-      "Ranwan Liyanage original",
-      "Amal Perera original",
-      "Clarence Wijewardena original",
-      "Sunil Edirisinghe original",
-      "Victor Ratnayake original",
-      "Nanda Malini original",
-      "Sanuka Wickramasinghe original",
-      "Kasun Kalhara original",
-      "Uresha Ravihari original",
-      "Dinesh Kanagaratnam original"
-    ],
+  ARTISTS: [
+    "Ranwan Liyanage original",
+    "Amal Perera original",
+    "Clarence Wijewardena original",
+    "Sunil Edirisinghe original",
+    "Victor Ratnayake original",
+    "Nanda Malini original",
+    "Sanuka Wickramasinghe original",
+    "Kasun Kalhara original",
+    "Uresha Ravihari original",
+    "Dinesh Kanagaratnam original"
+  ],
+  SIGNATURE: function (config) {
+    return `╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮\n│        ✨ *DANIEWATCH BOT* ✨        │\n╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯`;
+  },
   //====================menu=================================
   MENUMSG: function (pushname, runtimeOrConfig, configOrUndefined) {
     let config = typeof runtimeOrConfig === "object" ? runtimeOrConfig : configOrUndefined;
     let runtime = typeof runtimeOrConfig === "function" ? runtimeOrConfig : formatUptime;
     if (!config) config = {};
-    return `
-✘◍ ꜱᴇʟᴇᴛᴇ ʏᴏᴜʀ ᴀheader. 
-ᴛʜᴀɴᴋꜱ ꜰᴏʀ ᴜꜱɪɴɢ ʙᴏᴛ.
+    const dateStr = new Date().toLocaleDateString("en-GB", { timeZone: "Asia/Colombo" });
+    const timeStr = new Date().toLocaleTimeString("en-GB", { timeZone: "Asia/Colombo" });
+    const ramUsed = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1);
+    const ramTotal = Math.round(os.totalmem() / 1024 / 1024);
 
-┏━━━━❮ 📆 ᴛᴏ ᴅᴀʏ 📆❯━━━━
-┃
-┃ 📅 Date Today : ${new Date().toLocaleDateString("en-GB", {
-      timeZone: "Asia/Colombo",
-    })}
-┃ ⌚ Time Now : ${new Date().toLocaleTimeString("en-GB", {
-      timeZone: "Asia/Colombo",
-    })}
-┃
-┗━━━━━━━━━━━━━━━
-┏━━━━❮📝 ᴅᴇᴛᴇʟᴇ𝒔 📝❯━━━
-┃🗣️ 𝚄𝚜𝚎𝚛 : ${pushname}
-┃🤖 𝙱𝚘𝚝 : © DanieWatch Downloader Bot V${packageJson.version}
-┃📜 𝙿𝚛𝚎𝚏𝚒𝚡 : ${config.PREFIX || ""}
-┃📚 𝚅𝚎𝚛𝚜𝚒𝚘𝚗 : ${packageJson.version}
-┃📝 𝙿𝚕𝚊𝚝𝚏𝚘𝚛𝚖 : ${os.platform()}
-┃📟 𝙷𝚘𝚜𝚝 : ${os.hostname()}
-┃🤴𝙾𝚠念 : ${config.OWNER_NAME || ""}
-┃🔊 𝙼𝚘𝚍𝚎 : ${config.MODE || ""}
-┃🍁 𝚄𝚙𝚝𝚒𝚖𝚎 : ${runtime(process.uptime())}
-┃✨𝙼𝚎𝚖 : ${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(
-      2
-    )}MB / ${Math.round(os.totalmem() / 1024 / 1024)}MB
-┗━━━━━━━━━━━━━━━
-        `.trim();
+    return `
+╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
+│       ✨ *DANIEWATCH MENU* ✨       │
+╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
+
+┌─❒ *System Overview*
+│ 👤 *User:* ${pushname}
+│ 🤖 *Bot:* © DanieWatch V${packageJson.version}
+│ 📜 *Prefix:* ${config.PREFIX || "."}
+│ ⚙️ *Mode:* ${config.MODE || "Active"}
+│ 👑 *Owner:* ${config.OWNER_NAME || "Daniyal Aadil"}
+│ ⏱️ *Uptime:* ${runtime(process.uptime())}
+│ 🧠 *RAM:* ${ramUsed} MB / ${ramTotal} MB
+│ 💻 *Platform:* ${os.platform()}
+│ 📟 *Host:* ${os.hostname()}
+└───────────────
+
+┌─❒ *Date & Time*
+│ 📅 *Date:* ${dateStr}
+│ ⌚ *Time:* ${timeStr}
+└───────────────
+
+🚀 _Send any direct media link or command to start downloading!_
+`.trim();
   },
   //======================download============================
   TIKTOK: function (title, author, q) {
     return `
-🎟️ *DANIEWATCH TIKTOK DOWNLOADER* 🎟️
+╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
+│     🎵 *TIKTOK DOWNLOADER* 🎵     │
+╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
 
-🔢 *Please reply with the number you want to select:*
+┌─❒ *Video Info*
+│ 📌 *Title:* ${title || "TikTok Video"}
+│ 👤 *Author:* ${author || "N/A"}
+│ 🔗 *URL:* ${q}
+└───────────────
 
-Title  * ${title}
-Author * ${author}
-URL    * ${q}
-        `.trim();
+⚡ *Brought to you by DanieWatch Bot!*
+`.trim();
   },
   FACEBOOK: function (title, q) {
     return `
-💢 DANIEWATCH FB DOWNLOADER 💢
-    
-🎞 TITLE 🎞 ${title}
+╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
+│    📘 *FACEBOOK DOWNLOADER* 📘    │
+╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
 
-Fb-Url: -=-${q} 
-        `.trim();
+┌─❒ *Video Info*
+│ 📌 *Title:* ${title || "Facebook Video"}
+│ 🔗 *URL:* ${q}
+└───────────────
+
+⚡ *Brought to you by DanieWatch Bot!*
+`.trim();
   },
   TWITTER: function (desc, q) {
     return `
-💢 DANIEWATCH TWITTER DOWNLOADER 💢
+╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
+│     🐦 *TWITTER DOWNLOADER* 🐦     │
+╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
 
-📝 Description: ${desc || "No description"}
+┌─❒ *Tweet Info*
+│ 📝 *Description:* ${desc || "No description"}
+│ 🔗 *URL:* ${q}
+└───────────────
 
-Twitter URL: ${q}
-        `.trim();
+⚡ *Brought to you by DanieWatch Bot!*
+`.trim();
   },
   //=================main==================================
-  ALIVEIMG: "./src/media/LOGOS/alive.jpg",
+  ALIVEIMG: "./assets/daniewatch_logo.png",
   ALIVEVOICE: "./src/media/Auto_voice/alive.aac",
   ALIVEMSG: function (arg1, arg2, arg3, arg4) {
     let hostname, config, pushname, runtime;
@@ -109,311 +126,379 @@ Twitter URL: ${q}
       runtime = typeof arg4 === "function" ? arg4 : formatUptime;
     }
     if (!config) config = {};
+    const ramUsed = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1);
+    const ramTotal = Math.round(os.totalmem() / 1024 / 1024);
+
     return `
-╭─── ⋆ ⋅ ✦ ⋅ ⋆ ───╮
-   ✨ *DANIEWATCH BOT* ✨
-╰─── ⋆ ⋅ ✦ ⋅ ⋆ ───╯
+╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
+│       ⚡ *DANIEWATCH ALIVE* ⚡       │
+╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
 
 ┌─❒ *Bot Status*
-│ ⚡ I'm Alive & Active!
-│ 🗣️ User: ${pushname}
-│ 🤖 Bot: © DanieWatch Bot V${packageJson.version}
-│ 📜 Prefix: ${config.PREFIX || ""}
-│ ⏱️ Uptime: ${runtime(process.uptime())}
-│ 🧠 Memory: ${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(
-      2
-    )}MB / ${Math.round(require("os").totalmem() / 1024 / 1024)}MB
-│ 💻 Platform: ${hostname}
-│ ⚙️ Mode: ${config.MODE || ""}
+│ ⚡ *Status:* Online & Active!
+│ 👤 *User:* ${pushname}
+│ 🤖 *Bot:* © DanieWatch V${packageJson.version}
+│ 📜 *Prefix:* ${config.PREFIX || "."}
+│ ⏱️ *Uptime:* ${runtime(process.uptime())}
+│ 🧠 *Memory:* ${ramUsed} MB / ${ramTotal} MB
+│ 💻 *Platform:* ${hostname}
+│ ⚙️ *Mode:* ${config.MODE || "Active"}
 └───────────────
 
 🚀 _Ready for movie & video downloads!_
-        `.trim();
+`.trim();
   },
   //====================movie======================================
   GROUP: function (groupName, conf) {
     return `
-📨 *𝙎𝙝𝙖𝙧𝙚𝙙 𝙄𝙣:* ${groupName}
-🛡️ *𝘼𝙙𝙢𝙞𝙣:* ${conf.MNAME}
-        `.trim();
+📨 *Shared In:* ${groupName}
+🛡️ *Admin:* ${conf.MNAME}
+`.trim();
   },
   SINHALASUB: function (movieData) {
     return `
-🎬 *『 𝑫𝑨𝑵𝑰𝑬𝑾𝑨𝑻𝑪𝑯 𝑪𝑰𝑵𝑬𝑴𝑨 』* 🍿
+╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
+│      🎬 *DANIEWATCH CINEMA* 🍿      │
+╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
 
-✨ *𝙼𝚘𝚟𝚒𝚎 𝙽𝚊𝚖𝚎:* ${movieData.title}
-⭐ *𝙸𝙼𝙳𝙱 𝚁𝚊𝚝𝚒𝚗𝚐:* ${movieData.rating?.value || "𝙽/𝙰"} ★
-📆 *𝚁𝚎𝚕𝚎𝚊𝚜𝚎 𝙳𝚊𝚝𝚎:* ${movieData.metadata?.releaseDate || "𝙽/𝙰"}
-🌐 *𝙲𝚘𝚞𝚗𝚝𝚛𝚢:* ${movieData.metadata?.country || "𝙽/𝙰"}
-⏱️ *𝙳𝚞𝚛𝚊𝚝𝚒𝚘𝚗:* ${movieData.metadata?.runtime || "𝙽/𝙰"}
-        `.trim();
+┌─❒ *Movie Info*
+│ ✨ *Name:* ${movieData.title}
+│ ⭐ *IMDB Rating:* ${movieData.rating?.value || "N/A"} ★
+│ 📆 *Release Date:* ${movieData.metadata?.releaseDate || "N/A"}
+│ 🌐 *Country:* ${movieData.metadata?.country || "N/A"}
+│ ⏱️ *Duration:* ${movieData.metadata?.runtime || "N/A"}
+└───────────────
+`.trim();
   },
   CINESUBZ: function (title, metadata, rating) {
+    const genres = metadata?.genres?.map((g) => `#${g}`).join(" • ") || "N/A";
     return `
-🎬 *『 𝑫𝑨𝑵𝑰𝑬𝑾𝑨𝑻𝑪𝑯 𝑪𝑰𝑵𝑬𝑴𝑨 』* 🍿
+╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
+│      🎬 *DANIEWATCH CINEMA* 🍿      │
+╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
 
-✨ *𝙼𝚘𝚟𝚒𝚎 𝙽𝚊𝚖𝚎:* 𝘾𝙝𝙚𝙘𝙠 𝙞𝙩 𝙤𝙪𝙩 → ${title}
-       
-⭐ *𝙸𝙼𝙳𝙱 𝚁𝚊𝚝𝚒𝚗𝚐:* ${rating?.value || "𝙽/𝙰"} ★
-📆 *𝚁𝚎𝚕𝚎𝚊𝚜𝚎 𝙳𝚊𝚝𝚎:* ${metadata?.releaseDate || "𝙽/𝙰"}
-🌐 *𝙲𝚘𝚞𝚗𝚝𝚛𝚢:* ${metadata?.country || "𝙽/𝙰"}
-⏱️ *𝙳𝚞𝚛𝚊𝚝𝚒𝚘𝚗:* ${metadata?.runtime || "𝙽/𝙰"}
-🎭 *𝙶𝚎𝚗𝚛𝚎𝚜:* ${metadata?.genres.map((g) => `#${g}`).join(" • ") || "𝙽/𝙰"} 
-        `.trim();
+┌─❒ *Movie Details*
+│ ✨ *Title:* ${title}
+│ ⭐ *IMDB Rating:* ${rating?.value || "N/A"} ★
+│ 📆 *Release Date:* ${metadata?.releaseDate || "N/A"}
+│ 🌐 *Country:* ${metadata?.country || "N/A"}
+│ ⏱️ *Duration:* ${metadata?.runtime || "N/A"}
+│ 🎭 *Genres:* ${genres}
+└───────────────
+`.trim();
   },
   CINETVSHOW: function (movieResponse) {
     return `
-🎬 *『 𝑫𝑨𝑵𝑰𝑬𝑾𝑨𝑻𝑪𝑯 𝑪𝑰𝑵𝑬𝑴𝑨 』* 🍿
+╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
+│     📺 *DANIEWATCH TV SHOW* 🍿     │
+╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
 
-📺 *𝚃𝚅 𝚂𝚑𝚘𝚠:* ${movieResponse.episodeInfo?.title || "𝙽/𝙰"}
-🎞️ *𝙴𝚙𝚒𝚜𝚘𝚍𝚎 𝚃𝚒𝚝𝚕𝚎:* ${movieResponse.episodeInfo?.episodeTitle || "𝙽/𝙰"}
-📅 *𝙳𝚊𝚝𝚎:* ${movieResponse.episodeInfo?.date || "𝙽/𝙰"}
-        `.trim();
+┌─❒ *Episode Info*
+│ 📺 *Show:* ${movieResponse.episodeInfo?.title || "N/A"}
+│ 🎞️ *Episode:* ${movieResponse.episodeInfo?.episodeTitle || "N/A"}
+│ 📅 *Date:* ${movieResponse.episodeInfo?.date || "N/A"}
+└───────────────
+`.trim();
   },
   SINHALASUBTVSHOW: function (episodeInfo, quality) {
     return `
-🎬 *『 𝑫𝑨𝑵𝑰𝑬𝑾𝑨𝑻𝑪𝑯 𝑪𝑰𝑵𝑬𝑴𝑨 』* 🍿
+╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
+│     📺 *DANIEWATCH TV SHOW* 🍿     │
+╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
 
-📺 *TV Show:* ${episodeInfo.title || "N/A"}
-🎞️ *Episode:* ${episodeInfo.episodeTitle || "N/A"}
-📅 *Date:* ${episodeInfo.date || "N/A"}
-💾 *Quality:* ${quality.toUpperCase()}
-        `.trim();
+┌─❒ *Episode Details*
+│ 📺 *TV Show:* ${episodeInfo.title || "N/A"}
+│ 🎞️ *Episode:* ${episodeInfo.episodeTitle || "N/A"}
+│ 📅 *Date:* ${episodeInfo.date || "N/A"}
+│ 💾 *Quality:* ${quality.toUpperCase()}
+└───────────────
+`.trim();
   },
   CINETVSHOWALLDL: function (movieData) {
     return `
-🎬 *『 𝑫𝑨𝑵𝑰𝑬𝑾𝑨𝑻𝑪𝑯 𝑪𝑰𝑵𝑬𝑴𝑨 』* 🍿
+╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
+│     📺 *DANIEWATCH TV SHOW* 🍿     │
+╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
 
-✨ *𝙼𝚘𝚟𝚒𝚎 𝚃𝚒𝚝𝚕𝚎:* ${movieData.data.title}
-📆 *𝚁𝚎𝚕𝚎𝚊𝚜𝚎 𝙳𝚊𝚝𝚎:* ${movieData.data.releaseDate}
-🌐 *𝙽𝚎𝚝𝚠𝚘𝚛𝚔:* ${movieData.data.network}
-        `.trim();
+┌─❒ *Show Info*
+│ ✨ *Title:* ${movieData.data.title}
+│ 📆 *Release Date:* ${movieData.data.releaseDate}
+│ 🌐 *Network:* ${movieData.data.network}
+└───────────────
+`.trim();
   },
   SINHALASUBTVSHOWALLDL: function (movieData) {
     return `
-🎬 *『 𝑫𝑨𝑵𝑰𝑬𝑾𝑨𝑻𝑪𝑯 𝑪𝑰𝑵𝑬𝑴𝑨 』* 🍿
+╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
+│     📺 *DANIEWATCH TV SHOW* 🍿     │
+╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
 
-✨ *𝙼𝚘𝚟𝚒𝚎 𝚃𝚒𝚝𝚕𝚎:* ${movieData.data.showInfo.title}
-📆 *𝚁𝚎𝚕𝚎𝚊𝚜𝚎 𝙳𝚊𝚝𝚎:* ${movieData.data.showInfo.releaseDate}
-🌐 *𝙽𝚎𝚝𝚠𝚘𝚛𝚔:* ${movieData.data.showInfo.network}
-        `.trim();
+┌─❒ *Show Info*
+│ ✨ *Title:* ${movieData.data.showInfo.title}
+│ 📆 *Release Date:* ${movieData.data.showInfo.releaseDate}
+│ 🌐 *Network:* ${movieData.data.showInfo.network}
+└───────────────
+`.trim();
   },
   SIMNHALAMOVIE: function (title) {
     return `
-🎬 *『 𝑫𝑨𝑵𝑰𝑬𝑾𝑨𝑻𝑪𝑯 𝑪𝑰𝑵𝑬𝑴𝑨 』* 🍿
+╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
+│      🎬 *DANIEWATCH CINEMA* 🍿      │
+╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
 
-🎞️ *𝚃𝚒𝚝𝚕𝚎:* ${title}  
-        `.trim();
+┌─❒ *Title*
+│ 🎞️ ${title}
+└───────────────
+`.trim();
   },
   AWAMOVIE: function (title, releaseDate, country) {
     return `
-🎬 *『 𝑫𝑨𝑵𝑰𝑬𝑾𝑨𝑻𝑪𝑯 𝑪𝑰𝑵𝑬𝑴𝑨 』* 🍿
+╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
+│      🎬 *DANIEWATCH CINEMA* 🍿      │
+╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
 
-🎞️ *𝚃𝚒𝚝𝚕𝚎:* ${title}  
-📆 *𝚁𝚎𝚕𝚎𝚊𝚜𝚎 𝙳𝚊𝚝𝚎:* ${releaseDate}  
-🌐 *𝙲𝚘𝚞𝚗𝚝𝚛𝚢:*  ${country}      
-        `.trim();
+┌─❒ *Movie Info*
+│ 🎞️ *Title:* ${title}
+│ 📆 *Release Date:* ${releaseDate}
+│ 🌐 *Country:* ${country}
+└───────────────
+`.trim();
   },
   ANIMEMOVIE: function (title, releaseDate, country, duration) {
     return `
-🎬 *『 𝑫𝑨𝑵𝑰𝑬𝑾𝑨𝑻𝑪𝑯 𝑪𝑰𝑵𝑬𝑴𝑨 』* 🍿
+╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
+│      ⛩️ *DANIEWATCH ANIME* 🌸      │
+╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
 
-✨ ${title} 
-📅 𝗥𝗲𝗹𝗲𝗮𝘀𝗲 𝗗𝗮𝘁𝗲:${releaseDate}  
-🌍 𝗖𝗼𝘂𝗻𝘁𝗿𝘆:${country}  
-⏳ 𝗗𝘂𝗿𝗮𝘁𝗶𝗼𝗻:${duration}  
-        `.trim();
+┌─❒ *Anime Details*
+│ ✨ *Title:* ${title}
+│ 📅 *Release Date:* ${releaseDate}
+│ 🌍 *Country:* ${country}
+│ ⏳ *Duration:* ${duration}
+└───────────────
+`.trim();
   },
   BAISCOMOVIE: function (title, year, rating, duration) {
     return `
-🎬 *『 𝑫𝑨𝑵𝑰𝑬𝑾𝑨𝑻𝑪𝑯 𝑪𝑰𝑵𝑬𝑴𝑨 』* 🍿
+╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
+│      🎬 *DANIEWATCH CINEMA* 🍿      │
+╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
 
-🎞️ *𝚃𝚒𝚝𝚕𝚎:*  ${title} 
-📅 𝗥𝗲𝗹𝗲𝗮𝘀𝗲 𝗗𝗮𝘁𝗲:${year}  
-🌍 RATINGS:${rating}  
-⏳ 𝗗𝘂𝗿𝗮𝘁𝗶𝗼𝗻:${duration}  
-        `.trim();
+┌─❒ *Movie Details*
+│ 🎞️ *Title:* ${title}
+│ 📅 *Release Date:* ${year}
+│ ⭐ *Rating:* ${rating}
+│ ⏳ *Duration:* ${duration}
+└───────────────
+`.trim();
   },
   ADULTMOVIE: function (title, rating, description) {
     return `
-🎬 *『 𝑫𝑨𝑵𝑰𝑬𝑾𝑨𝑻𝑪𝑯 𝑪𝑰𝑵𝑬𝑴𝑨 』* 🍿
-──────────────────
-✨ *Title:* ${title}
-⭐ *Rating:* ${rating}
+╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
+│      🎬 *DANIEWATCH CINEMA* 🍿      │
+╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
 
-🌍 *Description:*  
-${description}
-──────────────────
-📥 *Downloading...*
-        `.trim();
+┌─❒ *Movie Details*
+│ ✨ *Title:* ${title}
+│ ⭐ *Rating:* ${rating}
+└───────────────
+
+📝 *Description:*
+${description || "No description available"}
+
+⚡ *Downloading media...*
+`.trim();
   },
   ANIMOMOVIE: function (movieData) {
     return `
-🎬 *『 𝑫𝑨𝑵𝑰𝑬𝑾𝑨𝑻𝑪𝑯 𝑪𝑰𝑵𝑬𝑴𝑨 』* 🍿  
-        
-✨ ${movieData.title}  
-⭐ Description:${movieData.description} 
-    
-🌍  ${movieData.plot} 
-        `.trim();
+╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
+│      ⛩️ *DANIEWATCH ANIME* 🌸      │
+╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
+
+┌─❒ *Anime Info*
+│ ✨ *Title:* ${movieData.title}
+│ ⭐ *Description:* ${movieData.description}
+└───────────────
+
+📝 *Plot:*
+${movieData.plot || "N/A"}
+`.trim();
   },
   FILMPOMOVIE: function (title, rating, year, duration) {
     return `
-🎬 *『 𝑫𝑨𝑵𝑰𝑬𝑾𝑨𝑻𝑪𝑯 𝑪𝑰𝑵𝑬𝑴𝑨 』* 🍿  
+╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
+│      🎬 *DANIEWATCH CINEMA* 🍿      │
+╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
 
-✨ *𝙼𝚘𝚟𝚒𝚎 𝙽𝚊𝚖𝚎:* ${title}
-⭐ *𝙸𝙼𝙳𝙱 𝚁𝚊𝚝𝚒𝚗𝚐:* ${rating}
-📅 *𝚁𝚎𝚕𝚎𝚊𝚜𝚎 𝙳𝚊𝚝𝚎:* ${year}
-⏳ *𝙳𝚞𝚛𝚊𝚝𝚒𝚘𝚗:* ${duration}
-        `.trim();
+┌─❒ *Movie Info*
+│ ✨ *Title:* ${title}
+│ ⭐ *IMDB Rating:* ${rating}
+│ 📅 *Release Date:* ${year}
+│ ⏳ *Duration:* ${duration}
+└───────────────
+`.trim();
   },
   //=====================youtube===========================================
   SONG: function (data) {
     return `
-🎵 SONG DOWNLOADER
-      
-✅ Song Found!
-          
-• 🎶 *Title:* ${data.title}
-• ⏱️ *Duration:* ${data.timestamp}
-• 👁️ *Views:* ${data.views}
-• 📅 *Uploaded On:* ${data.ago}
-• 🔗 *Link:* ${data.url}
-          
-🎧 Enjoy your music with DanieWatch Downloader Bot  
-❤️ Created by Daniyal Aadil
-        `.trim();
+╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
+│      🎵 *DANIEWATCH MUSIC* 🎧      │
+╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
+
+┌─❒ *Song Found*
+│ 🎶 *Title:* ${data.title}
+│ ⏱️ *Duration:* ${data.timestamp}
+│ 👁️ *Views:* ${typeof data.views === 'number' ? data.views.toLocaleString() : data.views}
+│ 📅 *Uploaded On:* ${data.ago}
+│ 🔗 *Link:* ${data.url}
+└───────────────
+
+🎧 _Enjoy your music with DanieWatch Downloader Bot!_
+`.trim();
   },
   YTMP3: function (data) {
     return `
-🎥 *MP3 Download Found!* 
+╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
+│      🎵 *DANIEWATCH AUDIO* 🎧      │
+╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
 
-➥ *Title:* ${data.title} 
-➥ *Duration:* ${data.timestamp} 
-➥ *Views:* ${data.views} 
-➥ *Uploaded On:* ${data.ago} 
-➥ *Link:* ${data.url}
+┌─❒ *Audio Details*
+│ 🎶 *Title:* ${data.title}
+│ ⏱️ *Duration:* ${data.timestamp}
+│ 👁️ *Views:* ${typeof data.views === 'number' ? data.views.toLocaleString() : data.views}
+│ 📅 *Uploaded On:* ${data.ago}
+│ 🔗 *Link:* ${data.url}
+└───────────────
 
-🎬 *Enjoy the video brought to you by DanieWatch Downloader Bot!* 
-        `.trim();
+🎧 _Brought to you by DanieWatch Downloader Bot!_
+`.trim();
   },
   VIDEO: function (data) {
     return `
-🎵 VIDEO DOWNLOADER
-      
-✅ VIDEO Found!
-          
-• 🎶 *Title:* ${data.title}
-• ⏱️ *Duration:* ${data.timestamp}
-• 👁️ *Views:* ${data.views}
-• 📅 *Uploaded On:* ${data.ago}
-• 🔗 *Link:* ${data.url}
-          
-🎧 Enjoy your music with DanieWatch Downloader Bot  
-❤️ Created by Daniyal Aadil
-        `.trim();
+╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
+│      🎬 *DANIEWATCH VIDEO* 🎥      │
+╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
+
+┌─❒ *Video Details*
+│ 🎥 *Title:* ${data.title}
+│ ⏱️ *Duration:* ${data.timestamp}
+│ 👁️ *Views:* ${typeof data.views === 'number' ? data.views.toLocaleString() : data.views}
+│ 📅 *Uploaded On:* ${data.ago}
+│ 🔗 *Link:* ${data.url}
+└───────────────
+
+🎬 _Enjoy your video with DanieWatch Downloader Bot!_
+`.trim();
   },
   YTMP4: function (data) {
     return `
-🎥 *MP4 Download Found!* 
+╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
+│      🎬 *DANIEWATCH MP4* 🎥      │
+╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
 
-➥ *Title:* ${data.title} 
-➥ *Duration:* ${data.timestamp} 
-➥ *Views:* ${data.views} 
-➥ *Uploaded On:* ${data.ago} 
-➥ *Link:* ${data.url} 
+┌─❒ *MP4 Video Track*
+│ 🎥 *Title:* ${data.title}
+│ ⏱️ *Duration:* ${data.timestamp}
+│ 👁️ *Views:* ${typeof data.views === 'number' ? data.views.toLocaleString() : data.views}
+│ 📅 *Uploaded On:* ${data.ago}
+│ 🔗 *Link:* ${data.url}
+└───────────────
 
-🎬 *Enjoy the video brought to you by DanieWatch Downloader Bot!* 
-        `.trim();
+🎬 _Enjoy your video with DanieWatch Downloader Bot!_
+`.trim();
   },
   //=====================hiru news===========================================
   AUTONEWS: function (source, newsData, isGroup, groupMetadata, conf) {
     return `
-📰 *『 𝑫𝑨𝑵𝑰𝑬𝑾𝑨𝑻𝑪𝑯 𝑵𝑬𝑾𝑺 』* 🗞️
+╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
+│      📰 *DANIEWATCH NEWS* 🗞️      │
+╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
 
-✨ *${source.toUpperCase()} News Update*
-
+📌 *Source:* ${source.toUpperCase()} News Update
 📌 *Title:* ${newsData.title}
 📅 *Date:* ${newsData.date || "N/A"}
 
 📝 *Description:*
 ${newsData.desc || "No details available"}
-${isGroup ? `\n\n📨 *Shared In:* ${groupMetadata?.subject || "Group"}\n🛡️ *Admin:* ${conf.MNAME}\n` : ""}
+${isGroup ? `\n📨 *Shared In:* ${groupMetadata?.subject || "Group"}\n🛡️ *Admin:* ${conf.MNAME}\n` : ""}
 🔗 *Read more:* ${newsData.url}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━`.trim();
+`.trim();
   },
   AUTOMOVIE: function (title, rating, metadata, description, isGroup, groupMetadata, conf) {
     return `
-🎬 *『 𝑫𝑨𝑵𝑰𝑬𝑾𝑨𝑻𝑪𝑯 𝑪𝑰𝑵𝑬𝑴𝑨 』* 🍿
+╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
+│      🎬 *DANIEWATCH CINEMA* 🍿      │
+╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
 
-✨ *𝙼𝚘𝚟𝚒𝚎 𝙽𝚊𝚖𝚎:* ${title}
-⭐ *𝙸𝙼𝙳𝙱 𝚁𝚊𝚝𝚒𝚗𝚐:* ${rating?.value || "𝙽/𝙰"} ★
-📆 *𝚁𝚎𝚕𝚎𝚊𝚜𝚎 𝙳𝚊𝚝𝚎:* ${metadata?.releaseDate || "𝙽/𝙰"}
-🌐 *𝙲𝚘𝚞𝚗𝚝𝚛𝚢:* ${metadata?.country || "𝙽/𝙰"}
-⏱️ *𝙳𝚞𝚛𝚊𝚝𝚒𝚘𝚗:* ${metadata?.runtime || "𝙽/𝙰"}
-🎭 *𝙶𝚎𝚗𝚛𝚎𝚜:* ${metadata?.genres?.map(g => `#${g}`).join(" • ") || "𝙽/𝙰"}
-
-${isGroup ? `📨 *𝙎𝙝𝙖𝙧𝙚𝙙 𝙄𝙣:* ${groupMetadata?.subject || "Group"}\n🛡️ *𝘼𝙙𝙢𝙞𝙣:* ${conf.MNAME}` : ""}
-
-📝 *𝙈𝚘𝚟𝚒𝚎 𝙎𝚞𝚖𝚖𝚊𝚛𝚢:*
-${description || "— 𝙉𝙤 𝙙𝙚𝙩𝙖𝙞𝙡𝙨 𝙖𝙫𝙖𝙞𝙡𝙖𝙗𝙡𝙚 —"}
-
-━━━━━━━━━━━━━━━
-${conf.FOOTER}`.trim();
+┌─❒ *Movie Details*
+│ ✨ *Movie Name:* ${title}
+│ ⭐ *IMDB Rating:* ${rating?.value || "N/A"} ★
+│ 📆 *Release Date:* ${metadata?.releaseDate || "N/A"}
+│ 🌐 *Country:* ${metadata?.country || "N/A"}
+│ ⏱️ *Duration:* ${metadata?.runtime || "N/A"}
+│ 🎭 *Genres:* ${metadata?.genres?.map(g => `#${g}`).join(" • ") || "N/A"}
+└───────────────
+${isGroup ? `\n📨 *Shared In:* ${groupMetadata?.subject || "Group"}\n🛡️ *Admin:* ${conf.MNAME}\n` : ""}
+📝 *Summary:*
+${description || "— No details available —"}
+`.trim();
   },
   AUTOSONG: function (foundSong, currentArtist, nextArtist, config, botNumber, isGroup, groupMetadata) {
     return `
-✨ *『 𝑫𝑨𝑵𝑰𝑬𝑾𝑨𝑻𝑪𝑯 𝑴𝑼𝑺𝑰𝑪 』* 🎧
+╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
+│      ✨ *DANIEWATCH MUSIC* 🎧      │
+╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
 
-━━━━━━━━━━━━━━━━━━━
-🎶 *𝚂𝙾𝙽𝙶 𝙳𝙴𝚃𝙰𝙸𝙻𝚂* 🎼
-╠➤ *𝚃𝚒𝚝𝚕𝚎:* ${foundSong.title}
-╠➤ *𝙰𝚛𝚝𝚒𝚜𝚝:* ${currentArtist.replace(" original", "")}
-╠➤ *𝙳𝚞𝚛𝚊𝚝𝚒𝚘𝚗:* ${foundSong.timestamp || "𝙽/𝙰"}
-╠➤ *𝚅𝚒𝚎𝚠𝚜:* ${foundSong.views.toLocaleString() || "𝙽/𝙰"}
-╠➤ *𝚄𝚙𝚕𝚘𝚊𝚍𝚎𝚍:* ${foundSong.ago || "𝙽/𝙰"}
-╠➤ *𝙽𝚎𝚡𝚝 𝙰𝚛𝚝𝚒𝚜𝚝:* ${nextArtist}
-━━━━━━━━━━━━━━━━━━━
-📌 *𝚈𝚘𝚞𝚃𝚞𝚋𝚎 𝙻𝙸𝙽𝙺:* 
-    ${foundSong.url}
-    ${isGroup ? `
+┌─❒ *Song Details*
+│ 🎶 *Title:* ${foundSong.title}
+│ 👤 *Artist:* ${currentArtist.replace(" original", "")}
+│ ⏱️ *Duration:* ${foundSong.timestamp || "N/A"}
+│ 👁️ *Views:* ${foundSong.views ? foundSong.views.toLocaleString() : "N/A"}
+│ 📅 *Uploaded:* ${foundSong.ago || "N/A"}
+│ ⏭️ *Next Artist:* ${nextArtist}
+└───────────────
 
-━━━━━━━━━━━━━━━━━━━
-👥 *𝙶𝚁𝙾𝚄𝙿 𝙸𝙽𝙵𝙾* 
-╠➤ *𝙽𝚊𝚖𝚎:* ${groupMetadata?.subject || "Group"}
-╠➤ *𝙰𝚍𝚖𝚒𝚗:* ${config.MNAME}
-╠➤ *𝙱𝚘𝚝 𝙽𝚞𝚖𝚋𝚎𝚛:* ${botNumber}
-━━━━━━━━━━━━━━━━━━━
+📌 *YouTube Link:* 
+${foundSong.url}
+${isGroup ? `
+┌─❒ *Group Info*
+│ 👥 *Name:* ${groupMetadata?.subject || "Group"}
+│ 🛡️ *Admin:* ${config.MNAME}
+│ 🤖 *Bot Number:* ${botNumber}
+└───────────────
 ` : ""}
 ${config.FOOTER || "🎼 Enjoy the music! 🎧"}`.trim();
   },
   AIMODEPROMPT: function (userMessage) {
     return `
-    You're an advanced AI assistant called "DanieWatch AI." You're professional, respectful, and knowledgeable, always ready to assist with expertise. 👑 Your goal is to provide helpful, accurate, and engaging responses while maintaining a courteous and professional tone.
-    
-    usermessage in {${userMessage}}`;
+You're an advanced AI assistant called "DanieWatch AI." You're professional, respectful, and knowledgeable, always ready to assist with expertise. 👑 Your goal is to provide helpful, accurate, and engaging responses while maintaining a courteous tone.
+
+User Message: {${userMessage}}`;
   },
-  MVDL_SEARCH_PROMPT: "🔍 *Please provide a search query!*\nExample: `.movie deadpool`",
+  MVDL_SEARCH_PROMPT: `╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮\n│     🔍 *DANIEWATCH SEARCH* 🔍     │\n╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯\n\n📌 *Please provide a search query!*\nExample: \`.movie deadpool\``,
   MVDL_SEARCH_RESULTS: function (query) {
-    return `🎬 *Search Results for:* "${query.toUpperCase()}"\n───────────────────`;
+    return `╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮\n│     🎬 *SEARCH RESULTS* 🎬     │\n╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯\n\n🔍 *Results for:* "${query.toUpperCase()}"\n───────────────`;
   },
   MVDL_SEARCH_FAILED: "❌ *Failed to fetch search results! Please try again later.*",
   MVDL_INVALID_REQUEST: "❌ *Invalid download request!*",
   MVDL_MOVIE_INFO: function (movie, isMovie, genres, duration, rating, dubs, cast) {
     return `
-🎬 *『 𝑫𝑨𝑵𝑰𝑬𝑾𝑨𝑻𝑪𝑯 𝑪𝑰𝑵𝑬𝑴𝑨 』* 🍿
-───────────────────
-📝 *Title:* ${movie.title}
-🎭 *Type:* ${isMovie ? "Movie" : "TV Series"}
-🎭 *Genres:* ${genres}
-⏱️ *Duration:* ${duration}
-⭐ *IMDB Rating:* ${rating}
-🌐 *Languages:* ${dubs}
-👥 *Cast:* ${cast}
+╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
+│      🎬 *DANIEWATCH CINEMA* 🍿      │
+╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
+
+┌─❒ *Title Details*
+│ 📝 *Title:* ${movie.title}
+│ 🎭 *Type:* ${isMovie ? "Movie" : "TV Series"}
+│ 🎭 *Genres:* ${genres}
+│ ⏱️ *Duration:* ${duration}
+│ ⭐ *IMDB Rating:* ${rating}
+│ 🌐 *Languages:* ${dubs}
+│ 👥 *Cast:* ${cast}
+└───────────────
 
 📝 *Summary:*
 ${movie.description || "— No summary available —"}
-───────────────────
 `.trim();
   },
   MVDL_CHOOSE_QUALITY: "\n\n📥 *Select a quality option below to start download:*",
@@ -422,36 +507,45 @@ ${movie.description || "— No summary available —"}
   MVDL_INFO_FAILED: "❌ *Failed to fetch movie/show details!*",
   MVDL_SEASON_CAPTION: function (movie, seasonNumber, maxEpisode) {
     return `
-📺 *『 𝑫𝑨𝑵𝑰𝑬𝑾𝑨𝑻𝑪𝑯 𝑪𝑰𝑵𝑬𝑴𝑨 』* 🍿
-───────────────────
-🎬 *Title:* ${movie.title}
-📅 *Season:* ${seasonNumber}
-🎞️ *Total Episodes:* ${maxEpisode}
-───────────────────
+╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
+│     📺 *DANIEWATCH TV SHOW* 🍿     │
+╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
+
+┌─❒ *Season Details*
+│ 🎬 *Title:* ${movie.title}
+│ 📅 *Season:* ${seasonNumber}
+│ 🎞️ *Total Episodes:* ${maxEpisode}
+└───────────────
 `.trim();
   },
   MVDL_SEASON_FAILED: "❌ *Failed to load season details!*",
   MVDL_EPISODE_CAPTION: function (movie, seasonNumber, episodeNumber) {
     return `
-📺 *『 𝑫𝑨𝑵𝑰𝑬𝑾𝑨𝑻𝑪𝑯 𝑪𝑰𝑵𝑬𝑴𝑨 』* 🍿
-───────────────────
-🎬 *Title:* ${movie.title}
-📅 *Season:* ${seasonNumber}
-🎞️ *Episode:* ${episodeNumber}
-───────────────────
+╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
+│     📺 *DANIEWATCH TV SHOW* 🍿     │
+╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
+
+┌─❒ *Episode Details*
+│ 🎬 *Title:* ${movie.title}
+│ 📅 *Season:* ${seasonNumber}
+│ 🎞️ *Episode:* ${episodeNumber}
+└───────────────
 `.trim();
   },
   MVDL_EPISODE_FAILED: "❌ *Failed to load episode download options!*",
   MVDL_MOVIE_CARD: function (movie, quality, size, season, episode, format) {
     return `
-📥 *『 𝑫𝑨𝑵𝑰𝑬𝑾𝑨𝑻𝑪𝑯 𝑫𝑶𝑾𝑵𝑳𝑶𝑨𝑫𝑬𝑹 』* 🚀
-───────────────────
-🎬 *File Name:* ${movie.title}
-💿 *Quality:* ${quality}
-💾 *Size:* ${size}
-${season ? `📅 *Season:* ${season}\n🎞️ *Episode:* ${episode}\n` : ""}
-───────────────────
-⚡ *Sending as document, please wait...*
+╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
+│   📥 *DANIEWATCH DOWNLOADER* 🚀   │
+╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
+
+┌─❒ *Download Card*
+│ 🎬 *File Name:* ${movie.title}
+│ 💿 *Quality:* ${quality}
+│ 💾 *Size:* ${size}
+${season ? `│ 📅 *Season:* ${season}\n│ 🎞️ *Episode:* ${episode}\n` : ""}└───────────────
+
+⚡ *Sending file, please wait...*
 `.trim();
   },
   MVDL_DOWNLOAD_SUCCESS: "✅ *File downloaded and sent successfully!*",

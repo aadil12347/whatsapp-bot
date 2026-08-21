@@ -144,10 +144,12 @@ async function connectToWA() {
                     if (rawId) {
                         const botJid = jidNormalizedUser(rawId);
                         const startupMsg =
-                            `✨ *DANIEWATCH BOT IS ONLINE* ✨\n\n` +
-                            `🟢 *Status*: \`Online & Operational\`\n` +
+                            `╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮\n` +
+                            `│     🟢 *DANIEWATCH ONLINE* 🟢     │\n` +
+                            `╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯\n\n` +
+                            `🟢 *Status:* Online & Operational\n` +
                             `🎬 Send any link directly to download!\n` +
-                            `⚡ Type *.alive* for menu or *.config* for settings.`;
+                            `⚡ Type *.alive* for status or *.config* for settings.`;
 
                         const logoPath = path.join(__dirname, 'assets', 'daniewatch_logo.png');
                         let msgPayload = { text: startupMsg };
