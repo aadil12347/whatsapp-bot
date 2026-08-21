@@ -42,14 +42,42 @@ const {
 const envPath = path.join(__dirname, 'config.env');
 if (fs.existsSync(envPath)) require('dotenv').config({ path: envPath });
 
+const { registerWebPairingRoutes } = require('./src/Utils/webPairing');
+
 const sess = require('./session');
 const port = process.env.PORT || sess.PORT || 3000;
 const SESSION_DIR = path.join(__dirname, 'session');
 
-// ── Express Health Server ──
+// ── Express Health & Pairing Web Server ──
 const app = express();
-app.get('/', (req, res) => res.send('© DanieWatch Downloader Bot 💚 Running'));
-app.listen(port, () => console.log(`© DanieWatch Downloader Bot 💚 Server listening on port http://localhost:${port}`));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+app.get('/', (req, res) => res.send(`
+    <div style="font-family: sans-serif; padding: 40px; background: #0b0f19; color: #fff; min-height: 100vh;">
+        <h2>© DanieWatch Downloader Bot 💚 Server Active</h2>
+        <p style="color: #9ca3af; margin-top: 10px;">To request a fresh pairing code & save clean keys to Supabase, visit:</p>
+        <a href="/pair" style="display: inline-block; margin-top: 15px; background: #00f2fe; color: #000; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold;">🔑 Open Web Pairing Dashboard (/pair)</a>
+    </div>
+`));
+
+registerWebPairingRoutes(app, () => conn, (freshSock) => {
+    conn = freshSock;
+    try {
+        const danie = require('./src/commands/danie_download');
+        if (danie.initUpsertListener) {
+            danie.initUpsertListener(conn);
+            console.log('[DanieWatch] ✅ Re-linked listener initialized on fresh web pairing!');
+        }
+    } catch (err) {
+        console.error('[DanieWatch] Listener error on web pairing:', err.message);
+    }
+});
+
+app.listen(port, () => {
+    console.log(`© DanieWatch Downloader Bot 💚 Server listening on port http://localhost:${port}`);
+    console.log(`🔑 Web Pairing Dashboard active at: http://localhost:${port}/pair`);
+});
 
 // ── Logger (silent) ──
 const logger = pino({ level: 'silent' });

@@ -60,8 +60,8 @@ function isSyncableSessionFile(file) {
 }
 
 /**
- * Uploads session files (excluding ratchet state) from sessionDir to Supabase.
- * Stale session files older than 30 days are pruned locally and skipped.
+ * Uploads session files (excluding ratchet state & excess pre-keys) from sessionDir to Supabase.
+ * Stale pre-key files beyond the 10 newest are pruned locally and remotely.
  */
 async function uploadSessionToSupabase(sessionDir = path.join(__dirname, '../../session')) {
     try {
@@ -79,12 +79,42 @@ async function uploadSessionToSupabase(sessionDir = path.join(__dirname, '../../
             return false;
         }
 
-        const sessionData = {};
-        const now = Date.now();
-        const thirtyDays = 30 * 24 * 60 * 60 * 1000;
-        let prunedCount = 0;
+        // Pre-prune excess pre-key files (> 15 files) to prevent session inflation
+        const preKeyFiles = files.filter(f => f.startsWith('pre-key-') && f.endsWith('.json'))
+            .map(f => {
+                const fp = path.join(sessionDir, f);
+                try { return { file: f, path: fp, mtime: fs.statSync(fp).mtimeMs }; } catch(_) { return null; }
+            })
+            .filter(Boolean)
+            .sort((a, b) => b.mtime - a.mtime);
 
-        for (const file of files) {
+        let prunedCount = 0;
+        if (preKeyFiles.length > 15) {
+            const toDelete = preKeyFiles.slice(15);
+            for (const item of toDelete) {
+                try { fs.unlinkSync(item.path); prunedCount++; } catch (_) {}
+            }
+        }
+
+        const appStateFiles = files.filter(f => f.startsWith('app-state-sync-') && f.endsWith('.json'))
+            .map(f => {
+                const fp = path.join(sessionDir, f);
+                try { return { file: f, path: fp, mtime: fs.statSync(fp).mtimeMs }; } catch(_) { return null; }
+            })
+            .filter(Boolean)
+            .sort((a, b) => b.mtime - a.mtime);
+
+        if (appStateFiles.length > 10) {
+            const toDelete = appStateFiles.slice(10);
+            for (const item of toDelete) {
+                try { fs.unlinkSync(item.path); prunedCount++; } catch (_) {}
+            }
+        }
+
+        const currentFiles = fs.readdirSync(sessionDir);
+        const sessionData = {};
+
+        for (const file of currentFiles) {
             if (!file.endsWith('.json')) continue;
             
             if (!isSyncableSessionFile(file)) {
@@ -95,14 +125,6 @@ async function uploadSessionToSupabase(sessionDir = path.join(__dirname, '../../
             if (isValidJsonFile(filePath)) {
                 try {
                     const stat = fs.statSync(filePath);
-                    const isSettings = file === 'creds.json' || file === 'download_settings.json' || file === 'active_chats.json';
-                    // Prune files older than 30 days (excluding settings/creds)
-                    if (!isSettings && (now - stat.mtimeMs > thirtyDays)) {
-                        fs.unlinkSync(filePath);
-                        prunedCount++;
-                        continue;
-                    }
-
                     const content = fs.readFileSync(filePath, 'utf-8');
                     sessionData[file] = {
                         content,
@@ -113,7 +135,7 @@ async function uploadSessionToSupabase(sessionDir = path.join(__dirname, '../../
         }
 
         if (prunedCount > 0) {
-            console.log(`🧹 Pruned ${prunedCount} stale session file(s) older than 30 days from memory/disk during upload.`);
+            console.log(`🧹 Pruned ${prunedCount} excess pre-key/app-state session file(s) from memory/disk during upload.`);
         }
 
         if (Object.keys(sessionData).length === 0 || !sessionData['creds.json']) {

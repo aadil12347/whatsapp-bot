@@ -127,25 +127,50 @@ function pruneSessionDirectory(dir) {
         let removedCount = 0;
         const now = Date.now();
         const thirtyDays = 30 * 24 * 60 * 60 * 1000;
-        
-        for (const file of files) {
+
+        // Prune excess pre-keys beyond 15 newest
+        const preKeys = files.filter(f => f.startsWith('pre-key-') && f.endsWith('.json'))
+            .map(f => {
+                const fp = path.join(dir, f);
+                try { return { file: f, path: fp, mtime: fs.statSync(fp).mtimeMs }; } catch (_) { return null; }
+            })
+            .filter(Boolean)
+            .sort((a, b) => b.mtime - a.mtime);
+
+        if (preKeys.length > 15) {
+            for (const item of preKeys.slice(15)) {
+                try { fs.unlinkSync(item.path); removedCount++; } catch (_) {}
+            }
+        }
+
+        // Prune excess app-state beyond 10 newest
+        const appStates = files.filter(f => f.startsWith('app-state-sync-') && f.endsWith('.json'))
+            .map(f => {
+                const fp = path.join(dir, f);
+                try { return { file: f, path: fp, mtime: fs.statSync(fp).mtimeMs }; } catch (_) { return null; }
+            })
+            .filter(Boolean)
+            .sort((a, b) => b.mtime - a.mtime);
+
+        if (appStates.length > 10) {
+            for (const item of appStates.slice(10)) {
+                try { fs.unlinkSync(item.path); removedCount++; } catch (_) {}
+            }
+        }
+
+        const remainingFiles = fs.readdirSync(dir);
+        for (const file of remainingFiles) {
             if (!file.endsWith('.json')) continue;
-            
             const fullPath = path.join(dir, file);
-            
             try {
                 if (file === 'creds.json' || file === 'download_settings.json' || file === 'active_chats.json') {
                     continue;
                 }
-                
-                // If not an essential Baileys file type, delete it
                 if (!isEssentialSessionFile(file)) {
                     fs.unlinkSync(fullPath);
                     removedCount++;
                     continue;
                 }
-                
-                // If it is an essential file but hasn't been modified in 30 days, prune it
                 const stat = fs.statSync(fullPath);
                 if (now - stat.mtimeMs > thirtyDays) {
                     fs.unlinkSync(fullPath);
@@ -154,7 +179,7 @@ function pruneSessionDirectory(dir) {
             } catch (_) {}
         }
         if (removedCount > 0) {
-            console.log(`🧹 Pruned ${removedCount} non-essential/stale session files from ${path.basename(dir)}/`);
+            console.log(`🧹 Pruned ${removedCount} non-essential/excess session files from ${path.basename(dir)}/`);
         }
     } catch (err) {
         console.warn('⚠️ Error during session pruning:', err.message);
