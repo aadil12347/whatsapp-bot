@@ -550,7 +550,7 @@ function renderPairingPage(defaultNumber = '') {
  */
 function registerWebPairingRoutes(app, getBotConnFn, onConnectedCallback) {
     // 1. Dashboard UI
-    app.get(['/pair', '/pairing'], (req, res) => {
+    app.get(['/', '/pair', '/pairing'], (req, res) => {
         const defaultNum = req.query.phone || req.query.number || process.env.NUMBER || process.env.BOT_NUMBER || '';
         res.setHeader('Content-Type', 'text/html');
         res.send(renderPairingPage(defaultNum));
