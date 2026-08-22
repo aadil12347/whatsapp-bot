@@ -44,7 +44,7 @@ async function cleanAndPair() {
 
     // 3. Launch pair.js directly
     const pairScript = path.join(__dirname, 'pair.js');
-    const child = fork(pairScript, [], {
+    const child = fork(pairScript, process.argv.slice(2), {
         stdio: 'inherit',
         windowsHide: true
     });

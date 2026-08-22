@@ -129,11 +129,21 @@ async function startPairing(cleanStart = true) {
     if (!fs.existsSync(SESSION_DIR)) fs.mkdirSync(SESSION_DIR, { recursive: true });
     if (!fs.existsSync(SESS_ALT_DIR)) fs.mkdirSync(SESS_ALT_DIR, { recursive: true });
 
-    let botNumber = process.env.NUMBER || process.env.BOT_NUMBER;
+    let botNumber = process.argv[2] || process.env.NUMBER || process.env.BOT_NUMBER;
     
     if (!botNumber || botNumber.includes('your account') || botNumber.trim() === '') {
-        console.log('❌ NUMBER or BOT_NUMBER is not configured in config.env!');
-        console.log('Please set NUMBER or BOT_NUMBER in config.env to your WhatsApp phone number.');
+        const readline = require('readline');
+        const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+        botNumber = await new Promise((resolve) => {
+            rl.question('📱 Enter your WhatsApp phone number with country code (e.g. 923013068663): ', (ans) => {
+                rl.close();
+                resolve(ans);
+            });
+        });
+    }
+
+    if (!botNumber || botNumber.trim() === '') {
+        console.log('❌ No valid phone number provided! Exiting.');
         process.exit(1);
     }
 
