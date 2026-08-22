@@ -775,62 +775,52 @@ async function resolveVcloudLink(url, preferredServer = null, parentUrl = null) 
                 }
             });
 
-            // Strict server prioritization fallback: 10gbps > fslv2 > fsl (ONLY)
-            let best = null;
-            if (preferredServer) {
-                const lowerPref = preferredServer.toLowerCase();
-                let cleanPref = lowerPref;
-                const matchBrackets = lowerPref.match(/\[(.*?)\]/);
-                if (matchBrackets && matchBrackets[1]) {
-                    cleanPref = matchBrackets[1];
-                }
-                best = finalLinks.find(l => {
-                    const txt = l.text.toLowerCase();
-                    return txt.includes(cleanPref) || cleanPref.includes(txt);
-                });
+            // Categorize server links strictly to FSLv2, FSL, and 10Gbps
+            const fslv2Candidate = finalLinks.find(l => {
+                const txt = `${l.text} ${l.href}`.toLowerCase();
+                return txt.includes('fslv2') || txt.includes('fsl v2') || txt.includes('fsl-v2');
+            });
+
+            const fslCandidate = finalLinks.find(l => {
+                const txt = `${l.text} ${l.href}`.toLowerCase();
+                return (txt.includes('fsl') || txt.includes('fsl server') || txt.includes('fastserver')) && 
+                       !txt.includes('fslv2') && !txt.includes('fsl v2') && !txt.includes('fsl-v2');
+            });
+
+            const g10gbpsCandidate = finalLinks.find(l => {
+                const txt = `${l.text} ${l.href}`.toLowerCase();
+                return txt.includes('10gbps') || txt.includes('10 gbps') || txt.includes('g-direct') || txt.includes('gdirect') || txt.includes('gpdl');
+            });
+
+            // Strict Priority Fallback Sequence: FSLv2 (1st) -> FSL (2nd) -> 10Gbps (3rd)
+            const candidateOrder = [
+                { type: 'FSLv2', item: fslv2Candidate },
+                { type: 'FSL', item: fslCandidate },
+                { type: '10Gbps', item: g10gbpsCandidate }
+            ].filter(c => c.item !== undefined);
+
+            if (candidateOrder.length === 0) {
+                throw new Error('No compatible V-Cloud download server found. Only FSLv2, FSL, and 10Gbps servers are supported.');
             }
 
-            // Priority 1: 10Gbps Server
-            if (!best) {
-                best = finalLinks.find(l => {
-                    const txt = `${l.text} ${l.href}`.toLowerCase();
-                    return txt.includes('10gbps') || txt.includes('10 gbps') || txt.includes('g-direct') || txt.includes('gdirect');
-                });
-            }
+            let resolvedDirectUrl = null;
+            let lastServerError = null;
 
-            // Priority 2: FSLv2 Server
-            if (!best) {
-                best = finalLinks.find(l => {
-                    const txt = `${l.text} ${l.href}`.toLowerCase();
-                    return txt.includes('fslv2') || txt.includes('fsl v2') || txt.includes('fsl-v2');
-                });
-            }
-
-            // Priority 3: FSL Server (excluding FSLv2)
-            if (!best) {
-                best = finalLinks.find(l => {
-                    const txt = `${l.text} ${l.href}`.toLowerCase();
-                    return (txt.includes('fsl') || txt.includes('fsl server') || txt.includes('fastserver')) && !txt.includes('fslv2') && !txt.includes('fsl v2') && !txt.includes('fsl-v2');
-                });
-            }
-
-            if (!best) {
-                throw new Error('No compatible download server found. Only 10Gbps, FSLv2, and FSL servers are supported.');
-            }
-
-            if (best) {
+            for (const cand of candidateOrder) {
+                const best = cand.item;
                 let directUrl = best.href;
-                const bestText = best.text.toLowerCase();
+                const bestText = `${best.text} ${best.href}`.toLowerCase();
+
                 if (!directUrl.startsWith('http')) {
                     const parsed = new URL(decodedLink);
                     directUrl = `${parsed.protocol}//${parsed.host}${directUrl.startsWith('/') ? '' : '/'}${directUrl}`;
                 }
 
-                // Server-specific resolution (from CSX/VegaMovies reference)
-                if (bestText.includes('10gbps') || bestText.includes('10 gbps')) {
-                    // 10Gbps: Follow redirect chain, extract link= parameter
-                    console.log('[MovieScraper] Resolving 10Gbps server via redirect chain:', directUrl);
-                    try {
+                console.log(`[MovieScraper] Trying V-Cloud server [${cand.type}]: ${directUrl}`);
+
+                try {
+                    if (bestText.includes('10gbps') || bestText.includes('10 gbps') || bestText.includes('g-direct') || bestText.includes('gdirect') || bestText.includes('gpdl')) {
+                        // 10Gbps: Follow redirect chain, extract link= parameter
                         let redirectUrl = await resolveFinalUrl(directUrl);
                         if (redirectUrl && redirectUrl.includes('link=')) {
                             redirectUrl = redirectUrl.split('link=')[1];
@@ -838,42 +828,20 @@ async function resolveVcloudLink(url, preferredServer = null, parentUrl = null) 
                             redirectUrl = decodeURIComponent(redirectUrl);
                         }
                         directUrl = redirectUrl || directUrl;
-                    } catch (e) {
-                        console.error('[MovieScraper] 10Gbps redirect resolution failed:', e.message);
                     }
-                } else if (bestText.includes('buzzserver')) {
-                    // BuzzServer: GET {link}/download with referer, extract hx-redirect header
-                    console.log('[MovieScraper] Resolving BuzzServer link:', directUrl);
-                    try {
-                        const buzzRes = await axios.get(`${directUrl}/download`, {
-                            headers: { ...HEADERS, 'Referer': directUrl },
-                            httpsAgent: browserHttpsAgent,
-                            maxRedirects: 0,
-                            timeout: 15000,
-                            validateStatus: (status) => status >= 200 && status < 400
-                        });
-                        const hxRedirect = buzzRes.headers['hx-redirect'];
-                        if (hxRedirect) {
-                            const buzzBase = new URL(directUrl);
-                            directUrl = hxRedirect.startsWith('http') ? hxRedirect : `${buzzBase.protocol}//${buzzBase.host}${hxRedirect}`;
-                        }
-                    } catch (e) {
-                        if (e.response && e.response.headers && e.response.headers['hx-redirect']) {
-                            const hxRedirect = e.response.headers['hx-redirect'];
-                            const buzzBase = new URL(directUrl);
-                            directUrl = hxRedirect.startsWith('http') ? hxRedirect : `${buzzBase.protocol}//${buzzBase.host}${hxRedirect}`;
-                        } else {
-                            console.error('[MovieScraper] BuzzServer resolution failed:', e.message);
-                        }
-                    }
-                } else if (directUrl.includes('pixeldrain') && directUrl.includes('/u/')) {
-                    const id = directUrl.split('/u/')[1].split('?')[0];
-                    directUrl = `https://pixeldrain.com/api/file/${id}?download`;
-                }
 
-                console.log('[MovieScraper] Resolved final direct URL:', directUrl);
-                return directUrl;
+                    if (directUrl && directUrl.startsWith('http') && !directUrl.includes('.fans')) {
+                        resolvedDirectUrl = directUrl;
+                        console.log(`[MovieScraper] ✅ Resolved direct link via [${cand.type}]: ${resolvedDirectUrl}`);
+                        return resolvedDirectUrl;
+                    }
+                } catch (candErr) {
+                    console.warn(`[MovieScraper] ⚠️ Server [${cand.type}] resolution failed: ${candErr.message}`);
+                    lastServerError = candErr.message;
+                }
             }
+
+            throw new Error(`All V-Cloud server options (FSLv2, FSL, 10Gbps) failed to resolve. ${lastServerError || ''}`);
         }
 
         const directBtn = $('a:contains("Download File")').attr('href') || $('a:contains("FSL Server")').attr('href');
@@ -1131,7 +1099,8 @@ async function extractDirectDownloadLinks(url, parentUrl = null) {
         const pageTitle = $('title').text() || $('h1').text() || '';
         
         const hosts = [];
-        const keywords = ['fastdl', 'vcloud', 'filebee', 'gofile', 'vikingfile', 'megaup', 'gdflix', 'katdrive', 'kmhd', 'pixeldrain', 'drive.google', 'mega.nz', 'yodrive', 'shared'];
+        // Strictly collect V-Cloud links from Nextdrive pages (vcloud, katdrive, kmhd, hubdrive)
+        const keywords = ['vcloud', 'katdrive', 'kmhd', 'hubdrive'];
         
         $('a[href]').each((_, el) => {
             const href = $(el).attr('href');
@@ -1143,11 +1112,10 @@ async function extractDirectDownloadLinks(url, parentUrl = null) {
 
             if (lowerHref.includes('hubcloud') || lowerHref.includes('gpdl')) return;
             
-            // Check if the link points to a download host or contains download keywords
-            const isHostLink = keywords.some(kw => lowerHref.includes(kw));
-            const isDownloadBtn = lowerText.includes('download') || lowerText.includes('direct') || lowerText.includes('drive') || lowerText.includes('server') || lowerText.includes('cloud');
+            // Check if the link points to a V-Cloud download host
+            const isHostLink = keywords.some(kw => lowerHref.includes(kw)) || lowerText.includes('v-cloud') || lowerText.includes('vcloud');
             
-            if (isHostLink || isDownloadBtn) {
+            if (isHostLink) {
                 // Exclude category, tag, etc.
                 if (lowerHref.includes('/category/') || lowerHref.includes('/tag/') || lowerHref.includes('/genre/') || lowerHref.includes('?s=')) {
                     return;
@@ -1332,13 +1300,13 @@ async function extractSubOptions(url, parentUrl = null) {
             return [{ text: 'Direct CDN Link', href: target }];
         }
 
-        // 3. Check if landing page (nexdrive / HubDrive) contains intermediate host links (VCloud, FastDL, Filebee, Gofile)
+        // 3. Check if landing page (nexdrive / HubDrive) contains intermediate host links (V-Cloud ONLY)
         const lowerUrl = url.toLowerCase();
         const isAlreadyVcloud = lowerUrl.includes('vcloud');
 
         if (!isAlreadyVcloud) {
             const hostLinks = [];
-            const keywords = ['vcloud', 'katdrive', 'kmhd', 'hubdrive', 'fastdl', 'filebee', 'gofile', 'vegadrive', 'vikingfile', 'megaup'];
+            const keywords = ['vcloud', 'katdrive', 'kmhd', 'hubdrive'];
 
             $('a[href]').each((_, el) => {
                 const href = $(el).attr('href');
@@ -1351,13 +1319,13 @@ async function extractSubOptions(url, parentUrl = null) {
 
                 if (isHostLink && !isJunk) {
                     if (!hostLinks.some(hl => hl.href === href)) {
-                        hostLinks.push({ text: text || 'Download Server', href });
+                        hostLinks.push({ text: text || 'V-Cloud Server', href });
                     }
                 }
             });
 
             if (hostLinks.length > 0) {
-                console.log(`[MovieScraper] Found ${hostLinks.length} server link(s) on landing page (${url}).`);
+                console.log(`[MovieScraper] Found ${hostLinks.length} V-Cloud link(s) on landing page (${url}).`);
                 return hostLinks;
             }
         }
@@ -1759,7 +1727,7 @@ async function runWithConcurrency(items, limit, workerFn) {
 }
 
 /**
- * Resolves a single VCloud episode link with a 20s timeout and strict server prioritization (10gbps > fslv2 > fsl)
+ * Resolves a single VCloud episode link with a 20s timeout and strict server prioritization (fslv2 > fsl > 10gbps)
  */
 async function resolveSingleVcloudEpisode(vUrl, referer = null, timeoutMs = 20000) {
     const cancelTokenSource = axios.CancelToken.source();
@@ -1837,12 +1805,7 @@ async function resolveSingleVcloudEpisode(vUrl, referer = null, timeoutMs = 2000
             }
         });
 
-        // Step 3: Server selection (10gbps > fslv2 > fsl ONLY)
-        const match10g = servers.find(s => {
-            const t = `${s.text} ${s.href}`.toLowerCase();
-            return t.includes('10gbps') || t.includes('10 gbps') || t.includes('g-direct') || t.includes('gdirect');
-        });
-
+        // Step 3: Server selection (FSLv2 > FSL > 10Gbps ONLY)
         const matchFslv2 = servers.find(s => {
             const t = `${s.text} ${s.href}`.toLowerCase();
             return t.includes('fslv2') || t.includes('fsl v2') || t.includes('fsl-v2');
@@ -1853,23 +1816,28 @@ async function resolveSingleVcloudEpisode(vUrl, referer = null, timeoutMs = 2000
             return (t.includes('fsl') || t.includes('fsl server')) && !t.includes('fslv2') && !t.includes('fsl v2') && !t.includes('fsl-v2');
         });
 
+        const match10g = servers.find(s => {
+            const t = `${s.text} ${s.href}`.toLowerCase();
+            return t.includes('10gbps') || t.includes('10 gbps') || t.includes('g-direct') || t.includes('gdirect') || t.includes('gpdl');
+        });
+
         let selected = null;
         let serverType = '';
 
-        if (match10g) {
-            selected = match10g;
-            serverType = '10Gbps';
-        } else if (matchFslv2) {
+        if (matchFslv2) {
             selected = matchFslv2;
             serverType = 'FSLv2';
         } else if (matchFsl) {
             selected = matchFsl;
             serverType = 'FSL';
+        } else if (match10g) {
+            selected = match10g;
+            serverType = '10Gbps';
         }
 
-        // Strictly reject if none of 10gbps, fslv2, or fsl exist
+        // Strictly reject if none of FSLv2, FSL, or 10Gbps exist
         if (!selected) {
-            console.log(`[SeriesVcloudExtractor] No 10gbps, fslv2, or fsl server found for: ${vUrl}`);
+            console.log(`[SeriesVcloudExtractor] No FSLv2, FSL, or 10Gbps server found for: ${vUrl}`);
             return null;
         }
 
@@ -1908,7 +1876,7 @@ async function resolveSingleVcloudEpisode(vUrl, referer = null, timeoutMs = 2000
  * - Collects all VCloud episode links from landing page.
  * - Extracts 2 episode links simultaneously (concurrency = 2).
  * - Applies a 20-second timeout per episode.
- * - Filters servers to ONLY keep 1 link per episode in order of 10gbps > fslv2 > fsl (rejecting all others).
+ * - Filters servers to ONLY keep 1 link per episode in order of fslv2 > fsl > 10gbps (rejecting all others).
  * - Returns a formatted WhatsApp copyable message.
  */
 async function extractSeriesVcloudLinks(nextdriveUrl, options = {}) {
@@ -1982,7 +1950,7 @@ async function extractSeriesVcloudLinks(nextdriveUrl, options = {}) {
         resolvedEpisodes.forEach(ep => {
             whatsappMessage += `*${ep.epLabel}* (${ep.serverType}):\n\`${ep.directUrl}\`\n\n`;
         });
-        whatsappMessage += `_Extracted ${resolvedEpisodes.length}/${rawLinks.length} episode(s) (Priority: 10Gbps > FSLv2 > FSL)._`;
+        whatsappMessage += `_Extracted ${resolvedEpisodes.length}/${rawLinks.length} episode(s) (Priority: FSLv2 > FSL > 10Gbps)._`;
     }
 
     return {
