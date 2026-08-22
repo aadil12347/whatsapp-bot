@@ -11,8 +11,8 @@ class SiteDomainManager {
   static final Map<MovieSite, String> _customDomains = {};
 
   static const Map<MovieSite, String> defaultDomains = {
-    MovieSite.vegamovies: 'https://vegamovies.catering/',
-    MovieSite.rogmovies: 'https://new1.rogmovies.click/',
+    MovieSite.vegamovies: 'https://new2.vegamovies.futbol/',
+    MovieSite.rogmovies: 'https://new2.rogmovies.click/',
     MovieSite.hdhub4u: 'https://new3.hdhub4u.cl/',
   };
 

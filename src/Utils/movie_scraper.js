@@ -129,7 +129,33 @@ async function fetchHtmlWithRetry(url, parentUrl = null, customProxy = null) {
         };
     };
 
-    // Strategy 1: Direct request with browser TLS agent and dynamic headers (with retries)
+    // Strategy 1 (Primary): FlareSolverr Cloudflare Bypass Service for WhatsApp Bot
+    const flareUrl = process.env.FLARESOLVERR_URL || 'http://localhost:8191/v1';
+    try {
+        console.log(`[MovieScraper] Fetching via FlareSolverr (Primary): ${currentUrl}`);
+        const fsRes = await axios.post(flareUrl, {
+            cmd: 'request.get',
+            url: currentUrl,
+            maxTimeout: 60000
+        }, {
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 65000
+        });
+        if (fsRes.data && fsRes.data.status === 'ok' && fsRes.data.solution && fsRes.data.solution.response) {
+            const body = fsRes.data.solution.response;
+            if (body && body.length > 200 && !body.includes('Access Denied') && !body.includes('Just a moment...')) {
+                console.log(`[MovieScraper] FlareSolverr primary bypass succeeded for ${currentUrl}`);
+                return body;
+            }
+        }
+    } catch (fsErr) {
+        console.warn(`[MovieScraper] FlareSolverr primary fetch failed/unavailable: ${fsErr.message}. Falling back to direct browser request.`);
+        try {
+            await axios.post(flareUrl, { cmd: 'sessions.destroy', session: 'default' }, { timeout: 3000 });
+        } catch (_) {}
+    }
+
+    // Strategy 2 (Fallback): Direct request with browser TLS agent and dynamic headers (with retries)
     for (let attempt = 0; attempt < 3; attempt++) {
         try {
             const reqHeaders = buildHeaders(currentUrl, parentUrl, attempt);
@@ -149,33 +175,6 @@ async function fetchHtmlWithRetry(url, parentUrl = null, customProxy = null) {
         } catch (err) {
             // Retry next header/user-agent combination
         }
-    }
-
-    // Strategy 2: FlareSolverr Cloudflare Bypass Service (Primary for Cloudflare Protected Sites)
-    const flareUrl = process.env.FLARESOLVERR_URL || 'http://localhost:8191/v1';
-    try {
-        console.log(`[MovieScraper] Fetching via FlareSolverr: ${currentUrl}`);
-        const fsRes = await axios.post(flareUrl, {
-            cmd: 'request.get',
-            url: currentUrl,
-            maxTimeout: 60000
-        }, {
-            headers: { 'Content-Type': 'application/json' },
-            timeout: 65000
-        });
-        if (fsRes.data && fsRes.data.status === 'ok' && fsRes.data.solution && fsRes.data.solution.response) {
-            const body = fsRes.data.solution.response;
-            if (body && body.length > 200 && !body.includes('Access Denied') && !body.includes('Just a moment...')) {
-                console.log(`[MovieScraper] FlareSolverr bypass succeeded for ${currentUrl}`);
-                return body;
-            }
-        }
-    } catch (fsErr) {
-        console.warn(`[MovieScraper] FlareSolverr bypass failed: ${fsErr.message}`);
-        // Purge any hung FlareSolverr sessions to recycle Chromium instances
-        try {
-            await axios.post(flareUrl, { cmd: 'sessions.destroy', session: 'default' }, { timeout: 3000 });
-        } catch (_) {}
     }
 
     throw new Error(`Failed to fetch page HTML for ${url}`);
@@ -623,7 +622,7 @@ async function resolveLandingLink(url, parentUrl = null) {
 
         // Keywords for final hosts (exclude landing domains like nexdrive/vgmlink/gdflix if we are already on them)
         const currentDomain = new URL(currentUrl).hostname.toLowerCase();
-        const keywords = ['vcloud', 'hubcloud', 'gdflix', 'katdrive', 'kmhd', 'vgmlink', 'fastdl', 'filebee', 'nexdrive']
+        const keywords = ['vcloud', 'gdflix', 'katdrive', 'kmhd', 'vgmlink', 'fastdl', 'filebee', 'nexdrive']
             .filter(kw => !currentDomain.includes(kw));
         
         let resolvedUrl = null;
@@ -656,6 +655,12 @@ async function resolveVcloudLink(url, preferredServer = null, parentUrl = null) 
     try {
         console.log('[MovieScraper] Resolving V-Cloud/HubCloud link:', url);
 
+        // Return direct video/file URLs immediately without fetching HTML
+        if (url.includes('.r2.dev') || url.includes('googleusercontent.com') || url.includes('pixeldrain.com/api/file') || /\.(mp4|mkv|zip|rar|7z|avi)$/i.test(url)) {
+            console.log('[MovieScraper] URL is already a direct download video link:', url);
+            return url;
+        }
+
         // Remote VCloud Server (your PC via cloudflared tunnel) — highest priority
         const vcloudServer = process.env.VCLOUD_SERVER;
         const vcloudSecret = process.env.VCLOUD_SECRET || 'danie2026';
@@ -675,12 +680,14 @@ async function resolveVcloudLink(url, preferredServer = null, parentUrl = null) 
             }
         }
 
-        // Handle Pixeldrain links directly
-        if (url.includes('pixeldrain') && url.includes('/u/')) {
-            const id = url.split('/u/')[1].split('?')[0];
-            const direct = `https://pixeldrain.com/api/file/${id}?download`;
-            console.log('[MovieScraper] Resolved direct Pixeldrain link:', direct);
-            return direct;
+        // Pixeldrain links disabled per user rules
+        if (url.includes('pixeldrain')) {
+            throw new Error('Pixeldrain links are disabled.');
+        }
+
+        // Normalize outdated gpdl2.hubcloud.cx / gpdl.hubcloud.cx to hubcloud.cx
+        if (url.includes('hubcloud.cx')) {
+            url = url.replace(/gpdl\d*\.hubcloud\.cx/, 'hubcloud.cx');
         }
 
         // 1. Handle Filebee links directly
@@ -898,7 +905,16 @@ async function scrapeAllPostLinks(url) {
             const href = $(el).attr('href');
             const linkText = $(el).text().trim();
 
-            if (!href || href.trim() === '/' || href.startsWith('#') || href.includes('imdb.com') || href.includes('youtube.com') || href.includes('telegram') || href.includes('facebook') || href.includes('twitter') || href.includes('/how-to-download/')) {
+            if (!href || href.trim() === '/' || href.startsWith('#') || 
+                href.includes('imdb.com') || href.includes('youtube.com') || href.includes('telegram') || 
+                href.includes('facebook') || href.includes('twitter') || href.includes('/how-to-download/') ||
+                href.includes('vegamovies-apk') || href.includes('rogmovies-apk') || href.includes('-apk') || 
+                href.includes('/apk') || href.includes('.apk') || href.includes('hubcloud') || href.includes('gpdl')) {
+                return;
+            }
+
+            // Exclude header, navigation, and sidebar widget links
+            if ($(el).closest('header, nav, .menu, .navigation, .sidebar, .widget').length > 0) {
                 return;
             }
 
@@ -911,13 +927,13 @@ async function scrapeAllPostLinks(url) {
             try {
                 const parsedUrl = new URL(url);
                 const isInternalPost = href.includes(parsedUrl.hostname) || href.startsWith('/download-') || href.startsWith('/movies-') || href.startsWith('/anime-');
-                const isLandingUrl = lowerHref.includes('/download/') || lowerHref.includes('nexdrive') || lowerHref.includes('fastdl') || lowerHref.includes('vgmlink') || lowerHref.includes('gdflix') || lowerHref.includes('hubcloud') || lowerHref.includes('vcloud') || lowerHref.includes('hubdrive') || lowerHref.includes('filebee') || lowerHref.includes('katdrive') || lowerHref.includes('kmhd');
+                const isLandingUrl = lowerHref.includes('/download/') || lowerHref.includes('nexdrive') || lowerHref.includes('fastdl') || lowerHref.includes('vgmlink') || lowerHref.includes('gdflix') || lowerHref.includes('vcloud') || lowerHref.includes('hubdrive') || lowerHref.includes('filebee') || lowerHref.includes('katdrive') || lowerHref.includes('kmhd');
                 if (isInternalPost && !isLandingUrl) {
                     return;
                 }
             } catch (e) {}
 
-            const isHostLink = lowerHref.includes('hubdrive') || lowerHref.includes('hubcdn') || lowerHref.includes('hubcloud') || lowerHref.includes('vcloud') || lowerHref.includes('gadgetsweb') || lowerHref.includes('fastdl') || lowerHref.includes('filebee') || lowerHref.includes('nexdrive') || lowerHref.includes('vgmlink') || lowerHref.includes('gdflix') || lowerHref.includes('katdrive') || lowerHref.includes('kmhd');
+            const isHostLink = lowerHref.includes('hubdrive') || lowerHref.includes('hubcdn') || lowerHref.includes('vcloud') || lowerHref.includes('gadgetsweb') || lowerHref.includes('fastdl') || lowerHref.includes('filebee') || lowerHref.includes('nexdrive') || lowerHref.includes('vgmlink') || lowerHref.includes('gdflix') || lowerHref.includes('katdrive') || lowerHref.includes('kmhd');
             const hasButton = $(el).find('button, .dwd-button, .btn').length > 0 || $(el).hasClass('btn') || $(el).hasClass('dwd-button');
             const hasDwdKeyword = isHostLink ||
                                  linkText.toLowerCase().includes('download') || 
@@ -1115,7 +1131,7 @@ async function extractDirectDownloadLinks(url, parentUrl = null) {
         const pageTitle = $('title').text() || $('h1').text() || '';
         
         const hosts = [];
-        const keywords = ['fastdl', 'vcloud', 'filebee', 'gofile', 'vikingfile', 'megaup', 'gdflix', 'katdrive', 'kmhd', 'hubcloud', 'pixeldrain', 'drive.google', 'mega.nz', 'yodrive', 'shared'];
+        const keywords = ['fastdl', 'vcloud', 'filebee', 'gofile', 'vikingfile', 'megaup', 'gdflix', 'katdrive', 'kmhd', 'pixeldrain', 'drive.google', 'mega.nz', 'yodrive', 'shared'];
         
         $('a[href]').each((_, el) => {
             const href = $(el).attr('href');
@@ -1124,6 +1140,8 @@ async function extractDirectDownloadLinks(url, parentUrl = null) {
             
             const lowerHref = href.toLowerCase();
             const lowerText = text.toLowerCase();
+
+            if (lowerHref.includes('hubcloud') || lowerHref.includes('gpdl')) return;
             
             // Check if the link points to a download host or contains download keywords
             const isHostLink = keywords.some(kw => lowerHref.includes(kw));
@@ -1314,34 +1332,33 @@ async function extractSubOptions(url, parentUrl = null) {
             return [{ text: 'Direct CDN Link', href: target }];
         }
 
-        // 3. Check if landing page (nexdrive / HubDrive) contains intermediate links to HubCloud / VCloud
+        // 3. Check if landing page (nexdrive / HubDrive) contains intermediate host links (VCloud, FastDL, Filebee, Gofile)
         const lowerUrl = url.toLowerCase();
-        const isAlreadyVcloud = lowerUrl.includes('vcloud') || lowerUrl.includes('hubcloud');
+        const isAlreadyVcloud = lowerUrl.includes('vcloud');
 
         if (!isAlreadyVcloud) {
-            const hubcloudLinks = [];
+            const hostLinks = [];
+            const keywords = ['vcloud', 'katdrive', 'kmhd', 'hubdrive', 'fastdl', 'filebee', 'gofile', 'vegadrive', 'vikingfile', 'megaup'];
+
             $('a[href]').each((_, el) => {
                 const href = $(el).attr('href');
                 const text = $(el).text().trim();
-                if (!href) return;
+                if (!href || href.startsWith('#') || href.includes('javascript:')) return;
+
                 const lowerHref = href.toLowerCase();
-                const isVcloudHost = lowerHref.includes('vcloud') || lowerHref.includes('hubcloud') || lowerHref.includes('katdrive') || lowerHref.includes('kmhd') || lowerHref.includes('hubdrive');
-                const isJunk = !href.startsWith('http') || lowerHref.includes('signup') || lowerHref.includes('login') || lowerHref.includes('telegram') || lowerHref.includes('/tg/') || lowerHref.includes('t.me') || lowerHref.includes('/admin') || lowerHref.includes('.fans');
-                if (isVcloudHost && !isJunk) {
-                    if (!hubcloudLinks.some(hl => hl.href === href)) {
-                        hubcloudLinks.push({ text: text || 'VCloud Server', href });
+                const isHostLink = keywords.some(kw => lowerHref.includes(kw));
+                const isJunk = !href.startsWith('http') || lowerHref.includes('hubcloud') || lowerHref.includes('gpdl') || lowerHref.includes('signup') || lowerHref.includes('login') || lowerHref.includes('telegram') || lowerHref.includes('/tg/') || lowerHref.includes('t.me') || lowerHref.includes('/admin') || lowerHref.includes('.fans') || lowerHref.includes('category');
+
+                if (isHostLink && !isJunk) {
+                    if (!hostLinks.some(hl => hl.href === href)) {
+                        hostLinks.push({ text: text || 'Download Server', href });
                     }
                 }
             });
 
-            if (hubcloudLinks.length > 0) {
-                console.log(`[MovieScraper] Found ${hubcloudLinks.length} VCloud link(s) on landing page.`);
-                const allSubServers = [];
-                for (const hcLink of hubcloudLinks) {
-                    const subOpts = await extractSubOptions(hcLink.href, url);
-                    allSubServers.push(...subOpts);
-                }
-                if (allSubServers.length > 0) return allSubServers;
+            if (hostLinks.length > 0) {
+                console.log(`[MovieScraper] Found ${hostLinks.length} server link(s) on landing page (${url}).`);
+                return hostLinks;
             }
         }
 
@@ -1400,6 +1417,10 @@ async function extractSubOptions(url, parentUrl = null) {
                     lowerHref.includes('/tg/') ||
                     lowerHref.includes('telegram') ||
                     lowerHref.includes('t.me') ||
+                    lowerHref.includes('pixeldrain') ||
+                    lowerHref.includes('pixelserver') ||
+                    lowerText.includes('pixeldrain') ||
+                    lowerText.includes('pixelserver') ||
                     lowerText.includes('login') ||
                     lowerText.includes('admin') ||
                     lowerText.includes('idm') ||
@@ -1414,10 +1435,8 @@ async function extractSubOptions(url, parentUrl = null) {
                         href = `${parsed.protocol}//${parsed.host}${href.startsWith('/') ? '' : '/'}${href}`;
                     }
 
-                    if (href.includes('pixeldrain') && href.includes('/u/')) {
-                        const id = href.split('/u/')[1].split('?')[0];
-                        href = `https://pixeldrain.com/api/file/${id}?download`;
-                    }
+                    // Normalize outdated gpdl2.hubcloud.cx / gpdl.hubcloud.cx to hubcloud.cx
+                    href = href.replace(/gpdl\d*\.hubcloud\.cx/, 'hubcloud.cx');
 
                     if (!finalLinks.some(fl => fl.href === href)) {
                         finalLinks.push({ text: text || 'Download Link', href });
@@ -1426,24 +1445,35 @@ async function extractSubOptions(url, parentUrl = null) {
             });
 
             if (finalLinks.length > 0) {
-                const match10G = finalLinks.filter(l => {
+                const matchFsl = finalLinks.filter(l => {
                     const t = `${l.text} ${l.href}`.toLowerCase();
-                    return t.includes('10gbps') || t.includes('10 gbps') || t.includes('g-direct') || t.includes('gdirect');
+                    return (t.includes('fsl') || t.includes('fastserver') || t.includes('r2.dev')) && !t.includes('fslv2') && !t.includes('fsl v2') && !t.includes('fsl-v2');
                 });
                 const matchFslv2 = finalLinks.filter(l => {
                     const t = `${l.text} ${l.href}`.toLowerCase();
                     return t.includes('fslv2') || t.includes('fsl v2') || t.includes('fsl-v2');
                 });
-                const matchFsl = finalLinks.filter(l => {
+                const match10G = finalLinks.filter(l => {
                     const t = `${l.text} ${l.href}`.toLowerCase();
-                    return (t.includes('fsl') || t.includes('fsl server') || t.includes('fastserver')) && !t.includes('fslv2') && !t.includes('fsl v2') && !t.includes('fsl-v2');
+                    return t.includes('10gbps') || t.includes('10 gbps') || t.includes('g-direct') || t.includes('gdirect');
+                });
+                const matchOtherDirect = finalLinks.filter(l => {
+                    const t = `${l.text} ${l.href}`.toLowerCase();
+                    return !t.includes('pixeldrain') && !t.includes('pixelserver') && !t.includes('telegram') && !t.includes('admin');
                 });
 
-                const sortedOnly3 = [...match10G, ...matchFslv2, ...matchFsl];
-                if (sortedOnly3.length > 0) {
-                    return sortedOnly3;
+                const sortedServers = [...matchFsl, ...matchFslv2, ...match10G, ...matchOtherDirect];
+                const seen = new Set();
+                const uniqueServers = sortedServers.filter(s => {
+                    if (seen.has(s.href)) return false;
+                    seen.add(s.href);
+                    return true;
+                });
+
+                if (uniqueServers.length > 0) {
+                    return uniqueServers;
                 }
-                return [];
+                return finalLinks.filter(l => !l.href.includes('pixeldrain'));
             }
         }
 

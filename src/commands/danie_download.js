@@ -909,7 +909,6 @@ function isLandingUrl(url) {
     if (!url) return false;
     const lower = url.toLowerCase();
     return lower.includes('vcloud') || 
-           lower.includes('hubcloud') || 
            lower.includes('hubdrive') ||
            lower.includes('hubcdn') ||
            lower.includes('gadgetsweb') ||
@@ -935,8 +934,8 @@ function getQuotedMessageId(mek) {
 
 const pendingConfig = {};
 const pendingSearch = {};
-const VEGAMOVIES_DOMAIN = process.env.VEGAMOVIES_DOMAIN || 'https://new1.vegamovies.futbol';
-const ROGMOVIES_DOMAIN = process.env.ROGMOVIES_DOMAIN || 'https://new1.rogmovies.click';
+const VEGAMOVIES_DOMAIN = process.env.VEGAMOVIES_DOMAIN || 'https://new2.vegamovies.futbol';
+const ROGMOVIES_DOMAIN = process.env.ROGMOVIES_DOMAIN || 'https://new2.rogmovies.click';
 const HDHUB4U_DOMAIN = process.env.HDHUB4U_DOMAIN || 'https://new3.hdhub4u.cl';
 
 // =========================================================================
@@ -3574,12 +3573,12 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
         executeFn: async (signal, ref) => {
             let candidates = [];
 
-            // STRICTLY keep ONLY V-Cloud / HubCloud / NexDrive / VGMLink / KatDrive / KMHD / HubDrive hosts
+            // STRICTLY keep ONLY V-Cloud / NexDrive / VGMLink / KatDrive / KMHD / HubDrive hosts (hubcloud completely excluded)
             const vcloudHosts = hostsList.filter(h => {
                 const href = (h.href || '').toLowerCase();
                 const text = (h.text || '').toLowerCase();
-                const isVcloud = href.includes('vcloud') || href.includes('hubcloud') || href.includes('nexdrive') || href.includes('vgmlink') || href.includes('katdrive') || href.includes('kmhd') || href.includes('hubdrive') || text.includes('v-cloud') || text.includes('vcloud') || text.includes('hubcloud');
-                const isJunk = href.includes('filebee') || href.includes('gofile') || href.includes('vikingfile') || href.includes('megaup') || href.includes('fastdl') || href.includes('telegram') || href.includes('gdtot') || href.includes('drive.google');
+                const isVcloud = href.includes('vcloud') || href.includes('nexdrive') || href.includes('vgmlink') || href.includes('katdrive') || href.includes('kmhd') || href.includes('hubdrive') || text.includes('v-cloud') || text.includes('vcloud');
+                const isJunk = href.includes('hubcloud') || href.includes('gpdl') || href.includes('filebee') || href.includes('gofile') || href.includes('vikingfile') || href.includes('megaup') || href.includes('fastdl') || href.includes('telegram') || href.includes('gdtot') || href.includes('drive.google');
                 return isVcloud && !isJunk;
             });
 

@@ -2,22 +2,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:daniewatch_app/services/resolver_service.dart';
 
 void main() {
-  test('Test nexdrive extraction for all episodes', () async {
-    const landingUrl = 'https://nexdrive.fit/genxfm784776495266/';
-    print('Testing resolution for: $landingUrl');
+  test('Test single movie resolution for Lenin Nextdrive option 1', () async {
+    const nexUrl = 'https://nexdrive.fit/genxfm784776503650/';
+    print('Testing single resolution for: $nexUrl');
 
-    final result = await ResolverService.resolveAllEpisodes(
-      landingUrl,
-      onProgress: (current, total, isDone) {
-        print('Progress: $current / $total (done: $isDone)');
-      },
-    );
-
-    print('=== RESOLUTION RESULT ===');
+    final result = await ResolverService.resolveWithFallback(nexUrl);
+    print('=== SINGLE MOVIE RESOLUTION RESULT ===');
     print('Server Name: ${result.serverName}');
-    print('Total Direct URLs: ${result.directUrls.length}');
-    for (int i = 0; i < result.directUrls.length; i++) {
-      print('Episode ${i + 1}: ${result.directUrls[i]}');
-    }
-  });
+    print('Direct URL : ${result.directUrl}');
+
+    expect(result.directUrl.startsWith('http'), isTrue);
+  }, timeout: const Timeout(Duration(seconds: 45)));
 }
