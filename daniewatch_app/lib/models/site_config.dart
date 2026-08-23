@@ -4,7 +4,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 enum MovieSite {
   vegamovies,
   rogmovies,
-  hdhub4u,
 }
 
 class SiteDomainManager {
@@ -13,7 +12,6 @@ class SiteDomainManager {
   static const Map<MovieSite, String> defaultDomains = {
     MovieSite.vegamovies: 'https://new2.vegamovies.futbol/',
     MovieSite.rogmovies: 'https://new2.rogmovies.click/',
-    MovieSite.hdhub4u: 'https://new3.hdhub4u.cl/',
   };
 
   static Future<void> loadCustomDomains() async {
@@ -61,8 +59,6 @@ extension MovieSiteExtension on MovieSite {
         return 'VegaMovies';
       case MovieSite.rogmovies:
         return 'RogMovies';
-      case MovieSite.hdhub4u:
-        return 'HDHub4u';
     }
   }
 
@@ -76,8 +72,6 @@ extension MovieSiteExtension on MovieSite {
         return '#064E3B';
       case MovieSite.rogmovies:
         return '#F8E7C9';
-      case MovieSite.hdhub4u:
-        return '#064E3B';
     }
   }
 }

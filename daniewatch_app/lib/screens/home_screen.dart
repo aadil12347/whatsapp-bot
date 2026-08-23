@@ -92,8 +92,6 @@ class _HomeScreenState extends State<HomeScreen> {
         return AppTheme.champagne;
       case MovieSite.rogmovies:
         return AppTheme.emeraldInk;
-      case MovieSite.hdhub4u:
-        return AppTheme.champagne;
     }
   }
 
