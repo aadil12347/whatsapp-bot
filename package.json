@@ -8,6 +8,8 @@
     "stop": "pm2 stop Daniewatch_Bot",
     "restart": "pm2 restart Daniewatch_Bot",
     "pair": "node pair.js",
+    "pair-server": "node api/index.js",
+    "pair-web": "node api/index.js",
     "clean-pair": "node clean_pair.js",
     "upload-session": "node scratch/upload_current_session.js",
     "bot:start": "node bot-cli.js start",

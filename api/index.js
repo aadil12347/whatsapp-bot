@@ -158,7 +158,21 @@ async function generatePairingCode(phoneNumber) {
             currentPairingCode = null;
             activeUser = sock.user;
             await saveCreds();
-            await uploadToSupabase();
+            const uploadOk = await uploadToSupabase();
+            
+            // Send confirmation WhatsApp message directly to paired account
+            try {
+                const userJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
+                await sock.sendMessage(userJid, {
+                    text: `*✨ DANIEWATCH BOT SESSION PAIRED!*\n\n` +
+                          `✅ Your WhatsApp session keys have been successfully paired and uploaded to your Supabase database!\n\n` +
+                          `🚀 Your DanieWatch Bot (on GitHub Actions, Koyeb, Render, Railway, or local) will now download this session and come ONLINE automatically without any extra configuration.\n\n` +
+                          `Status: ${uploadOk ? 'Synced to Supabase ✅' : 'Local Only ⚠️'}`
+                });
+                console.log(`📱 Sent pairing confirmation WhatsApp message to ${userJid}`);
+            } catch (msgErr) {
+                console.warn('⚠️ Could not send confirmation message:', msgErr.message);
+            }
         }
         if (connection === 'close') {
             const code = lastDisconnect?.error?.output?.statusCode;
@@ -546,5 +560,15 @@ app.use((req, res) => {
     res.setHeader('Content-Type', 'text/html');
     res.send(renderHTML(defaultNum));
 });
+
+if (require.main === module) {
+    const PORT = process.env.PORT || 3000;
+    app.listen(PORT, () => {
+        console.log(`\n==================================================`);
+        console.log(`✨ DanieWatch Web Session Generator Server Running!`);
+        console.log(`🌐 Open in browser: http://localhost:${PORT}`);
+        console.log(`==================================================\n`);
+    });
+}
 
 module.exports = app;
