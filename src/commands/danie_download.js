@@ -1234,7 +1234,8 @@ function initUpsertListener(conn) {
     if (conn.danieDownloadUpsertRegistered) return;
     conn.danieDownloadUpsertRegistered = true;
     _connInstance = conn;
-    conn._startupTime = Date.now(); // Track startup time for grace period
+    if (!conn._startupTime) conn._startupTime = Date.now();
+    if (!conn._connectTimeSeconds) conn._connectTimeSeconds = Math.floor(conn._startupTime / 1000);
 
     // Pre-prime the bot's own JID so we never send a primer message to ourselves
     if (conn.user && conn.user.id) {
@@ -1275,6 +1276,10 @@ function initUpsertListener(conn) {
             let msgTimestamp = 0;
             if (typeof mek.messageTimestamp === 'number') {
                 msgTimestamp = mek.messageTimestamp;
+            } else if (typeof mek.messageTimestamp === 'string') {
+                msgTimestamp = parseInt(mek.messageTimestamp, 10) || 0;
+            } else if (typeof mek.messageTimestamp === 'bigint') {
+                msgTimestamp = Number(mek.messageTimestamp);
             } else if (mek.messageTimestamp && typeof mek.messageTimestamp.toNumber === 'function') {
                 try { msgTimestamp = mek.messageTimestamp.toNumber(); } catch (_) {}
             } else if (mek.messageTimestamp && typeof mek.messageTimestamp.low === 'number') {
