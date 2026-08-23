@@ -146,6 +146,8 @@ async function connectToWA() {
         if (connection === 'open') {
             _connectTime = Date.now();
             _connectTimeSeconds = Math.floor(_connectTime / 1000);
+            conn._startupTime = _connectTime;
+            conn._connectTimeSeconds = _connectTimeSeconds;
             console.log('🔥 DanieWatch Bot connected ✅');
 
             // Log bot identity for debugging owner/LID matching

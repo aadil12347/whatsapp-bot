@@ -1272,6 +1272,20 @@ function initUpsertListener(conn) {
             if (chatUpdate.type !== 'notify' && chatUpdate.type !== 'append') return;
             const mek = chatUpdate.messages ? chatUpdate.messages[0] : null;
             if (!mek) return;
+            let msgTimestamp = 0;
+            if (typeof mek.messageTimestamp === 'number') {
+                msgTimestamp = mek.messageTimestamp;
+            } else if (mek.messageTimestamp && typeof mek.messageTimestamp.toNumber === 'function') {
+                try { msgTimestamp = mek.messageTimestamp.toNumber(); } catch (_) {}
+            } else if (mek.messageTimestamp && typeof mek.messageTimestamp.low === 'number') {
+                msgTimestamp = mek.messageTimestamp.low;
+            }
+
+            // Connection timestamp gate: silently drop offline backlog messages
+            // sent before the bot connected. This eliminates E2EE catch-up lag and stale queued messages.
+            if (conn._connectTimeSeconds && msgTimestamp > 0 && msgTimestamp < (conn._connectTimeSeconds - 5)) {
+                return;
+            }
 
             const from = mek.key.remoteJid;
             let senderJid = mek.key.participant || mek.key.remoteJid;
@@ -1281,20 +1295,19 @@ function initUpsertListener(conn) {
             const cleanSender = cleanJid(senderJid);
 
             if (!mek.message) {
-                // Startup grace period: silently discard undecryptable messages
-                // for 60s after connect  these are old offline messages encrypted
-                // with stale E2EE sessions that can never be decrypted.
-                if (conn._startupTime && (Date.now() - conn._startupTime < 60000)) {
-                    return; // Silent discard  no logging, no counting
+                // Silently discard undecryptable messages from offline backlog or startup period
+                if ((conn._startupTime && (Date.now() - conn._startupTime < 60000)) ||
+                    (conn._connectTimeSeconds && msgTimestamp > 0 && msgTimestamp < conn._connectTimeSeconds)) {
+                    return;
                 }
 
-                // After grace period, track & log summaries at reduced frequency
+                // After grace period, track & log summaries at very reduced frequency for live messages
                 if (!conn._undecryptableCount) conn._undecryptableCount = 0;
                 if (!conn._lastUndecryptableLog) conn._lastUndecryptableLog = 0;
                 conn._undecryptableCount++;
                 const now = Date.now();
-                if (now - conn._lastUndecryptableLog > 60000) {
-                    console.log(`[DanieWatch] ⚠️ ${conn._undecryptableCount} message(s) with undefined payload (E2EE pending/old queued messages) — Baileys is re-negotiating sessions.`);
+                if (now - conn._lastUndecryptableLog > 300000) { // 5 minutes summary threshold
+                    console.log(`[DanieWatch] ℹ️ ${conn._undecryptableCount} message(s) awaiting E2EE session re-negotiation.`);
                     conn._undecryptableCount = 0;
                     conn._lastUndecryptableLog = now;
                 }
