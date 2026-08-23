@@ -83,18 +83,30 @@ async function uploadToSupabase() {
     if (!sessionData['creds.json']) return false;
 
     try {
-        await supabase.from('bot_session').delete().neq('id', 0);
+        console.log('🧹 Purging all old session records from Supabase database...');
+        const { error: delErr } = await supabase.from('bot_session').delete().neq('id', 0);
+        if (delErr) {
+            console.warn('⚠️ Warning while purging old session:', delErr.message);
+        } else {
+            console.log('✅ Old session records successfully purged from Supabase.');
+        }
+
+        console.log('☁️ Uploading brand new session keys (creds.json) to Supabase...');
         const { error } = await supabase.from('bot_session').upsert({
             id: 1,
             session_data: sessionData,
             updated_at: new Date().toISOString()
         }, { onConflict: 'id' });
 
-        if (error) console.error('❌ Supabase upload error:', error.message);
-        else console.log(`✅ Uploaded fresh session (${Object.keys(sessionData).length} file(s)) to Supabase!`);
-        return !error;
+        if (error) {
+            console.error('❌ Supabase upload error:', error.message);
+            return false;
+        } else {
+            console.log(`✅ Uploaded new session keys (${Object.keys(sessionData).length} essential file(s)) to Supabase successfully!`);
+            return true;
+        }
     } catch (e) {
-        console.error('❌ Supabase exception:', e.message);
+        console.error('❌ Supabase exception during session sync:', e.message);
         return false;
     }
 }
