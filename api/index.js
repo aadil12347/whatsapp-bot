@@ -4,15 +4,24 @@ const fs = require('fs');
 const os = require('os');
 const pino = require('pino');
 const { createClient } = require('@supabase/supabase-js');
-function getBaileysLib() {
+async function getBaileysLib() {
     const packages = ['anju-xpro-baileys', '@whiskeysockets/baileys', 'daniewatch-baileys'];
     for (const pkg of packages) {
         try {
-            const b = require(pkg);
+            let b;
+            try {
+                b = require(pkg);
+            } catch (err) {
+                if (err.code === 'ERR_REQUIRE_ESM' || (err.message && err.message.includes('ES Module'))) {
+                    b = await import(pkg);
+                }
+            }
+            if (!b) continue;
+
             const useMulti = b.useMultiFileAuthState || (b.default && b.default.useMultiFileAuthState);
             if (typeof useMulti === 'function') {
                 return {
-                    makeWASocket: (b.default && typeof b.default === 'function') ? b.default : b,
+                    makeWASocket: (b.default && typeof b.default === 'function') ? b.default : (b.makeWASocket || b),
                     useMultiFileAuthState: useMulti,
                     makeCacheableSignalKeyStore: b.makeCacheableSignalKeyStore || (b.default && b.default.makeCacheableSignalKeyStore),
                     fetchLatestBaileysVersion: b.fetchLatestBaileysVersion || (b.default && b.default.fetchLatestBaileysVersion),
@@ -22,16 +31,28 @@ function getBaileysLib() {
             }
         } catch (_) {}
     }
-    // Direct fallback
-    const b = require('anju-xpro-baileys');
-    return {
-        makeWASocket: b.default || b,
-        useMultiFileAuthState: b.useMultiFileAuthState,
-        makeCacheableSignalKeyStore: b.makeCacheableSignalKeyStore,
-        fetchLatestBaileysVersion: b.fetchLatestBaileysVersion,
-        Browsers: b.Browsers,
-        DisconnectReason: b.DisconnectReason
-    };
+
+    try {
+        const b = await import('@whiskeysockets/baileys');
+        return {
+            makeWASocket: b.default || b.makeWASocket || b,
+            useMultiFileAuthState: b.useMultiFileAuthState || (b.default && b.default.useMultiFileAuthState),
+            makeCacheableSignalKeyStore: b.makeCacheableSignalKeyStore || (b.default && b.default.makeCacheableSignalKeyStore),
+            fetchLatestBaileysVersion: b.fetchLatestBaileysVersion || (b.default && b.default.fetchLatestBaileysVersion),
+            Browsers: b.Browsers || (b.default && b.default.Browsers),
+            DisconnectReason: b.DisconnectReason || (b.default && b.default.DisconnectReason)
+        };
+    } catch (_) {
+        const b = require('anju-xpro-baileys');
+        return {
+            makeWASocket: b.default || b,
+            useMultiFileAuthState: b.useMultiFileAuthState,
+            makeCacheableSignalKeyStore: b.makeCacheableSignalKeyStore,
+            fetchLatestBaileysVersion: b.fetchLatestBaileysVersion,
+            Browsers: b.Browsers,
+            DisconnectReason: b.DisconnectReason
+        };
+    }
 }
 
 // Load environment variables if config.env exists
@@ -152,7 +173,7 @@ async function generatePairingCode(phoneNumber) {
     await nukeSessions();
     if (!fs.existsSync(SESSION_DIR)) fs.mkdirSync(SESSION_DIR, { recursive: true });
 
-    const baileysLib = getBaileysLib();
+    const baileysLib = await getBaileysLib();
     if (!baileysLib || typeof baileysLib.useMultiFileAuthState !== 'function') {
         throw new Error('Baileys auth state handler (useMultiFileAuthState) could not be loaded.');
     }
