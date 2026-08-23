@@ -4,14 +4,39 @@ const fs = require('fs');
 const os = require('os');
 const pino = require('pino');
 const { createClient } = require('@supabase/supabase-js');
-const {
-    default: makeWASocket,
-    useMultiFileAuthState,
-    makeCacheableSignalKeyStore,
-    fetchLatestBaileysVersion,
-    Browsers,
-    DisconnectReason
-} = require('anju-xpro-baileys');
+let makeWASocket, useMultiFileAuthState, makeCacheableSignalKeyStore, fetchLatestBaileysVersion, Browsers, DisconnectReason;
+
+try {
+    const baileys = require('anju-xpro-baileys');
+    makeWASocket = baileys.default || baileys;
+    useMultiFileAuthState = baileys.useMultiFileAuthState;
+    makeCacheableSignalKeyStore = baileys.makeCacheableSignalKeyStore;
+    fetchLatestBaileysVersion = baileys.fetchLatestBaileysVersion;
+    Browsers = baileys.Browsers;
+    DisconnectReason = baileys.DisconnectReason;
+} catch (_) {
+    try {
+        const baileys = require('@whiskeysockets/baileys');
+        makeWASocket = baileys.default || baileys;
+        useMultiFileAuthState = baileys.useMultiFileAuthState;
+        makeCacheableSignalKeyStore = baileys.makeCacheableSignalKeyStore;
+        fetchLatestBaileysVersion = baileys.fetchLatestBaileysVersion;
+        Browsers = baileys.Browsers;
+        DisconnectReason = baileys.DisconnectReason;
+    } catch (_) {
+        try {
+            const baileys = require('daniewatch-baileys');
+            makeWASocket = baileys.default || baileys;
+            useMultiFileAuthState = baileys.useMultiFileAuthState;
+            makeCacheableSignalKeyStore = baileys.makeCacheableSignalKeyStore;
+            fetchLatestBaileysVersion = baileys.fetchLatestBaileysVersion;
+            Browsers = baileys.Browsers;
+            DisconnectReason = baileys.DisconnectReason;
+        } catch (err) {
+            console.error('❌ Failed to load any Baileys library:', err.message);
+        }
+    }
+}
 
 // Load environment variables if config.env exists
 const envPath = path.join(__dirname, '../config.env');
@@ -460,6 +485,8 @@ function renderHTML(defaultNum = '') {
 
     <script>
         let pollInterval = null;
+        let countdownTimer = null;
+        let timeLeft = 60;
 
         async function handleGenerate(e) {
             e.preventDefault();
@@ -471,8 +498,12 @@ function renderHTML(defaultNum = '') {
             const card = document.getElementById('codeCard');
 
             btn.disabled = true;
+            msg.style.color = '#00f2fe';
             msg.innerHTML = '<span class="spinner"></span> Requesting fresh pairing code from WhatsApp...';
             card.style.display = 'none';
+
+            if (countdownTimer) clearInterval(countdownTimer);
+            if (pollInterval) clearInterval(pollInterval);
 
             try {
                 const res = await fetch('/api/generate-pair-code?number=' + encodeURIComponent(phone), { method: 'POST' });
@@ -481,8 +512,24 @@ function renderHTML(defaultNum = '') {
                 if (data.success && data.pairingCode) {
                     document.getElementById('codeDisplay').textContent = data.pairingCode;
                     card.style.display = 'block';
+                    
+                    // Start 60-Second Live Countdown
+                    timeLeft = 60;
                     msg.style.color = '#00f2fe';
-                    msg.innerHTML = '⏳ Enter the code on your phone now!';
+                    msg.innerHTML = '⏳ Enter code on your phone! <strong>Expires in ' + timeLeft + 's</strong>';
+
+                    countdownTimer = setInterval(() => {
+                        timeLeft--;
+                        if (timeLeft > 0) {
+                            msg.innerHTML = '⏳ Enter code on your phone! <strong>Expires in ' + timeLeft + 's</strong>';
+                        } else {
+                            clearInterval(countdownTimer);
+                            if (pollInterval) clearInterval(pollInterval);
+                            msg.style.color = '#ef4444';
+                            msg.innerHTML = '⚠️ Pairing code expired (60s reached). Click button below to get a fresh code.';
+                            btn.disabled = false;
+                        }
+                    }, 1000);
 
                     startPolling();
                 } else {
@@ -510,15 +557,16 @@ function renderHTML(defaultNum = '') {
                     const res = await fetch('/api/pair-status');
                     const data = await res.json();
                     if (data.connected) {
-                        clearInterval(pollInterval);
+                        if (pollInterval) clearInterval(pollInterval);
+                        if (countdownTimer) clearInterval(countdownTimer);
                         document.getElementById('statusMsg').style.color = '#10b981';
-                        document.getElementById('statusMsg').textContent = '🎉 Connected successfully! Fresh session uploaded to Supabase.';
+                        document.getElementById('statusMsg').innerHTML = '🎉 <strong>Connected successfully!</strong> Fresh session uploaded to Supabase.';
                         document.getElementById('statusDot').style.background = '#10b981';
                         document.getElementById('statusText').textContent = 'CONNECTED';
                         document.getElementById('btnSubmit').disabled = false;
                     }
                 } catch (e) {}
-            }, 3000);
+            }, 2000);
         }
     </script>
 </body>
