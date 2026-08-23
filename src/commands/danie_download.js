@@ -2519,9 +2519,7 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
             }
         }
 
-        let detailsMessage = `🎬 *『 𝑫𝑨𝑵𝑰𝑬𝑾𝑨𝑻𝑪𝑯 』* 🍿\n` +
-                             `───────────────────\n` +
-                             `📝 *Title:* *${tmdb.title}*\n` +
+        let detailsMessage = `📝 *Title:* *${tmdb.title}*\n` +
                              `📅 *Year:* *${tmdb.year}*\n`;
         if (seasonText) detailsMessage += seasonText;
         detailsMessage += `🎭 *Genre:* *${tmdb.genres}*\n`;

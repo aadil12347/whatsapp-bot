@@ -53,15 +53,13 @@ async function testTvFormatting() {
         }
     }
 
-    let detailsMessage = `🎬 *『 𝑫𝑨𝑵𝑰𝑬𝑾𝑨𝑻𝑪𝑯 』* 🍿\n`;
-    detailsMessage += `───────────────────\n`;
-    detailsMessage += `📝 *Title:* *${tmdb.title}*\n`;
+    let detailsMessage = `📝 *Title:* *${tmdb.title}*\n`;
     detailsMessage += `📅 *Year:* *${tmdb.year}*\n`;
     if (seasonText) detailsMessage += seasonText;
     detailsMessage += `🎭 *Genre:* *${tmdb.genres}*\n`;
     if (episodeText) detailsMessage += episodeText;
     detailsMessage += `───────────────────\n`;
-    detailsMessage += `*『 𝑫𝑨𝑵𝑰𝑬𝑾𝑨𝑻𝑪𝑯 』*`;
+    detailsMessage += `👑 *『 𝑫𝑨𝑵𝑰𝑬𝑾𝑨𝑻𝑪𝑯 』* 👑`;
 
     console.log('\n--- FORMATTED CAPTION ---');
     console.log(detailsMessage);
