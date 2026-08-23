@@ -4,38 +4,34 @@ const fs = require('fs');
 const os = require('os');
 const pino = require('pino');
 const { createClient } = require('@supabase/supabase-js');
-let makeWASocket, useMultiFileAuthState, makeCacheableSignalKeyStore, fetchLatestBaileysVersion, Browsers, DisconnectReason;
-
-try {
-    const baileys = require('anju-xpro-baileys');
-    makeWASocket = baileys.default || baileys;
-    useMultiFileAuthState = baileys.useMultiFileAuthState;
-    makeCacheableSignalKeyStore = baileys.makeCacheableSignalKeyStore;
-    fetchLatestBaileysVersion = baileys.fetchLatestBaileysVersion;
-    Browsers = baileys.Browsers;
-    DisconnectReason = baileys.DisconnectReason;
-} catch (_) {
-    try {
-        const baileys = require('@whiskeysockets/baileys');
-        makeWASocket = baileys.default || baileys;
-        useMultiFileAuthState = baileys.useMultiFileAuthState;
-        makeCacheableSignalKeyStore = baileys.makeCacheableSignalKeyStore;
-        fetchLatestBaileysVersion = baileys.fetchLatestBaileysVersion;
-        Browsers = baileys.Browsers;
-        DisconnectReason = baileys.DisconnectReason;
-    } catch (_) {
+function getBaileysLib() {
+    const packages = ['anju-xpro-baileys', '@whiskeysockets/baileys', 'daniewatch-baileys'];
+    for (const pkg of packages) {
         try {
-            const baileys = require('daniewatch-baileys');
-            makeWASocket = baileys.default || baileys;
-            useMultiFileAuthState = baileys.useMultiFileAuthState;
-            makeCacheableSignalKeyStore = baileys.makeCacheableSignalKeyStore;
-            fetchLatestBaileysVersion = baileys.fetchLatestBaileysVersion;
-            Browsers = baileys.Browsers;
-            DisconnectReason = baileys.DisconnectReason;
-        } catch (err) {
-            console.error('❌ Failed to load any Baileys library:', err.message);
-        }
+            const b = require(pkg);
+            const useMulti = b.useMultiFileAuthState || (b.default && b.default.useMultiFileAuthState);
+            if (typeof useMulti === 'function') {
+                return {
+                    makeWASocket: (b.default && typeof b.default === 'function') ? b.default : b,
+                    useMultiFileAuthState: useMulti,
+                    makeCacheableSignalKeyStore: b.makeCacheableSignalKeyStore || (b.default && b.default.makeCacheableSignalKeyStore),
+                    fetchLatestBaileysVersion: b.fetchLatestBaileysVersion || (b.default && b.default.fetchLatestBaileysVersion),
+                    Browsers: b.Browsers || (b.default && b.default.Browsers),
+                    DisconnectReason: b.DisconnectReason || (b.default && b.default.DisconnectReason)
+                };
+            }
+        } catch (_) {}
     }
+    // Direct fallback
+    const b = require('anju-xpro-baileys');
+    return {
+        makeWASocket: b.default || b,
+        useMultiFileAuthState: b.useMultiFileAuthState,
+        makeCacheableSignalKeyStore: b.makeCacheableSignalKeyStore,
+        fetchLatestBaileysVersion: b.fetchLatestBaileysVersion,
+        Browsers: b.Browsers,
+        DisconnectReason: b.DisconnectReason
+    };
 }
 
 // Load environment variables if config.env exists
@@ -156,6 +152,20 @@ async function generatePairingCode(phoneNumber) {
     await nukeSessions();
     if (!fs.existsSync(SESSION_DIR)) fs.mkdirSync(SESSION_DIR, { recursive: true });
 
+    const baileysLib = getBaileysLib();
+    if (!baileysLib || typeof baileysLib.useMultiFileAuthState !== 'function') {
+        throw new Error('Baileys auth state handler (useMultiFileAuthState) could not be loaded.');
+    }
+
+    const {
+        makeWASocket,
+        useMultiFileAuthState,
+        makeCacheableSignalKeyStore,
+        fetchLatestBaileysVersion,
+        Browsers,
+        DisconnectReason
+    } = baileysLib;
+
     const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR);
     const { version } = await fetchLatestBaileysVersion().catch(() => ({ version: [2, 3000, 1015901307] }));
 
@@ -167,7 +177,7 @@ async function generatePairingCode(phoneNumber) {
             keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' }))
         },
         printQRInTerminal: false,
-        browser: Browsers.ubuntu('Chrome'),
+        browser: Browsers ? Browsers.ubuntu('Chrome') : ['Ubuntu', 'Chrome', '20.0.04'],
         connectTimeoutMs: 60000,
         keepAliveIntervalMs: 30000
     });
