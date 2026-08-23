@@ -1451,12 +1451,12 @@ function initUpsertListener(conn) {
                     await DANIE_COMMANDS['tiktok'](conn, mek, targetJid, senderJid, detectedUrl, reply);
                     return;
                 }
-                if (lowerUrl.includes('instagram.com')) {
+                if (lowerUrl.includes('instagram.com') || lowerUrl.includes('instagr.am')) {
                     console.log(`[DanieWatch] Auto-routing Instagram link to .ig handler...`);
                     await DANIE_COMMANDS['ig'](conn, mek, targetJid, senderJid, detectedUrl, reply);
                     return;
                 }
-                if (lowerUrl.includes('facebook.com') || lowerUrl.includes('fb.watch')) {
+                if (lowerUrl.includes('facebook.com') || lowerUrl.includes('fb.watch') || lowerUrl.includes('fb.gg') || lowerUrl.includes('fb.com')) {
                     console.log(`[DanieWatch] Auto-routing Facebook link to .fb handler...`);
                     await DANIE_COMMANDS['fb'](conn, mek, targetJid, senderJid, detectedUrl, reply);
                     return;
@@ -4720,23 +4720,115 @@ DANIE_COMMANDS['csong'] = async (conn, mek, from, senderJid, args, reply) => {
 };
 DANIE_COMMANDS['csongdl'] = DANIE_COMMANDS['csong'];
 
-// .fb — Facebook video download
-DANIE_COMMANDS['fb'] = async (conn, mek, from, senderJid, args, reply) => {
+// Helper: Locate yt-dlp binary across platforms
+function getYtDlpBin() {
+    const candidates = [
+        path.join(process.cwd(), 'yt-dlp.exe'),
+        path.join(process.cwd(), 'yt-dlp'),
+        path.join(__dirname, '..', '..', 'yt-dlp.exe'),
+        path.join(__dirname, '..', '..', 'yt-dlp'),
+        'yt-dlp.exe',
+        'yt-dlp',
+        '/usr/local/bin/yt-dlp',
+        '/usr/bin/yt-dlp',
+        '/home/runner/.local/bin/yt-dlp'
+    ];
+    for (const bin of candidates) {
+        if (fs.existsSync(bin)) return bin;
+    }
+    return 'yt-dlp';
+}
+
+// Helper: Download Facebook Media with 3 engines (native yt-dlp, Ruhend fbdl, & fb-downloader)
+async function downloadFacebookMedia(url) {
+    const fetch = require('node-fetch');
+    const util = require('util');
+    const execPromise = util.promisify(require('child_process').exec);
+
+    const cleanUrl = url.trim();
+    const tempFile = path.join(os.tmpdir(), `fb_${Date.now()}_${Math.random().toString(36).substring(2, 6)}.mp4`);
+    const bin = getYtDlpBin();
+
+    // Engine 1: Native yt-dlp (Most reliable for FB reels, videos, stories, watch links)
     try {
-        if (!args || (!args.includes('facebook.com') && !args.includes('fb.watch'))) {
-            return reply("📘 *Facebook Downloader*\nPlease provide a Facebook video URL.");
+        console.log(`[Facebook] Trying native yt-dlp (${bin}) for: ${cleanUrl}`);
+        const cmd = `"${bin}" --no-playlist --no-check-certificates --socket-timeout 30 -f "b/bv*+ba/best" -o "${tempFile}" "${cleanUrl}"`;
+        await execPromise(cmd, { timeout: 120000 });
+        if (fs.existsSync(tempFile) && fs.statSync(tempFile).size > 1000) {
+            return {
+                filePath: tempFile,
+                title: 'Facebook Video'
+            };
         }
-        const fbdl = require('@xaviabot/fb-downloader');
-        const result = await fbdl(args.trim());
-        if (!result || !result.sd) throw new Error("Could not extract video from this Facebook URL.");
-        const videoUrl = result.hd || result.sd;
+    } catch (err) {
+        console.warn(`[Facebook] Engine 1 (yt-dlp) failed: ${err.message}`);
+        try { if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile); } catch (_) {}
+    }
+
+    // Engine 2: Ruhend Scraper fbdl
+    try {
+        console.log(`[Facebook] Trying Ruhend fbdl...`);
+        const { fbdl } = require('ruhend-scraper');
+        const result = await fbdl(cleanUrl);
+        if (result && (result.video || result.hd || result.sd || (result.data && result.data.length > 0))) {
+            const vUrl = result.video || result.hd || result.sd || (result.data && result.data[0] ? result.data[0].url : null);
+            if (vUrl) {
+                return {
+                    videoUrl: vUrl,
+                    title: result.title || 'Facebook Video'
+                };
+            }
+        }
+    } catch (err) {
+        console.warn(`[Facebook] Engine 2 (Ruhend) failed: ${err.message}`);
+    }
+
+    // Engine 3: @xaviabot/fb-downloader fallback
+    try {
+        console.log(`[Facebook] Trying @xaviabot/fb-downloader fallback...`);
+        const fbdlPkg = require('@xaviabot/fb-downloader');
+        const result = await fbdlPkg(cleanUrl);
+        if (result && (result.hd || result.sd)) {
+            return {
+                videoUrl: result.hd || result.sd,
+                title: result.title || 'Facebook Video'
+            };
+        }
+    } catch (err) {
+        console.warn(`[Facebook] Engine 3 (fb-downloader) failed: ${err.message}`);
+    }
+
+    throw new Error('Could not extract video from this Facebook URL.');
+}
+
+// .fb / .fbdl — Facebook video download
+DANIE_COMMANDS['fb'] = async (conn, mek, from, senderJid, args, reply) => {
+    let tempPath = null;
+    try {
+        if (!args || (!args.includes('facebook.com') && !args.includes('fb.watch') && !args.includes('fb.gg') && !args.includes('fb.com'))) {
+            return reply("📘 *Facebook Downloader*\nPlease provide a Facebook video or reel URL.\nExample: `.fb https://www.facebook.com/watch/...`");
+        }
+        const result = await downloadFacebookMedia(args.trim());
         const caption = `🎬 *Title:* ${result.title || 'Facebook Video'}`;
-        await conn.sendMessage(from, { video: { url: videoUrl }, mimetype: "video/mp4", caption, fileName: "fb_video.mp4" }, { quoted: mek });
+
+        if (result.videoUrl) {
+            await conn.sendMessage(from, { video: { url: result.videoUrl }, mimetype: "video/mp4", caption, fileName: "fb_video.mp4" }, { quoted: mek });
+        } else if (result.filePath && fs.existsSync(result.filePath)) {
+            tempPath = result.filePath;
+            await conn.sendMessage(from, { video: { url: result.filePath }, mimetype: "video/mp4", caption, fileName: "fb_video.mp4" }, { quoted: mek });
+        } else {
+            throw new Error("Could not extract video from this Facebook URL.");
+        }
     } catch (err) {
         console.error('[FB Download Error]:', err.message);
         reply(`❌ Failed to download Facebook video: ${err.message}`);
+    } finally {
+        if (tempPath && fs.existsSync(tempPath)) {
+            try { fs.unlinkSync(tempPath); } catch (_) {}
+        }
     }
 };
+DANIE_COMMANDS['fbdl'] = DANIE_COMMANDS['fb'];
 
 // Helper: Download Instagram Media with 3 engines (API, Ruhend, & native yt-dlp)
 async function downloadInstagramMedia(url) {
@@ -4883,33 +4975,114 @@ DANIE_COMMANDS['tiktok'] = async (conn, mek, from, senderJid, args, reply) => {
     }
 };
 
-// .twitter — Twitter/X video download
+// Helper: Download Twitter/X Media with 3 engines (yt-dlp, VxTwitter API, & Cobalt fallback)
+async function downloadTwitterMedia(url) {
+    const fetch = require('node-fetch');
+    const util = require('util');
+    const execPromise = util.promisify(require('child_process').exec);
+
+    const cleanUrl = url.trim();
+    const tempFile = path.join(os.tmpdir(), `tw_${Date.now()}_${Math.random().toString(36).substring(2, 6)}.mp4`);
+    const bin = getYtDlpBin();
+
+    // Engine 1: Native yt-dlp (Primary & Most reliable for Twitter/X)
+    try {
+        console.log(`[Twitter/X] Trying native yt-dlp (${bin}) for: ${cleanUrl}`);
+        const cmd = `"${bin}" --no-playlist --no-check-certificates --socket-timeout 30 -f "b/bv*+ba/best" -o "${tempFile}" "${cleanUrl}"`;
+        await execPromise(cmd, { timeout: 120000 });
+        if (fs.existsSync(tempFile) && fs.statSync(tempFile).size > 1000) {
+            return {
+                filePath: tempFile,
+                title: 'Twitter/X Video'
+            };
+        }
+    } catch (err) {
+        console.warn(`[Twitter/X] Engine 1 (yt-dlp) failed: ${err.message}`);
+        try { if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile); } catch (_) {}
+    }
+
+    // Engine 2: VxTwitter API
+    try {
+        console.log(`[Twitter/X] Trying VxTwitter API...`);
+        const tweetId = cleanUrl.match(/status\/(\d+)/)?.[1];
+        if (tweetId) {
+            const vxRes = await fetch(`https://api.vxtwitter.com/Twitter/status/${tweetId}`);
+            const vxData = await vxRes.json();
+            if (vxData && vxData.media_extended && vxData.media_extended.length > 0) {
+                const media = vxData.media_extended.find(m => m.type === 'video' || m.type === 'gif');
+                if (media && media.url) {
+                    return {
+                        videoUrl: media.url,
+                        title: vxData.text || 'Twitter/X Video'
+                    };
+                }
+            }
+        }
+    } catch (err) {
+        console.warn(`[Twitter/X] Engine 2 (VxTwitter) failed: ${err.message}`);
+    }
+
+    // Engine 3: Cobalt API fallback
+    try {
+        console.log(`[Twitter/X] Trying Cobalt API fallback...`);
+        const cobRes = await fetch('https://co.wuk.sh/api/json', {
+            method: 'POST',
+            headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ url: cleanUrl })
+        });
+        const cobData = await cobRes.json();
+        if (cobData && cobData.url) {
+            return {
+                videoUrl: cobData.url,
+                title: 'Twitter/X Video'
+            };
+        }
+    } catch (err) {
+        console.warn(`[Twitter/X] Engine 3 (Cobalt) failed: ${err.message}`);
+    }
+
+    throw new Error('Could not extract video from this Twitter/X URL.');
+}
+
+// .twitter / .x / .xdl — Twitter/X video download
 DANIE_COMMANDS['twitter'] = async (conn, mek, from, senderJid, args, reply) => {
+    let tempPath = null;
     try {
         if (!args || (!args.includes('twitter.com') && !args.includes('x.com'))) {
-            return reply("🐦 *Twitter/X Downloader*\nPlease provide a Twitter/X URL.");
+            return reply("🐦 *Twitter/X Downloader*\nPlease provide a Twitter/X post URL.\nExample: `.x https://x.com/username/status/...`");
         }
-        const fetch = require('node-fetch');
-        const res = await fetch('https://www.tikwm.com/api/', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({ url: args.trim(), hd: 1 })
-        });
-        const data = await res.json();
-        if (data && data.data && data.data.play) {
-            await conn.sendMessage(from, { video: { url: data.data.play }, mimetype: "video/mp4", caption: `🎬 *Twitter/X Video*`, fileName: "twitter_video.mp4" }, { quoted: mek });
+        const result = await downloadTwitterMedia(args.trim());
+        const caption = `🎬 *Title:* ${result.title || 'Twitter/X Video'}`;
+
+        if (result.videoUrl) {
+            await conn.sendMessage(from, { video: { url: result.videoUrl }, mimetype: "video/mp4", caption, fileName: "twitter_video.mp4" }, { quoted: mek });
+        } else if (result.filePath && fs.existsSync(result.filePath)) {
+            tempPath = result.filePath;
+            await conn.sendMessage(from, { video: { url: result.filePath }, mimetype: "video/mp4", caption, fileName: "twitter_video.mp4" }, { quoted: mek });
         } else {
-            throw new Error("Could not extract video from this link.");
+            throw new Error("Could not extract video from this Twitter/X URL.");
         }
     } catch (err) {
         console.error('[Twitter Download Error]:', err.message);
-        reply(`❌ Failed to download Twitter video: ${err.message}`);
+        reply(`❌ Failed to download Twitter/X video: ${err.message}`);
+    } finally {
+        if (tempPath && fs.existsSync(tempPath)) {
+            try { fs.unlinkSync(tempPath); } catch (_) {}
+        }
     }
 };
 
-// .insta / .instagram alias
+// .insta / .instagram / .igdl alias
 DANIE_COMMANDS['insta'] = DANIE_COMMANDS['ig'];
 DANIE_COMMANDS['instagram'] = DANIE_COMMANDS['ig'];
+DANIE_COMMANDS['igdl'] = DANIE_COMMANDS['ig'];
+
+// .x / .xdl alias
+DANIE_COMMANDS['x'] = DANIE_COMMANDS['twitter'];
+DANIE_COMMANDS['xdl'] = DANIE_COMMANDS['twitter'];
 
 // .tk alias
 DANIE_COMMANDS['tk'] = DANIE_COMMANDS['tiktok'];
