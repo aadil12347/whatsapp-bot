@@ -136,17 +136,9 @@ async function connectToWA() {
     });
 
     // ══════════════════════════════════════════════════════════════════
-    //  CREDENTIAL PERSISTENCE — Save locally + sync to Supabase
+    //  CREDENTIAL PERSISTENCE — Save locally on update
     // ══════════════════════════════════════════════════════════════════
-    conn.ev.on('creds.update', async () => {
-        await saveCreds();
-        // Push updated credentials to Supabase once disk write completes
-        try {
-            if (fs.existsSync(credsPath) && fs.statSync(credsPath).size > 0) {
-                await uploadSessionToSupabase(SESSION_DIR);
-            }
-        } catch (_) {}
-    });
+    conn.ev.on('creds.update', saveCreds);
 
     // ══════════════════════════════════════════════════════════════════
     //  CONNECTION LIFECYCLE — 100% ANJU-XPRO-V5 STATUS CODE HANDLING
