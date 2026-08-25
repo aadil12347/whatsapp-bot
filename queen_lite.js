@@ -1,7 +1,12 @@
 // ═══════════════════════════════════════════════════════════════════════
-//  queen_lite.js — DanieWatch Bot Lightweight Core
-//  Replaces the 140KB obfuscated queen.js with clean, readable code.
-//  Only does what's actually needed: Baileys connection + your commands.
+//  queen_lite.js — DanieWatch Bot Core Engine
+//  100% ANJU-XPRO-V5 Connection Architecture + DanieWatch Command Handover
+//
+//  Flow:
+//    1. Fetch session keys from Supabase → ./session/
+//    2. Initialize Baileys socket (ANJU-XPRO-V5 config)
+//    3. On connection open → hand over conn to DanieWatch commands
+//    4. On disconnect → auto-reconnect using ANJU-XPRO-V5 status code logic
 // ═══════════════════════════════════════════════════════════════════════
 
 require('./_suppress_session_logs');
@@ -24,7 +29,6 @@ process.on('unhandledRejection', (reason) => {
 const fs = require('fs');
 const path = require('path');
 const pino = require('pino');
-const express = require('express');
 const NodeCache = require('node-cache');
 
 const {
@@ -35,54 +39,23 @@ const {
     jidNormalizedUser,
     Browsers,
     proto,
-    getContentType
+    getContentType,
+    DisconnectReason
 } = require('anju-xpro-baileys');
 
 // Load config
 const envPath = path.join(__dirname, 'config.env');
 if (fs.existsSync(envPath)) require('dotenv').config({ path: envPath });
 
-const { registerWebPairingRoutes } = require('./src/Utils/webPairing');
+const { uploadSessionToSupabase, downloadSessionFromSupabase } = require('./src/Utils/supabaseSession');
 
 const sess = require('./session');
-const port = process.env.PORT || sess.PORT || 3000;
 const SESSION_DIR = path.join(__dirname, 'session');
 
-// ── Express Health & Pairing Web Server ──
-const app = express();
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-app.get('/', (req, res) => res.send(`
-    <div style="font-family: sans-serif; padding: 40px; background: #0b0f19; color: #fff; min-height: 100vh;">
-        <h2>© DanieWatch Downloader Bot 💚 Server Active</h2>
-        <p style="color: #9ca3af; margin-top: 10px;">To request a fresh pairing code & save clean keys to Supabase, visit:</p>
-        <a href="/pair" style="display: inline-block; margin-top: 15px; background: #00f2fe; color: #000; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold;">🔑 Open Web Pairing Dashboard (/pair)</a>
-    </div>
-`));
-
-registerWebPairingRoutes(app, () => conn, (freshSock) => {
-    conn = freshSock;
-    try {
-        const danie = require('./src/commands/danie_download');
-        if (danie.initUpsertListener) {
-            danie.initUpsertListener(conn);
-            console.log('[DanieWatch] ✅ Re-linked listener initialized on fresh web pairing!');
-        }
-    } catch (err) {
-        console.error('[DanieWatch] Listener error on web pairing:', err.message);
-    }
-});
-
-app.listen(port, () => {
-    console.log(`© DanieWatch Downloader Bot 💚 Server listening on port http://localhost:${port}`);
-    console.log(`🔑 Web Pairing Dashboard active at: http://localhost:${port}/pair`);
-});
-
-// ── Logger (silent) ──
+// ── Logger (silent — ANJU-XPRO-V5 style) ──
 const logger = pino({ level: 'silent' });
 
-// ── Message retry cache ──
+// ── Message retry cache (ANJU-XPRO-V5 style) ──
 const msgRetryCounterCache = new NodeCache({ stdTTL: 600, checkperiod: 120 });
 
 // ── Proto message cache for retry decryption ──
@@ -99,13 +72,39 @@ let _connectTimeSeconds = 0; // Epoch timestamp (in seconds) when connection ope
 // ── Auto-restart timer ──
 const AUTO_RESTART_MINUTES = parseInt(process.env.MAX_RUN_TIME_MINUTES || '0', 10);
 
-// ── Main Connection Function ──
+// ══════════════════════════════════════════════════════════════════════
+//  MAIN CONNECTION FUNCTION — 100% ANJU-XPRO-V5 CONNECTION ENGINE
+// ══════════════════════════════════════════════════════════════════════
 async function connectToWA() {
     if (!fs.existsSync(SESSION_DIR)) fs.mkdirSync(SESSION_DIR, { recursive: true });
 
+    // ── Step 1: Check/Fetch session keys from Supabase if missing ──
+    const credsPath = path.join(SESSION_DIR, 'creds.json');
+    if (!fs.existsSync(credsPath)) {
+        try {
+            console.log('☁️ Fetching session keys from Supabase...');
+            const downloaded = await downloadSessionFromSupabase(SESSION_DIR);
+            if (downloaded) {
+                console.log('✅ Session keys loaded from Supabase successfully.');
+            }
+        } catch (e) {
+            console.warn('⚠️ Supabase session fetch failed (non-fatal):', e.message || e);
+        }
+    }
+
+    // Check if creds.json exists — if not, prompt for CLI pairing
+    if (!fs.existsSync(credsPath)) {
+        console.error('❌ No creds.json found in session/ directory or Supabase.');
+        console.error('   Run "npm run pair" or "node pair.js" to generate a fresh pairing code first.');
+        console.error('   The bot cannot connect without valid session credentials.');
+        process.exit(1);
+    }
+
+    // ── Step 2: Initialize Baileys auth state (ANJU-XPRO-V5 style) ──
     const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR);
     const { version } = await fetchLatestBaileysVersion();
 
+    // ── Step 3: Create Baileys WebSocket (100% ANJU-XPRO-V5 parameters) ──
     conn = makeWASocket({
         version,
         logger,
@@ -136,26 +135,39 @@ async function connectToWA() {
         }
     });
 
-    // ── Save credentials on update ──
-    conn.ev.on('creds.update', saveCreds);
+    // ══════════════════════════════════════════════════════════════════
+    //  CREDENTIAL PERSISTENCE — Save locally + sync to Supabase
+    // ══════════════════════════════════════════════════════════════════
+    conn.ev.on('creds.update', async () => {
+        await saveCreds();
+        // Push updated credentials to Supabase once disk write completes
+        try {
+            if (fs.existsSync(credsPath) && fs.statSync(credsPath).size > 0) {
+                await uploadSessionToSupabase(SESSION_DIR);
+            }
+        } catch (_) {}
+    });
 
-    // ── Connection lifecycle ──
+    // ══════════════════════════════════════════════════════════════════
+    //  CONNECTION LIFECYCLE — 100% ANJU-XPRO-V5 STATUS CODE HANDLING
+    // ══════════════════════════════════════════════════════════════════
     conn.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect } = update;
 
+        // ── CONNECTION OPEN: Handover to DanieWatch ──
         if (connection === 'open') {
             _connectTime = Date.now();
             _connectTimeSeconds = Math.floor(_connectTime / 1000);
             conn._startupTime = _connectTime;
             conn._connectTimeSeconds = _connectTimeSeconds;
-            console.log('🔥 DanieWatch Bot connected ✅');
+            console.log('🔥 DanieWatch Bot connected via ANJU-XPRO-V5 engine ✅');
 
             // Log bot identity for debugging owner/LID matching
             if (conn.user) {
                 console.log(`[DanieWatch] 🆔 Bot identity: id=${conn.user.id || 'N/A'}, lid=${conn.user.lid || 'N/A'}, name=${conn.user.name || 'N/A'}`);
             }
 
-            // Initialize DanieWatch command listener IMMEDIATELY
+            // ── HANDOVER: Initialize DanieWatch command listener IMMEDIATELY ──
             try {
                 const danie = require('./src/commands/danie_download');
                 if (danie.initUpsertListener) {
@@ -165,6 +177,12 @@ async function connectToWA() {
             } catch (err) {
                 console.error('[DanieWatch] Failed to init listener:', err.message);
             }
+
+            // Upload fresh session to Supabase after successful connection
+            try {
+                await uploadSessionToSupabase(SESSION_DIR);
+                console.log('☁️ Session synced to Supabase after connection open.');
+            } catch (_) {}
 
             // Send startup message (once)
             if (!startupMessageSent) {
@@ -215,14 +233,16 @@ async function connectToWA() {
             }
         }
 
+        // ── CONNECTION CLOSE: ANJU-XPRO-V5 status code evaluation ──
         if (connection === 'close') {
             const statusCode = lastDisconnect?.error?.output?.statusCode;
             const reason = lastDisconnect?.error?.message || 'Unknown';
             console.log(`⚠️ Connection closed. Status: ${statusCode}, Reason: ${reason}`);
 
-            // 401 = logged out, don't reconnect
-            if (statusCode === 401) {
+            // 401 = logged out, don't reconnect — session is invalidated
+            if (statusCode === 401 || statusCode === DisconnectReason.loggedOut) {
                 console.log('❌ Session logged out. Delete session/ folder and re-pair.');
+                console.log('   Run "npm run pair" or "node pair.js" to generate fresh credentials.');
                 return;
             }
 
@@ -233,19 +253,21 @@ async function connectToWA() {
                 return;
             }
 
-            // 515 = restart required
+            // 515 = restart required by WhatsApp server
             if (statusCode === 515) {
                 console.log('🔄 Restart required by server. Reconnecting...');
             }
 
-            // Reconnect after delay
-            const delay = statusCode === 428 ? 10000 : 5000; // rate-limited = longer delay
+            // Reconnect after delay (428 = rate limited = longer delay)
+            const delay = statusCode === 428 ? 10000 : 5000;
             console.log(`🔄 Reconnecting in ${delay / 1000}s...`);
             setTimeout(connectToWA, delay);
         }
     });
 
-    // ── Auto-read status updates + react + cache message protos for retry ──
+    // ══════════════════════════════════════════════════════════════════
+    //  MESSAGE HANDLING — Auto-read status + react + cache protos
+    // ══════════════════════════════════════════════════════════════════
     conn.ev.on('messages.upsert', async (chatUpdate) => {
         try {
             if (chatUpdate.type !== 'notify') return;
@@ -306,11 +328,9 @@ async function connectToWA() {
     });
 }
 
-/**
- * Gracefully disconnect the WebSocket before exiting.
- * This prevents the WhatsApp server from thinking the old session is
- * still alive, which causes status 440 (conflict) when the next instance starts.
- */
+// ══════════════════════════════════════════════════════════════════════
+//  GRACEFUL SHUTDOWN — Clean WebSocket close to prevent 440 conflicts
+// ══════════════════════════════════════════════════════════════════════
 async function gracefulShutdown() {
     console.log('[Shutdown] 🔌 Disconnecting WhatsApp WebSocket...');
     try {
@@ -318,6 +338,12 @@ async function gracefulShutdown() {
             // conn.end() sends a clean WS close frame
             conn.end(new Error('Graceful shutdown'));
         }
+    } catch (_) {}
+
+    // Upload final session state to Supabase before exiting
+    try {
+        await uploadSessionToSupabase(SESSION_DIR);
+        console.log('[Shutdown] ☁️ Final session synced to Supabase.');
     } catch (_) {}
 
     // Give the WebSocket 3 seconds to fully close
@@ -333,7 +359,7 @@ process.on('SIGTERM', async () => {
 });
 
 // ── Start ──
-console.log('🔥> DanieWatch Bot is starting...');
+console.log('🔥> DanieWatch Bot is starting (ANJU-XPRO-V5 Connection Engine)...');
 connectToWA().catch(err => {
     console.error('❌ Fatal connection error:', err);
     process.exit(1);

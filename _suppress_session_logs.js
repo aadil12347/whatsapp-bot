@@ -84,29 +84,10 @@ function _shouldSuppress(chunk) {
   const str = typeof chunk === 'string' ? chunk : (Buffer.isBuffer(chunk) ? chunk.toString('utf8', 0, Math.min(chunk.length, 1000)) : '');
   if (!str) return false;
 
-  // Append to recent buffer for multi-line stack trace inspection
-  _recentOutputBuffer += str;
-  if (_recentOutputBuffer.length > 4000) {
-    _recentOutputBuffer = _recentOutputBuffer.slice(-2000);
-  }
-
-  if (str.includes('Bad MAC')) {
-    _handleBadMacRepair(_recentOutputBuffer);
-  }
-
   // Check if this starts a new session dump block
   for (const p of _blockStartPatterns) {
     if (str.includes(p)) {
       _suppressingBlock = true;
-      _suppressedCount++;
-      
-      // Periodic summary report instead of flooding
-      const now = Date.now();
-      if (_suppressedCount >= 10 && (now - _lastReportTime) > 30000) {
-        _origStdoutWrite('[DanieWatch] 🔇 Suppressed ' + _suppressedCount + ' Signal session / Bad MAC / decrypt-failure log entries (normal during session re-negotiation)\n');
-        _suppressedCount = 0;
-        _lastReportTime = now;
-      }
       return true;
     }
   }
@@ -127,13 +108,6 @@ function _shouldSuppress(chunk) {
     if (/^[\s{}\[\],]*$/.test(trimmed)) return true;
 
     _suppressingBlock = false;
-
-    const now = Date.now();
-    if (_suppressedCount > 0 && (now - _lastReportTime) > 30000) {
-      _origStdoutWrite('[DanieWatch] 🔇 Suppressed ' + _suppressedCount + ' Signal session / Bad MAC log entries\n');
-      _suppressedCount = 0;
-      _lastReportTime = now;
-    }
   }
 
   return false;

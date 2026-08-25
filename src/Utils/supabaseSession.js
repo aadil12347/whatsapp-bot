@@ -43,16 +43,17 @@ function isEssentialSessionFile(file) {
 
 /**
  * Files safe to sync to/from Supabase.
- * EXCLUDES session-*, sender-key-*, identity-key-* (Signal ratchet state)
- * because these go stale when the bot is offline and cause Bad MAC / undecryptable
- * messages when restored. Baileys re-negotiates fresh sessions on demand.
- * This mirrors silva-md-bot's approach of only persisting creds remotely.
+ * Preserves creds, settings, pre-keys, and active Signal E2EE ratchet sessions
+ * (session-*, sender-key-*, identity-key-*) exactly like ANJU-XPRO-V5.
  */
 function isSyncableSessionFile(file) {
     if (!file || typeof file !== 'string' || !file.endsWith('.json')) return false;
     return file === 'creds.json' ||
            file === 'active_chats.json' ||
            file === 'download_settings.json' ||
+           file.startsWith('session-') ||
+           file.startsWith('sender-key-') ||
+           file.startsWith('identity-key-') ||
            file.startsWith('pre-key-') ||
            file.startsWith('lid-mapping-') ||
            file.startsWith('device-list-') ||
