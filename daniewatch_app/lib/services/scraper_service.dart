@@ -4,6 +4,7 @@ import 'package:html/dom.dart';
 import '../models/movie_item.dart';
 import '../models/download_link.dart';
 import '../models/site_config.dart';
+import 'resolver_service.dart';
 
 /// Core scraping service — fetches HTML and parses movie cards and download links.
 class ScraperService {
@@ -255,7 +256,10 @@ class ScraperService {
 
     final allAnchors = contentEl.querySelectorAll('a[href]');
     for (final el in allAnchors) {
-      final href = el.attributes['href'] ?? '';
+      var href = el.attributes['href'] ?? '';
+      if (href.contains('pixeldrain') || href.contains('sriflix')) {
+        href = ResolverService.applyPixeldrainWorkerProxy(href);
+      }
       final lowerHref = href.toLowerCase();
 
       // STRICT FILTER: MUST be a download landing host URL
@@ -346,33 +350,22 @@ class ScraperService {
     return _prioritizeVCloudLinks(links);
   }
 
-  /// Preferred hosting domains (vcloud ecosystem) — these are prioritized
+  /// Preferred hosting domains (vcloud ecosystem & pixeldrain) — these are prioritized
   static bool _isPreferredDomain(String lowerUrl) {
-    const preferred = ['vcloud', 'hubcloud', 'hubdrive', 'hubcdn'];
+    const preferred = ['vcloud', 'hubcloud', 'hubdrive', 'hubcdn', 'pixeldrain', 'sriflix'];
     return preferred.any((d) => lowerUrl.contains(d));
   }
 
-  /// Fallback hosting domains (fastdl, gdflix, etc.) — only used when no preferred link exists
-  static bool _isFallbackDomain(String lowerUrl) {
-    const fallback = [
-      'fastdl', 'gdflix', 'nexdrive', 'vgmlink', 'filebee',
-      'katdrive', 'kmhd', 'gadgetsweb', 'filepress', 'gofile',
-      'pixeldrain', 'mega.nz', 'yodrive'
-    ];
-    return fallback.any((d) => lowerUrl.contains(d));
-  }
-
-  /// Only show vcloud links. If ANY vcloud link exists, drop all non-vcloud links.
-  /// Fallback to fastdl/others ONLY when zero vcloud links exist across entire result set.
+  /// Keep preferred vcloud & pixeldrain links.
   static List<DownloadLink> _prioritizeVCloudLinks(List<DownloadLink> links) {
     if (links.isEmpty) return links;
 
-    final vcloudLinks = links.where((l) => _isPreferredDomain(l.href.toLowerCase())).toList();
+    final preferredLinks = links.where((l) => _isPreferredDomain(l.href.toLowerCase())).toList();
 
-    // If ANY vcloud links exist, return ONLY those
-    if (vcloudLinks.isNotEmpty) return vcloudLinks;
+    // If ANY preferred links exist, return those
+    if (preferredLinks.isNotEmpty) return preferredLinks;
 
-    // No vcloud links at all — fallback to whatever is available
+    // Fallback to whatever is available
     return links;
   }
 

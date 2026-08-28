@@ -52,10 +52,10 @@ const PIXELDRAIN_WORKERS = [
 
 function applyPixeldrainWorkerProxy(url) {
     if (!url || typeof url !== 'string') return url;
-    const pdMatch = url.match(/(?:pixeldrain\.com|pd\d\.sriflix\.online)\/(?:u|api\/file)\/([a-zA-Z0-9_-]+)/i);
-    if (pdMatch && pdMatch[1]) {
+    const match = url.match(/(?:pixeldrain\.(?:com|dev|org|net)|pd\d\.sriflix\.online)\/(?:u|api\/file|file|d)\/([a-zA-Z0-9_-]+)/i);
+    if (match && match[1]) {
         const randomWorker = PIXELDRAIN_WORKERS[Math.floor(Math.random() * PIXELDRAIN_WORKERS.length)];
-        return `https://${randomWorker}/api/file/${pdMatch[1]}?download`;
+        return `https://${randomWorker}/api/file/${match[1]}?download`;
     }
     return url;
 }
@@ -640,19 +640,26 @@ async function resolveLandingLink(url, parentUrl = null) {
 
         // Keywords for final hosts (exclude landing domains like nexdrive/vgmlink/gdflix if we are already on them)
         const currentDomain = new URL(currentUrl).hostname.toLowerCase();
-        const keywords = ['vcloud', 'gdflix', 'katdrive', 'kmhd', 'vgmlink', 'fastdl', 'filebee', 'nexdrive']
+        const keywords = ['vcloud', 'hubcloud', 'hubdrive', 'hubcdn', 'gdflix', 'katdrive', 'kmhd', 'vgmlink', 'fastdl', 'filebee', 'nexdrive']
             .filter(kw => !currentDomain.includes(kw));
         
-        let resolvedUrl = null;
+        let preferredUrl = null;
+        let fallbackUrl = null;
         $('a[href]').each((_, el) => {
             const href = $(el).attr('href');
             if (href && keywords.some(kw => href.toLowerCase().includes(kw))) {
                 if (!href.includes('/category/') && !href.includes('/tag/') && !href.includes('?s=')) {
-                    resolvedUrl = href;
-                    return false;
+                    const lower = href.toLowerCase();
+                    if (lower.includes('vcloud') || lower.includes('hubcloud') || lower.includes('hubdrive') || lower.includes('hubcdn')) {
+                        if (!preferredUrl) preferredUrl = href;
+                    } else {
+                        if (!fallbackUrl) fallbackUrl = href;
+                    }
                 }
             }
         });
+
+        const resolvedUrl = preferredUrl || fallbackUrl;
 
         if (resolvedUrl) {
             console.log('[MovieScraper] Found intermediate link on landing page:', resolvedUrl);
@@ -787,6 +794,14 @@ async function resolveVcloudLink(url, preferredServer = null, parentUrl = null) 
             const dlHtml = await fetchHtmlWithRetry(decodedLink, url);
             const dl$ = cheerio.load(dlHtml);
 
+            // Check for JS script override of Pixeldrain (e.g. var pxl = "https://pixeldrain.dev/u/...")
+            const pxlScriptMatch = dlHtml.match(/var\s+pxl\s*=\s*['"]([^'"]+)['"]/i);
+            let pxlOverrideUrl = null;
+            if (pxlScriptMatch && pxlScriptMatch[1]) {
+                pxlOverrideUrl = applyPixeldrainWorkerProxy(pxlScriptMatch[1]);
+                console.log('[MovieScraper] Found Pixeldrain JS override URL:', pxlOverrideUrl);
+            }
+
             const finalLinks = [];
             dl$('h2 a.btn, div.card-body a.btn, a.btn, a[href]').each((_, el) => {
                 const href = dl$(el).attr('href');
@@ -808,10 +823,14 @@ async function resolveVcloudLink(url, preferredServer = null, parentUrl = null) 
                 return txt.includes('fslv2') || txt.includes('fsl v2') || txt.includes('fsl-v2');
             });
 
-            const pixeldrainCandidate = finalLinks.find(l => {
+            let pixeldrainCandidate = finalLinks.find(l => {
                 const txt = `${l.text} ${l.href}`.toLowerCase();
                 return txt.includes('pixeldrain') || txt.includes('pixelserver') || txt.includes('sriflix');
             });
+
+            if (pxlOverrideUrl) {
+                pixeldrainCandidate = { text: 'PixelServer (Cloudflare Proxy)', href: pxlOverrideUrl };
+            }
 
             const g10gbpsCandidate = finalLinks.find(l => {
                 const txt = `${l.text} ${l.href}`.toLowerCase();
@@ -1401,6 +1420,13 @@ async function extractSubOptions(url, parentUrl = null) {
             const dlHtml = await fetchHtmlWithRetry(decodedLink, url);
             const dl$ = cheerio.load(dlHtml);
 
+            // Check for JS script override of Pixeldrain (e.g. var pxl = "https://pixeldrain.dev/u/...")
+            const pxlScriptMatch = dlHtml.match(/var\s+pxl\s*=\s*['"]([^'"]+)['"]/i);
+            let pxlOverrideUrl = null;
+            if (pxlScriptMatch && pxlScriptMatch[1]) {
+                pxlOverrideUrl = applyPixeldrainWorkerProxy(pxlScriptMatch[1]);
+            }
+
             const finalLinks = [];
             dl$('h2 a.btn, div.card-body a.btn, a.btn, a[href]').each((_, el) => {
                 let href = dl$(el).attr('href');
@@ -1416,10 +1442,6 @@ async function extractSubOptions(url, parentUrl = null) {
                     lowerHref.includes('/tg/') ||
                     lowerHref.includes('telegram') ||
                     lowerHref.includes('t.me') ||
-                    lowerHref.includes('pixeldrain') ||
-                    lowerHref.includes('pixelserver') ||
-                    lowerText.includes('pixeldrain') ||
-                    lowerText.includes('pixelserver') ||
                     lowerText.includes('login') ||
                     lowerText.includes('admin') ||
                     lowerText.includes('idm') ||
@@ -1442,6 +1464,10 @@ async function extractSubOptions(url, parentUrl = null) {
                     }
                 }
             });
+
+            if (pxlOverrideUrl) {
+                finalLinks.push({ text: 'PixelServer (Cloudflare Proxy)', href: pxlOverrideUrl });
+            }
 
             if (finalLinks.length > 0) {
                 const matchFsl = finalLinks.filter(l => {

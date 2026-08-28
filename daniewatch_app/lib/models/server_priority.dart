@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 enum DownloadServer {
   fsl,
   fslv2,
+  pixeldrain,
   tenGbps,
 }
 
@@ -17,6 +18,8 @@ extension DownloadServerExtension on DownloadServer {
         return 'FSL';
       case DownloadServer.fslv2:
         return 'FSLv2';
+      case DownloadServer.pixeldrain:
+        return 'Pixeldrain';
       case DownloadServer.tenGbps:
         return '10Gbps (G-Direct)';
     }
@@ -29,6 +32,8 @@ extension DownloadServerExtension on DownloadServer {
         return 'Standard fast server link';
       case DownloadServer.fslv2:
         return 'Fast server link v2';
+      case DownloadServer.pixeldrain:
+        return 'Pixeldrain link (Cloudflare Worker Proxy)';
       case DownloadServer.tenGbps:
         return 'High-speed 10Gbps direct link';
     }
@@ -42,6 +47,8 @@ extension DownloadServerExtension on DownloadServer {
         return (text.contains('fsl') && !text.contains('fslv2'));
       case DownloadServer.fslv2:
         return text.contains('fslv2');
+      case DownloadServer.pixeldrain:
+        return text.contains('pixeldrain') || text.contains('pixelserver') || text.contains('sriflix');
       case DownloadServer.tenGbps:
         return text.contains('10gbps') ||
             text.contains('10 gbps') ||
@@ -57,10 +64,11 @@ extension DownloadServerExtension on DownloadServer {
 class ServerPriorityManager {
   static const String _prefsKey = 'server_priority_order';
 
-  /// Default order: FSL → FSLv2 → 10Gbps
+  /// Default order: FSL → FSLv2 → Pixeldrain → 10Gbps
   static const List<DownloadServer> defaultOrder = [
     DownloadServer.fsl,
     DownloadServer.fslv2,
+    DownloadServer.pixeldrain,
     DownloadServer.tenGbps,
   ];
 

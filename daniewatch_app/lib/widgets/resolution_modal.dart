@@ -177,14 +177,14 @@ class _ResolutionModalState extends State<ResolutionModal> {
       if (!mounted) return;
       setState(() {
         _resolving = false;
-        _resolvedUrls = result.directUrls;
+        _resolvedUrls = result.directUrls.map((url) => ResolverService.applyPixeldrainWorkerProxy(url)).toList();
         _resolvedServerName = result.serverName;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _resolving = false;
-        _resolvedUrls = chosenEpisodes.map((e) => e.url).toList();
+        _resolvedUrls = chosenEpisodes.map((e) => ResolverService.applyPixeldrainWorkerProxy(e.url)).toList();
         _resolvedServerName = 'Direct Link';
       });
     }
@@ -193,7 +193,8 @@ class _ResolutionModalState extends State<ResolutionModal> {
   /// Generate the WhatsApp .d command message: .d link1, link2, ...
   String _generateWhatsAppMessage() {
     if (_resolvedUrls.isNotEmpty) {
-      return '.d ${_resolvedUrls.join(', ')}';
+      final converted = _resolvedUrls.map((url) => ResolverService.applyPixeldrainWorkerProxy(url)).toList();
+      return '.d ${converted.join(', ')}';
     }
     return '';
   }
@@ -201,14 +202,15 @@ class _ResolutionModalState extends State<ResolutionModal> {
   /// Format command for display in preview box (wrapped, readable)
   String _generateDisplayMessage() {
     if (_resolvedUrls.isNotEmpty) {
-      if (_resolvedUrls.length == 1) {
-        return '.d ${_resolvedUrls.first}';
+      final converted = _resolvedUrls.map((url) => ResolverService.applyPixeldrainWorkerProxy(url)).toList();
+      if (converted.length == 1) {
+        return '.d ${converted.first}';
       }
       // Multi-episode: show each link on a new line for readability
       final buffer = StringBuffer('.d ');
-      for (int i = 0; i < _resolvedUrls.length; i++) {
-        buffer.write(_resolvedUrls[i]);
-        if (i < _resolvedUrls.length - 1) {
+      for (int i = 0; i < converted.length; i++) {
+        buffer.write(converted[i]);
+        if (i < converted.length - 1) {
           buffer.write(',\n');
         }
       }

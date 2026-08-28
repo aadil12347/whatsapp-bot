@@ -40,13 +40,41 @@ class MultiResolveResult {
   /// Format as WhatsApp .d command
   String toWhatsAppCommand() {
     if (directUrls.isEmpty) return '';
-    return '.d ${directUrls.join(', ')}';
+    final convertedUrls = directUrls.map((url) {
+      if (url.contains('pixeldrain') || url.contains('sriflix')) {
+        return ResolverService.applyPixeldrainWorkerProxy(url);
+      }
+      return url;
+    }).toList();
+    return '.d ${convertedUrls.join(', ')}';
   }
 }
 
 /// Resolver service — resolves VCloud/HubCloud/Fastdl landing pages
 /// to direct download URLs (supporting both movies and multi-episode series).
 class ResolverService {
+  static const List<String> _pixeldrainWorkers = [
+    'pd1.sriflix.online',
+    'pd2.sriflix.online',
+    'pd3.sriflix.online',
+    'pd4.sriflix.online',
+    'pd5.sriflix.online',
+  ];
+
+  static String applyPixeldrainWorkerProxy(String url) {
+    if (url.isEmpty) return url;
+    final match = RegExp(
+      r'(?:pixeldrain\.(?:com|dev|org|net)|pd\d\.sriflix\.online)\/(?:u|api\/file|file|d)\/([a-zA-Z0-9_-]+)',
+      caseSensitive: false,
+    ).firstMatch(url);
+    if (match != null && match.group(1) != null) {
+      final list = List<String>.from(_pixeldrainWorkers)..shuffle();
+      final worker = list.first;
+      return 'https://$worker/api/file/${match.group(1)}?download';
+    }
+    return url;
+  }
+
   static final Dio _dio = Dio(
     BaseOptions(
       connectTimeout: const Duration(seconds: 20),
@@ -149,12 +177,12 @@ class ResolverService {
       if (resolved != null && resolved.isNotEmpty) {
         return MultiResolveResult(
           serverName: '${episodes.first.label} (VCloud)',
-          directUrls: [resolved],
+          directUrls: [applyPixeldrainWorkerProxy(resolved)],
         );
       } else {
         return MultiResolveResult(
           serverName: '${episodes.first.label} (Direct)',
-          directUrls: [episodes.first.url],
+          directUrls: [applyPixeldrainWorkerProxy(episodes.first.url)],
         );
       }
     }
@@ -184,6 +212,7 @@ class ResolverService {
         .map((r) => r.value)
         .whereType<String>()
         .where((url) => url.isNotEmpty && !url.contains('.fans'))
+        .map((url) => applyPixeldrainWorkerProxy(url))
         .toList();
 
     return MultiResolveResult(
@@ -390,7 +419,7 @@ class ResolverService {
             (url.contains('vcloud.zip/') && !url.contains('/drive/'));
 
         if (!isRawLanding && url.startsWith('http') && !url.contains('.fans')) {
-          return url;
+          return applyPixeldrainWorkerProxy(url);
         }
 
         print('[Resolver] Attempt $attempt for $epUrl returned landing page ($url). Retrying in ${400 * attempt}ms...');
@@ -406,7 +435,7 @@ class ResolverService {
       final finalUrl = await _resolveFinalUrl(epUrl, referer: referer).timeout(const Duration(seconds: 10));
       final isRawLanding = finalUrl == epUrl || (finalUrl.contains('vcloud.zip/') && !finalUrl.contains('/drive/'));
       if (!isRawLanding && finalUrl.startsWith('http') && !finalUrl.contains('.fans')) {
-        return finalUrl;
+        return applyPixeldrainWorkerProxy(finalUrl);
       }
     } catch (_) {}
 
@@ -417,12 +446,11 @@ class ResolverService {
   static Future<List<ResolvedLink>> extractAllServers(String url, {String? referer}) async {
     try {
       // Pixeldrain direct
-      if (url.contains('pixeldrain') && url.contains('/u/')) {
-        final id = url.split('/u/')[1].split('?')[0];
+      if ((url.contains('pixeldrain') || url.contains('sriflix')) && (url.contains('/u/') || url.contains('/api/file/'))) {
         return [
           ResolvedLink(
             serverName: 'Pixeldrain',
-            directUrl: 'https://pixeldrain.com/api/file/$id?download',
+            directUrl: applyPixeldrainWorkerProxy(url),
           )
         ];
       }
@@ -505,9 +533,8 @@ class ResolverService {
               href =
                   '${p.scheme}://${p.host}${href.startsWith('/') ? '' : '/'}$href';
             }
-            if (href.contains('pixeldrain') && href.contains('/u/')) {
-              final id = href.split('/u/')[1].split('?')[0];
-              href = 'https://pixeldrain.com/api/file/$id?download';
+            if (href.contains('pixeldrain') || href.contains('sriflix')) {
+              href = applyPixeldrainWorkerProxy(href);
             }
             if (!servers.any((s) => s.directUrl == href)) {
               servers.add(ResolvedLink(
@@ -516,6 +543,18 @@ class ResolverService {
             }
           }
         }
+
+        final pxlScriptMatch = RegExp(r'''var\s+pxl\s*=\s*['"]([^'"]+)['"]''', caseSensitive: false).firstMatch(dlHtml);
+        if (pxlScriptMatch != null && pxlScriptMatch.group(1) != null) {
+          final realPxlUrl = applyPixeldrainWorkerProxy(pxlScriptMatch.group(1)!);
+          if (!servers.any((s) => s.directUrl == realPxlUrl)) {
+            servers.add(ResolvedLink(
+              serverName: 'Pixeldrain (Cloudflare Proxy)',
+              directUrl: realPxlUrl,
+            ));
+          }
+        }
+
         if (servers.isNotEmpty) return servers;
       }
 
@@ -588,6 +627,11 @@ class ResolverService {
   /// Resolve a download link using priority selection and comprehensive redirect unwrapping:
   /// 10Gbps → FSLv2 → FSL → GDrive → Pixeldrain → any
   static Future<ResolvedLink> resolveWithFallback(String landingUrl, {String? referer}) async {
+    if (landingUrl.contains('pixeldrain') || landingUrl.contains('sriflix')) {
+      final proxied = applyPixeldrainWorkerProxy(landingUrl);
+      return ResolvedLink(serverName: 'Pixeldrain', directUrl: proxied);
+    }
+
     final servers = await extractAllServers(landingUrl, referer: referer);
     if (servers.isEmpty) {
       final unwrapped = await _resolveFinalUrl(landingUrl);
@@ -599,8 +643,12 @@ class ResolverService {
     for (final server in sorted) {
       try {
         var url = server.directUrl;
-        // Unwrap HTTP redirects, HTML scripts & link=/r= parameters to obtain pure video download URL
-        url = await _resolveFinalUrl(url, referer: landingUrl);
+        if (url.contains('pixeldrain') || url.contains('sriflix')) {
+          url = applyPixeldrainWorkerProxy(url);
+        } else {
+          // Unwrap HTTP redirects, HTML scripts & link=/r= parameters to obtain pure video download URL
+          url = await _resolveFinalUrl(url, referer: landingUrl);
+        }
 
         if (!url.contains('.fans')) {
           return ResolvedLink(serverName: server.serverName, directUrl: url);
@@ -639,7 +687,8 @@ class ResolverService {
     try {
       // Instant return for known direct CDN URLs (Pixeldrain API, Google Drive CDN, Cloudflare R2, direct media files)
       final lower = currentUrl.toLowerCase();
-      if (lower.contains('pixeldrain.com/api/file/') ||
+      if (lower.contains('pixeldrain') ||
+          lower.contains('sriflix') ||
           lower.contains('googleusercontent.com') ||
           lower.contains('cloudflarestorage.com') ||
           lower.contains('r2.dev') ||
@@ -647,6 +696,9 @@ class ResolverService {
           lower.contains('.mkv') ||
           lower.contains('.avi') ||
           lower.contains('.zip')) {
+        if (lower.contains('pixeldrain') || lower.contains('sriflix')) {
+          return applyPixeldrainWorkerProxy(currentUrl);
+        }
         return currentUrl;
       }
 
