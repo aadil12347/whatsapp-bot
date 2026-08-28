@@ -1387,6 +1387,31 @@ function initUpsertListener(conn) {
                 sendableFrom = cleanSender;
             }
 
+            // Extract body text from all possible message structures
+            let groupMsgText = mek.message?.conversation ||
+                               mek.message?.extendedTextMessage?.text ||
+                               mek.message?.imageMessage?.caption ||
+                               mek.message?.videoMessage?.caption ||
+                               mek.message?.documentMessage?.caption ||
+                               mek.message?.buttonsResponseMessage?.selectedButtonId ||
+                               mek.message?.listResponseMessage?.singleSelectReply?.selectedRowId ||
+                               mek.message?.templateButtonReplyMessage?.selectedId || '';
+
+            if (!groupMsgText && mek.message?.interactiveResponseMessage) {
+                try {
+                    const resp = mek.message.interactiveResponseMessage;
+                    if (resp.nativeFlowResponseMessage?.paramsJson) {
+                        const params = JSON.parse(resp.nativeFlowResponseMessage.paramsJson);
+                        groupMsgText = params.id || params.rowId || params.selectedRowId || '';
+                    } else if (resp.body?.text) {
+                        groupMsgText = resp.body.text;
+                    }
+                } catch (_) {}
+            }
+
+            // Log EVERY raw message as soon as it is received
+            console.log(`[DanieWatch] 📱 Raw message received: from="${from}" sender="${senderJid}" cleanSender="${cleanSender}" targetJid="${targetJid}" fromMe=${!!mek.key.fromMe} text="${groupMsgText.substring(0, 100)}"`);
+
             // ══════════════════════════════════════════════════════════════════
             //  GROUP MODERATION ENGINE — Anti-Link & Anti-Spam (Runs BEFORE Owner Filter)
             // ══════════════════════════════════════════════════════════════════
@@ -1394,27 +1419,7 @@ function initUpsertListener(conn) {
                 const { isAntilinkActiveForGroup, containsForbiddenLink } = require('../Utils/antilink');
                 const { isAntispamActiveForGroup, recordMessageAndCheckSpam } = require('../Utils/antispam');
 
-                // Extract body text from all possible message structures
-                let groupMsgText = mek.message?.conversation ||
-                                   mek.message?.extendedTextMessage?.text ||
-                                   mek.message?.imageMessage?.caption ||
-                                   mek.message?.videoMessage?.caption ||
-                                   mek.message?.documentMessage?.caption ||
-                                   mek.message?.buttonsResponseMessage?.selectedButtonId ||
-                                   mek.message?.listResponseMessage?.singleSelectReply?.selectedRowId ||
-                                   mek.message?.templateButtonReplyMessage?.selectedId || '';
-
-                if (!groupMsgText && mek.message?.interactiveResponseMessage) {
-                    try {
-                        const resp = mek.message.interactiveResponseMessage;
-                        if (resp.nativeFlowResponseMessage?.paramsJson) {
-                            const params = JSON.parse(resp.nativeFlowResponseMessage.paramsJson);
-                            groupMsgText = params.id || params.rowId || params.selectedRowId || '';
-                        } else if (resp.body?.text) {
-                            groupMsgText = resp.body.text;
-                        }
-                    } catch (_) {}
-                }
+                console.log(`[GroupMsg] 📩 Processing group message in "${from}" from "${senderJid}". Text: "${groupMsgText.substring(0, 80)}"`);
 
                 // ── 1. Anti-Link Enforcement ──
                 if (isAntilinkActiveForGroup(from) && groupMsgText && containsForbiddenLink(groupMsgText)) {
