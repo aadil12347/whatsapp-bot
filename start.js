@@ -53,6 +53,27 @@ function patchLibsignal() {
         if (patched > 0) {
             console.log(`🔧 Auto-patched libsignal session logging (${patched} file(s)) — prevents session dump spam`);
         }
+        // Also patch session_builder.js to handle missing preKeys gracefully
+        const builderCandidates = [
+            path.join(__dirname, 'node_modules', '.pnpm', 'libsignal@6.0.0', 'node_modules', 'libsignal', 'src', 'session_builder.js'),
+        ];
+        try {
+            const libsignalMain = require.resolve('libsignal');
+            const libsignalDir = path.dirname(libsignalMain);
+            builderCandidates.push(path.join(libsignalDir, 'src', 'session_builder.js'));
+        } catch (_) {}
+        for (const filePath of builderCandidates) {
+            if (!fs.existsSync(filePath)) continue;
+            let content = fs.readFileSync(filePath, 'utf-8');
+            if (content.includes("throw new errors.PreKeyError('Invalid PreKey ID');")) {
+                content = content.replace(
+                    "const preKeyPair = await this.storage.loadPreKey(message.preKeyId);\n        if (message.preKeyId && !preKeyPair) {\n            throw new errors.PreKeyError('Invalid PreKey ID');\n        }",
+                    "let preKeyPair = await this.storage.loadPreKey(message.preKeyId);\n        if (message.preKeyId && !preKeyPair) {\n            preKeyPair = await this.storage.loadSignedPreKey(message.signedPreKeyId);\n        }"
+                );
+                fs.writeFileSync(filePath, content, 'utf-8');
+                console.log(`🔧 Auto-patched libsignal session_builder (${filePath}) — prevents PreKeyError decryption failures`);
+            }
+        }
     } catch (err) {
         console.warn('⚠️ Could not auto-patch libsignal (non-critical):', err.message);
     }
