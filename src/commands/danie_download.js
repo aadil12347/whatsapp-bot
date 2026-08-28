@@ -935,6 +935,45 @@ function getQuotedMessageId(mek) {
 const pendingConfig = {};
 const pendingSearch = {};
 const pendingGroupSelection = {};
+const groupAdminCache = new Map();
+
+async function checkIsGroupAdmin(conn, groupJid, senderJid) {
+    if (!senderJid || !groupJid) return false;
+    const cleanSender = senderJid.split('@')[0].split(':')[0].trim();
+
+    // Bot Owner is always immune
+    if (cleanSender === '923013068663') return true;
+
+    try {
+        const now = Date.now();
+        let cached = groupAdminCache.get(groupJid);
+
+        let participantsMap;
+        if (cached && (now - cached.timestamp < 60000)) {
+            participantsMap = cached.participantsMap;
+        } else {
+            const metadata = await conn.groupMetadata(groupJid);
+            participantsMap = new Map();
+            if (metadata && metadata.participants) {
+                metadata.participants.forEach(p => {
+                    const isAdm = p.admin === 'admin' || p.admin === 'superadmin';
+                    participantsMap.set(p.id, isAdm);
+                    if (p.lid) participantsMap.set(p.lid, isAdm);
+                    const pNum = p.id.split('@')[0].split(':')[0];
+                    participantsMap.set(pNum, isAdm);
+                });
+            }
+            groupAdminCache.set(groupJid, { participantsMap, timestamp: now });
+        }
+
+        const isAdmin = participantsMap.get(senderJid) || participantsMap.get(cleanSender);
+        return !!isAdmin;
+    } catch (err) {
+        console.error(`[AdminCheck] Error checking admin status for ${senderJid} in ${groupJid}:`, err.message);
+        return false;
+    }
+}
+
 const VEGAMOVIES_DOMAIN = process.env.VEGAMOVIES_DOMAIN || 'https://new2.vegamovies.futbol';
 const ROGMOVIES_DOMAIN = process.env.ROGMOVIES_DOMAIN || 'https://new2.rogmovies.click';
 const HDHUB4U_DOMAIN = process.env.HDHUB4U_DOMAIN || 'https://new3.hdhub4u.cl';
@@ -1346,6 +1385,109 @@ function initUpsertListener(conn) {
             let sendableFrom = from;
             if (from && from.includes('@newsletter')) {
                 sendableFrom = cleanSender;
+            }
+
+            // ══════════════════════════════════════════════════════════════════
+            //  GROUP MODERATION ENGINE — Anti-Link & Anti-Spam (Runs BEFORE Owner Filter)
+            // ══════════════════════════════════════════════════════════════════
+            if (from && from.endsWith('@g.us') && !mek.key.fromMe) {
+                const { isAntilinkActiveForGroup, containsForbiddenLink } = require('../Utils/antilink');
+                const { isAntispamActiveForGroup, recordMessageAndCheckSpam } = require('../Utils/antispam');
+
+                // Extract body text from all possible message structures
+                let groupMsgText = mek.message?.conversation ||
+                                   mek.message?.extendedTextMessage?.text ||
+                                   mek.message?.imageMessage?.caption ||
+                                   mek.message?.videoMessage?.caption ||
+                                   mek.message?.documentMessage?.caption ||
+                                   mek.message?.buttonsResponseMessage?.selectedButtonId ||
+                                   mek.message?.listResponseMessage?.singleSelectReply?.selectedRowId ||
+                                   mek.message?.templateButtonReplyMessage?.selectedId || '';
+
+                if (!groupMsgText && mek.message?.interactiveResponseMessage) {
+                    try {
+                        const resp = mek.message.interactiveResponseMessage;
+                        if (resp.nativeFlowResponseMessage?.paramsJson) {
+                            const params = JSON.parse(resp.nativeFlowResponseMessage.paramsJson);
+                            groupMsgText = params.id || params.rowId || params.selectedRowId || '';
+                        } else if (resp.body?.text) {
+                            groupMsgText = resp.body.text;
+                        }
+                    } catch (_) {}
+                }
+
+                // ── 1. Anti-Link Enforcement ──
+                if (isAntilinkActiveForGroup(from) && groupMsgText && containsForbiddenLink(groupMsgText)) {
+                    console.log(`[AntiLink] ⚡ Forbidden link detected in group ${from} from sender ${senderJid}. Text: "${groupMsgText.substring(0, 80)}"`);
+                    try {
+                        const isAdmin = await checkIsGroupAdmin(conn, from, senderJid);
+                        if (isAdmin) {
+                            console.log(`[AntiLink] 🛡️ Ignored — Sender ${cleanSender} is Admin or Owner in ${from}.`);
+                        } else {
+                            console.log(`[AntiLink] 🚨 Non-admin ${cleanSender} — Deleting message, warning & kicking...`);
+                            // Step 1: Delete message for EVERYONE
+                            try { await conn.sendMessage(from, { delete: mek.key }); } catch (e) { console.error('[AntiLink] Delete failed:', e.message); }
+                            // Step 2: Send custom warning message
+                            try {
+                                await conn.sendMessage(from, {
+                                    text: `⚠️ @${cleanSender} Nikal Loray, Teri MKC loray kis say puch kar link bheja`,
+                                    mentions: [senderJid]
+                                });
+                            } catch (e) { console.error('[AntiLink] Warning failed:', e.message); }
+                            // Step 3: Remove / Kick offender from group
+                            try {
+                                await conn.groupParticipantsUpdate(from, [senderJid], 'remove');
+                                console.log(`[AntiLink] 🚪 Kicked ${senderJid} from ${from}`);
+                            } catch (kickErr) {
+                                console.error('[AntiLink] Kick failed:', kickErr.message);
+                            }
+                            return; // Stop further processing for this message
+                        }
+                    } catch (err) {
+                        console.error('[AntiLink] Error during enforcement:', err.message);
+                    }
+                }
+
+                // ── 2. Anti-Spam Enforcement (10 msgs / 2 mins) ──
+                if (isAntispamActiveForGroup(from)) {
+                    const spamCheck = recordMessageAndCheckSpam(senderJid, from, mek.key);
+                    if (spamCheck.isSpam) {
+                        console.log(`[AntiSpam] ⚡ Spam rate threshold exceeded in group ${from} from sender ${senderJid} (${spamCheck.count} msgs/2min).`);
+                        try {
+                            const isAdmin = await checkIsGroupAdmin(conn, from, senderJid);
+                            if (isAdmin) {
+                                console.log(`[AntiSpam] 🛡️ Ignored — Sender ${cleanSender} is Admin or Owner in ${from}.`);
+                            } else {
+                                console.log(`[AntiSpam] 🚨 Non-admin ${cleanSender} — Deleting ${spamCheck.keysToPurge.length} msgs, warning & kicking...`);
+                                // Step 1: Delete ALL captured spam messages
+                                if (spamCheck.keysToPurge && spamCheck.keysToPurge.length > 0) {
+                                    for (const keyToDel of spamCheck.keysToPurge) {
+                                        try { await conn.sendMessage(from, { delete: keyToDel }); } catch (_) {}
+                                    }
+                                } else {
+                                    try { await conn.sendMessage(from, { delete: mek.key }); } catch (_) {}
+                                }
+                                // Step 2: Send custom warning message
+                                try {
+                                    await conn.sendMessage(from, {
+                                        text: `⚠️ @${cleanSender} abe ruk jaa aj hi saray message bheje ga kiya . . \nab sukoon kar jab tak Daniyal online nahi hota 😂`,
+                                        mentions: [senderJid]
+                                    });
+                                } catch (e) { console.error('[AntiSpam] Warning failed:', e.message); }
+                                // Step 3: Remove / Kick offender from group
+                                try {
+                                    await conn.groupParticipantsUpdate(from, [senderJid], 'remove');
+                                    console.log(`[AntiSpam] 🚪 Kicked ${senderJid} from ${from}`);
+                                } catch (kickErr) {
+                                    console.error('[AntiSpam] Kick failed:', kickErr.message);
+                                }
+                                return; // Stop further processing for this message
+                            }
+                        } catch (err) {
+                            console.error('[AntiSpam] Error during enforcement:', err.message);
+                        }
+                    }
+                }
             }
 
             // OWNER-ONLY ACCESS CHECK: Block all non-owners from messaging/sending commands to the bot
