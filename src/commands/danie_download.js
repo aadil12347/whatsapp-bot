@@ -1097,15 +1097,32 @@ const PREFIX = '.';
 const DANIE_COMMANDS = {};
 const ACTIVE_CHATS_PATH = path.join(__dirname, '..', '..', 'session', 'active_chats.json');
 
+let _cachedActiveChats = null;
+let _activeChatsFlushTimer = null;
+
 function loadActiveChats() {
+    if (_cachedActiveChats) return _cachedActiveChats;
     try {
         if (fs.existsSync(ACTIVE_CHATS_PATH)) {
-            return JSON.parse(fs.readFileSync(ACTIVE_CHATS_PATH, 'utf-8'));
+            _cachedActiveChats = JSON.parse(fs.readFileSync(ACTIVE_CHATS_PATH, 'utf-8'));
+            return _cachedActiveChats;
         }
     } catch (e) {
         console.error('[DanieWatch] Failed to load active_chats.json:', e.message);
     }
-    return {};
+    _cachedActiveChats = {};
+    return _cachedActiveChats;
+}
+
+function flushActiveChatsToDisk() {
+    if (!_cachedActiveChats) return;
+    try {
+        const dir = path.dirname(ACTIVE_CHATS_PATH);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(ACTIVE_CHATS_PATH, JSON.stringify(_cachedActiveChats, null, 2), 'utf-8');
+    } catch (e) {
+        console.error('[DanieWatch] Failed to save active_chats.json:', e.message);
+    }
 }
 
 function saveActiveChat(jid, name, notify) {
@@ -1128,6 +1145,10 @@ function saveActiveChat(jid, name, notify) {
         newNotify = notify.trim();
     }
 
+    if (existing.name === newName && existing.notify === newNotify && (Date.now() - (existing.lastUpdated || 0) < 300000)) {
+        return; // Skip if unchanged
+    }
+
     chatsMap[clean] = {
         id: clean,
         name: newName || undefined,
@@ -1135,12 +1156,11 @@ function saveActiveChat(jid, name, notify) {
         lastUpdated: Date.now()
     };
 
-    try {
-        const dir = path.dirname(ACTIVE_CHATS_PATH);
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-        fs.writeFileSync(ACTIVE_CHATS_PATH, JSON.stringify(chatsMap, null, 2), 'utf-8');
-    } catch (e) {
-        console.error('[DanieWatch] Failed to save active_chats.json:', e.message);
+    if (!_activeChatsFlushTimer) {
+        _activeChatsFlushTimer = setTimeout(() => {
+            _activeChatsFlushTimer = null;
+            flushActiveChatsToDisk();
+        }, 5000);
     }
 }
 
@@ -1391,7 +1411,8 @@ function initUpsertListener(conn) {
                     'help',
                     'song', 'songdl', 'yt1s', 'yts', 'yts1', 'video', 'yt2s', 'yt3s', 'csong', 'csongdl',
                     'ig', 'fb', 'tiktok', 'twitter', 'ytv', 'yt', 'tk', 'insta', 'instagram', 'ytm', 'music', 'yta',
-                    'mvdl', 'mv', 'movie', 'mvdlinfo', 'mvdlseason', 'mvdlshowep', 'mvdlget', 'mvdlsub'
+                    'mvdl', 'mv', 'movie', 'mvdlinfo', 'mvdlseason', 'mvdlshowep', 'mvdlget', 'mvdlsub',
+                    'antilink', 'al', 'linkprotect', 'antispam', 'aspam', 'spamprotect'
                 ];
 
                 if (!ALLOWED_COMMANDS.includes(cmdName)) {
@@ -1456,6 +1477,19 @@ function initUpsertListener(conn) {
                 }
             }
 
+            // ---- Check if it's a reply for pending antilink / antispam group selection ----
+            if (pendingGroupSelection[cleanSender]) {
+                const quotedId = getQuotedMessageId(mek);
+                const isValidNumber = /^\d+$/.test(trimmedText) || /^\d+[\s, \-]+/.test(trimmedText) || trimmedText.toLowerCase() === 'all' || trimmedText.toLowerCase() === 'cancel';
+                const isMatch = (quotedId && quotedId === pendingGroupSelection[cleanSender].messageId) || 
+                                (!quotedId && isValidNumber);
+                if (isMatch) {
+                    console.log(`[DanieWatch] Directing reply "${trimmedText}" to handleGroupSelectionReply for ${cleanSender}.`);
+                    await handleGroupSelectionReply(conn, mek, senderJid, trimmedText, reply);
+                    return;
+                }
+            }
+
             // ---- AUTO-URL DETECTOR FOR OWNER (Direct Link Auto-Downloader) ----
             const urlMatch = trimmedText.match(/https?:\/\/[^\s]+/i);
             if (urlMatch && urlMatch[0]) {
@@ -1506,13 +1540,45 @@ function initUpsertListener(conn) {
     });
 }
 
-function loadSudo() {
-    const sudoPath = path.join(__dirname, '..', 'data', 'sudo.json');
-    if (!fs.existsSync(sudoPath)) return [];
+let _groupFetchCache = { data: null, timestamp: 0 };
+
+async function safeFetchParticipatingGroups(conn, timeoutMs = 2500) {
+    const now = Date.now();
+    if (_groupFetchCache.data && (now - _groupFetchCache.timestamp < 120000)) {
+        return _groupFetchCache.data;
+    }
     try {
-        return JSON.parse(fs.readFileSync(sudoPath, 'utf8')) || [];
+        if (!conn) return _groupFetchCache.data || {};
+        const fetchPromise = conn.groupFetchAllParticipating();
+        const timeoutPromise = new Promise(resolve => setTimeout(() => resolve(null), timeoutMs));
+        const res = await Promise.race([fetchPromise, timeoutPromise]);
+        if (res && typeof res === 'object') {
+            _groupFetchCache = { data: res, timestamp: now };
+            return res;
+        }
+    } catch (_) {}
+    return _groupFetchCache.data || {};
+}
+
+let _cachedSudo = null;
+let _cachedSudoTime = 0;
+
+function loadSudo() {
+    const now = Date.now();
+    if (_cachedSudo && (now - _cachedSudoTime < 60000)) return _cachedSudo;
+    const sudoPath = path.join(__dirname, '..', 'data', 'sudo.json');
+    if (!fs.existsSync(sudoPath)) {
+        _cachedSudo = [];
+        _cachedSudoTime = now;
+        return _cachedSudo;
+    }
+    try {
+        _cachedSudo = JSON.parse(fs.readFileSync(sudoPath, 'utf8')) || [];
+        _cachedSudoTime = now;
+        return _cachedSudo;
     } catch (_) {
-        return [];
+        _cachedSudo = [];
+        return _cachedSudo;
     }
 }
 
@@ -1521,6 +1587,28 @@ function saveSudo(nums) {
     if (!fs.existsSync(sudoDir)) fs.mkdirSync(sudoDir, { recursive: true });
     const sudoPath = path.join(sudoDir, 'sudo.json');
     fs.writeFileSync(sudoPath, JSON.stringify(nums, null, 2), 'utf8');
+    _cachedSudo = nums;
+    _cachedSudoTime = Date.now();
+}
+
+let _cachedCredsMe = null;
+let _cachedCredsTime = 0;
+
+function getCredsMe() {
+    const now = Date.now();
+    if (_cachedCredsMe && (now - _cachedCredsTime < 60000)) return _cachedCredsMe;
+    try {
+        const credsPath = path.join(__dirname, '..', '..', 'session', 'creds.json');
+        if (fs.existsSync(credsPath)) {
+            const creds = JSON.parse(fs.readFileSync(credsPath, 'utf8'));
+            if (creds && creds.me) {
+                _cachedCredsMe = creds.me;
+                _cachedCredsTime = now;
+                return _cachedCredsMe;
+            }
+        }
+    } catch (_) {}
+    return _cachedCredsMe;
 }
 
 function isOwner(senderJid, mek = null) {
@@ -1551,24 +1639,19 @@ function isOwner(senderJid, mek = null) {
         }
     }
 
-    // 2. Read creds.json directly in case conn.user isn't fully populated yet
-    try {
-        const credsPath = path.join(__dirname, '..', '..', 'session', 'creds.json');
-        if (fs.existsSync(credsPath)) {
-            const creds = JSON.parse(fs.readFileSync(credsPath, 'utf8'));
-            if (creds && creds.me) {
-                const credsIdNum = extractUserPart(creds.me.id);
-                const credsLidNum = extractUserPart(creds.me.lid);
+    // 2. Read creds me directly (cached) in case conn.user isn't fully populated yet
+    const credsMe = getCredsMe();
+    if (credsMe) {
+        const credsIdNum = extractUserPart(credsMe.id);
+        const credsLidNum = extractUserPart(credsMe.lid);
 
-                for (const target of targets) {
-                    const targetNum = extractUserPart(target);
-                    if (!targetNum) continue;
-                    if (credsIdNum && targetNum === credsIdNum) return true;
-                    if (credsLidNum && targetNum === credsLidNum) return true;
-                }
-            }
+        for (const target of targets) {
+            const targetNum = extractUserPart(target);
+            if (!targetNum) continue;
+            if (credsIdNum && targetNum === credsIdNum) return true;
+            if (credsLidNum && targetNum === credsLidNum) return true;
         }
-    } catch (_) {}
+    }
 
     // 3. Check against configured owner phone numbers & SUDO
     const cJid = cleanJid(senderJid);
@@ -2810,7 +2893,7 @@ DANIE_COMMANDS['config'] = async (conn, mek, from, senderJid, args, reply) => {
 
     let groupsObj = {};
     try {
-        groupsObj = await conn.groupFetchAllParticipating();
+        groupsObj = await safeFetchParticipatingGroups(conn);
     } catch (_) {}
 
     const groups = Object.values(groupsObj).map(g => ({
@@ -5325,6 +5408,409 @@ DANIE_COMMANDS['ytm'] = async (conn, mek, from, senderJid, args, reply) => {
 DANIE_COMMANDS['songdl'] = DANIE_COMMANDS['ytm'];
 DANIE_COMMANDS['music'] = DANIE_COMMANDS['ytm'];
 DANIE_COMMANDS['yta'] = DANIE_COMMANDS['ytm'];
+
+function parseGroupSelections(inputText, groupsList) {
+    const selected = [];
+    if (!inputText || typeof inputText !== 'string') return selected;
+    const text = inputText.trim();
+
+    if (text.toLowerCase() === 'all') {
+        return [...groupsList];
+    }
+
+    const parts = text.split(/[\s,]+/);
+    for (const part of parts) {
+        if (!part) continue;
+        if (part.includes('-')) {
+            const [startStr, endStr] = part.split('-');
+            const start = parseInt(startStr, 10);
+            const end = parseInt(endStr, 10);
+            if (!isNaN(start) && !isNaN(end) && start <= end) {
+                for (let i = start; i <= end; i++) {
+                    const found = groupsList.find(g => g.index === i);
+                    if (found && !selected.some(s => s.jid === found.jid)) {
+                        selected.push(found);
+                    }
+                }
+            }
+        } else {
+            const num = parseInt(part, 10);
+            if (!isNaN(num)) {
+                const found = groupsList.find(g => g.index === num);
+                if (found && !selected.some(s => s.jid === found.jid)) {
+                    selected.push(found);
+                }
+            } else if (part.endsWith('@g.us')) {
+                const found = groupsList.find(g => g.jid === part);
+                if (found && !selected.some(s => s.jid === found.jid)) {
+                    selected.push(found);
+                } else if (!selected.some(s => s.jid === part)) {
+                    selected.push({ index: 0, jid: part, name: 'Group JID' });
+                }
+            }
+        }
+    }
+    return selected;
+}
+
+async function fetchAndFormatGroupMenu(conn, from, senderJid, mode, action, reply) {
+    let groupsObj = {};
+    try {
+        groupsObj = await safeFetchParticipatingGroups(conn);
+    } catch (e) {
+        console.error('[DanieWatch] Failed to fetch groups for selection:', e.message);
+    }
+    const groupsList = Object.values(groupsObj).map((g, idx) => ({
+        index: idx + 1,
+        jid: g.id,
+        name: g.subject || 'Unknown Group'
+    }));
+
+    if (groupsList.length === 0) {
+        return reply('❌ No active participating groups found on this account.');
+    }
+
+    const cleanSender = cleanJid(senderJid);
+    pendingGroupSelection[cleanSender] = {
+        mode, // 'antilink' or 'antispam'
+        action, // 'add' or 'remove'
+        groupsList,
+        messageId: null,
+        time: Date.now()
+    };
+
+    const titleMode = mode === 'antilink' ? '🛡️ ANTI-LINK' : '🚨 ANTI-SPAM';
+    const actionLabel = action === 'add' ? 'ADD GROUP(S)' : 'REMOVE GROUP(S)';
+
+    let menu = `╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮\n` +
+               `│  👥 *SELECT GROUPS: ${titleMode} (${actionLabel})* 👥  │\n` +
+               `╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯\n\n` +
+               `┌─❒ *Available Groups (${groupsList.length})*\n`;
+
+    groupsList.forEach(g => {
+        menu += `│   \`${g.index}\` • 👥 *${g.name}*\n`;
+    });
+
+    menu += `└───────────────\n\n` +
+            `💡 *How to Select:*\n` +
+            `  • Reply to this message with number(s) (e.g. \`1\`, \`1, 2\`, \`1-3\`, or \`all\`)\n` +
+            `  • Or type \`cancel\` to cancel.`;
+
+    const sent = await reply(menu);
+    if (sent && sent.key && sent.key.id) {
+        pendingGroupSelection[cleanSender].messageId = sent.key.id;
+    }
+}
+
+async function handleGroupSelectionReply(conn, mek, senderJid, text, reply) {
+    const cleanSender = cleanJid(senderJid);
+    const selectionState = pendingGroupSelection[cleanSender];
+    if (!selectionState) return;
+
+    delete pendingGroupSelection[cleanSender];
+
+    if (text.toLowerCase() === 'cancel') {
+        return reply('❌ Group selection cancelled.');
+    }
+
+    const { mode, action, groupsList } = selectionState;
+    const selected = parseGroupSelections(text, groupsList);
+
+    if (selected.length === 0) {
+        return reply('❌ Invalid group selection number(s). Please try again with valid numbers from the list.');
+    }
+
+    if (mode === 'antilink') {
+        const { addGroupToAntilink, removeGroupFromAntilink } = require('../Utils/antilink');
+        if (action === 'add') {
+            selected.forEach(g => addGroupToAntilink(g.jid));
+            let res = `✅ Anti-Link protection *ADDED* for *${selected.length}* group(s):\n\n`;
+            selected.forEach((g, idx) => { res += `  ${idx + 1}. 👥 *${g.name}* (\`${g.jid}\`)\n`; });
+            return reply(res);
+        } else {
+            selected.forEach(g => removeGroupFromAntilink(g.jid));
+            let res = `✅ Anti-Link protection *REMOVED* for *${selected.length}* group(s):\n\n`;
+            selected.forEach((g, idx) => { res += `  ${idx + 1}. 👥 *${g.name}* (\`${g.jid}\`)\n`; });
+            return reply(res);
+        }
+    }
+
+    if (mode === 'antispam') {
+        const { addGroupToAntispam, removeGroupFromAntispam } = require('../Utils/antispam');
+        if (action === 'add') {
+            selected.forEach(g => addGroupToAntispam(g.jid));
+            let res = `✅ Anti-Spam protection *ADDED* for *${selected.length}* group(s):\n\n`;
+            selected.forEach((g, idx) => { res += `  ${idx + 1}. 👥 *${g.name}* (\`${g.jid}\`)\n`; });
+            return reply(res);
+        } else {
+            selected.forEach(g => removeGroupFromAntispam(g.jid));
+            let res = `✅ Anti-Spam protection *REMOVED* for *${selected.length}* group(s):\n\n`;
+            selected.forEach((g, idx) => { res += `  ${idx + 1}. 👥 *${g.name}* (\`${g.jid}\`)\n`; });
+            return reply(res);
+        }
+    }
+}
+
+async function handleAntilinkCommand(conn, mek, from, senderJid, args, reply) {
+    if (!isOwner(senderJid)) return reply('❌ Only the bot owner can configure Anti-Link settings.');
+    const { getAntilinkData, saveAntilinkData, addGroupToAntilink, removeGroupFromAntilink } = require('../Utils/antilink');
+    const { enabled, groups } = getAntilinkData();
+    const parts = (args || '').trim().split(/\s+/);
+    const subCmd = parts[0] ? parts[0].toLowerCase() : '';
+    const param = parts.slice(1).join(' ').trim();
+
+    if (subCmd === 'on' || subCmd === 'enable' || subCmd === '1' || subCmd === 'true') {
+        saveAntilinkData(true, groups);
+        return reply(
+            `╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮\n` +
+            `│      🛡️ *ANTI-LINK PROTECTION* 🛡️      │\n` +
+            `╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯\n\n` +
+            `✅ *Global Anti-Link Status:* *🟢 ON (ENABLED)*\n` +
+            `🌐 *Allowed Platforms:* *TikTok, Facebook, Instagram, Twitter/X*\n\n` +
+            `👥 *Protected Groups (${groups.length}):*\n${groups.length > 0 ? groups.map((g, i) => `  ${i + 1}. \`${g}\``).join('\n') : '  _ALL Groups (Default)_'}\n\n` +
+            `🚨 *Action:* Anyone sending non-whitelisted links will have their message deleted, warning sent & kicked from group.`
+        );
+    }
+
+    if (subCmd === 'off' || subCmd === 'disable' || subCmd === '0' || subCmd === 'false') {
+        saveAntilinkData(false, groups);
+        return reply(
+            `╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮\n` +
+            `│      🛡️ *ANTI-LINK PROTECTION* 🛡️      │\n` +
+            `╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯\n\n` +
+            `❌ *Global Anti-Link Status:* *🔴 OFF (DISABLED)*\n\n` +
+            `💡 *Action:* Anti-Link link protection is now paused globally.`
+        );
+    }
+
+    if (subCmd === 'add' || subCmd === '+') {
+        if (!param) {
+            return await fetchAndFormatGroupMenu(conn, from, senderJid, 'antilink', 'add', reply);
+        }
+        if (param.endsWith('@g.us')) {
+            const updated = addGroupToAntilink(param);
+            return reply(`✅ *Group Added to Anti-Link Protection List!*\n\n👥 *Group JID:* \`${param}\` \n🛡️ *Total Protected Groups:* *${updated.length}*`);
+        }
+        let groupsObj = {};
+        try { groupsObj = await safeFetchParticipatingGroups(conn); } catch (_) {}
+        const groupsList = Object.values(groupsObj).map((g, idx) => ({ index: idx + 1, jid: g.id, name: g.subject || 'Unknown Group' }));
+        const selected = parseGroupSelections(param, groupsList);
+        if (selected.length > 0) {
+            selected.forEach(g => addGroupToAntilink(g.jid));
+            let resText = `✅ Anti-Link protection *ADDED* for *${selected.length}* group(s):\n\n`;
+            selected.forEach((g, idx) => { resText += `  ${idx + 1}. 👥 *${g.name}* (\`${g.jid}\`)\n`; });
+            return reply(resText);
+        }
+        return await fetchAndFormatGroupMenu(conn, from, senderJid, 'antilink', 'add', reply);
+    }
+
+    if (subCmd === 'remove' || subCmd === 'del' || subCmd === 'delete' || subCmd === '-') {
+        if (!param) {
+            return await fetchAndFormatGroupMenu(conn, from, senderJid, 'antilink', 'remove', reply);
+        }
+        if (param.endsWith('@g.us')) {
+            const updated = removeGroupFromAntilink(param);
+            return reply(`✅ *Group Removed from Anti-Link Protection List!*\n\n👥 *Group JID:* \`${param}\` \n🛡️ *Total Protected Groups:* *${updated.length}*`);
+        }
+        let groupsObj = {};
+        try { groupsObj = await safeFetchParticipatingGroups(conn); } catch (_) {}
+        const groupsList = Object.values(groupsObj).map((g, idx) => ({ index: idx + 1, jid: g.id, name: g.subject || 'Unknown Group' }));
+        const selected = parseGroupSelections(param, groupsList);
+        if (selected.length > 0) {
+            selected.forEach(g => removeGroupFromAntilink(g.jid));
+            let resText = `✅ Anti-Link protection *REMOVED* for *${selected.length}* group(s):\n\n`;
+            selected.forEach((g, idx) => { resText += `  ${idx + 1}. 👥 *${g.name}* (\`${g.jid}\`)\n`; });
+            return reply(resText);
+        }
+        return await fetchAndFormatGroupMenu(conn, from, senderJid, 'antilink', 'remove', reply);
+    }
+
+    if (subCmd === 'list' || subCmd === 'groups') {
+        let text = `╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮\n│   🛡️ *PROTECTED ANTI-LINK GROUPS* 🛡️   │\n╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯\n\n`;
+        if (groups.length === 0) {
+            text += `ℹ️ _No specific groups in list. Anti-Link applies to ALL group chats when ON._`;
+        } else {
+            groups.forEach((g, idx) => {
+                text += `  \`${idx + 1}\` • 👥 \`${g}\` \n`;
+            });
+        }
+        return reply(text);
+    }
+
+    // Default Status & Control Menu
+    const statusLabel = enabled ? '🟢 *ON*' : '🔴 *OFF*';
+    const isCurrentGroupProtected = groups.some(g => g.includes(from.split('@')[0]));
+    const currentGroupLabel = from.endsWith('@g.us') ? (isCurrentGroupProtected ? '🟢 *Protected*' : '🔴 *Not Protected*') : 'N/A (Private Chat)';
+
+    return reply(
+        `╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮\n` +
+        `│      🛡️ *ANTI-LINK CONTROL MENU* 🛡️     │\n` +
+        `╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯\n\n` +
+        `📊 *Global Status:* ${statusLabel}\n` +
+        `📍 *This Group Status:* ${currentGroupLabel}\n` +
+        `🛡️ *Protected Groups:* *${groups.length}*\n\n` +
+        `┌─❒ *Available Commands*\n` +
+        `│  1️⃣ \`.antilink on\`        ➜ Turn Anti-Link Global ON\n` +
+        `│  2️⃣ \`.antilink off\`       ➜ Turn Anti-Link Global OFF\n` +
+        `│  3️⃣ \`.antilink add\`       ➜ Select & Add groups to Anti-Link list\n` +
+        `│  4️⃣ \`.antilink remove\`    ➜ Select & Remove groups from Anti-Link list\n` +
+        `│  5️⃣ \`.antilink list\`      ➜ List all protected groups\n` +
+        `└───────────────`
+    );
+}
+
+cmd({
+    pattern: 'antilink',
+    alias: ['al', 'linkprotect'],
+    react: '🛡️',
+    desc: 'Toggle Anti-Link protection ON or OFF, add/remove groups, and show status.',
+    category: 'group',
+    use: '.antilink [on/off/add/remove/list]',
+    filename: __filename
+}, async (conn, mek, m, { from, q, sender }) => {
+    const reply = async (textMsg) => {
+        return conn.sendMessage(from, { text: textMsg }, { quoted: mek });
+    };
+    const senderJid = m.sender || mek.sender || from;
+    await handleAntilinkCommand(conn, mek, from, senderJid, q, reply);
+});
+
+async function handleAntispamCommand(conn, mek, from, senderJid, args, reply) {
+    if (!isOwner(senderJid)) return reply('❌ Only the bot owner can configure Anti-Spam settings.');
+    const { getAntispamData, saveAntispamData, addGroupToAntispam, removeGroupFromAntispam } = require('../Utils/antispam');
+    const { enabled, groups, limit, windowMs } = getAntispamData();
+    const parts = (args || '').trim().split(/\s+/);
+    const subCmd = parts[0] ? parts[0].toLowerCase() : '';
+    const param = parts.slice(1).join(' ').trim();
+
+    if (subCmd === 'on' || subCmd === 'enable' || subCmd === '1' || subCmd === 'true') {
+        saveAntispamData(true, groups, limit, windowMs);
+        return reply(
+            `╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮\n` +
+            `│      🚨 *ANTI-SPAM PROTECTION* 🚨      │\n` +
+            `╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯\n\n` +
+            `✅ *Global Anti-Spam Status:* *🟢 ON (ENABLED)*\n` +
+            `⏱️ *Rate Limit:* *${limit} messages / 2 minutes*\n\n` +
+            `👥 *Protected Groups (${groups.length}):*\n${groups.length > 0 ? groups.map((g, i) => `  ${i + 1}. \`${g}\``).join('\n') : '  _ALL Groups (Default)_'}\n\n` +
+            `🚨 *Action:* Anyone sending >10 messages in 2 minutes will have their messages deleted, warning sent & kicked from group.`
+        );
+    }
+
+    if (subCmd === 'off' || subCmd === 'disable' || subCmd === '0' || subCmd === 'false') {
+        saveAntispamData(false, groups, limit, windowMs);
+        return reply(
+            `╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮\n` +
+            `│      🚨 *ANTI-SPAM PROTECTION* 🚨      │\n` +
+            `╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯\n\n` +
+            `❌ *Global Anti-Spam Status:* *🔴 OFF (DISABLED)*\n\n` +
+            `💡 *Action:* Anti-Spam rate limiting is now paused globally.`
+        );
+    }
+
+    if (subCmd === 'add' || subCmd === '+') {
+        if (!param) {
+            return await fetchAndFormatGroupMenu(conn, from, senderJid, 'antispam', 'add', reply);
+        }
+        if (param.endsWith('@g.us')) {
+            const updated = addGroupToAntispam(param);
+            return reply(`✅ *Group Added to Anti-Spam Protection List!*\n\n👥 *Group JID:* \`${param}\` \n🚨 *Total Protected Groups:* *${updated.length}*`);
+        }
+        let groupsObj = {};
+        try { groupsObj = await safeFetchParticipatingGroups(conn); } catch (_) {}
+        const groupsList = Object.values(groupsObj).map((g, idx) => ({ index: idx + 1, jid: g.id, name: g.subject || 'Unknown Group' }));
+        const selected = parseGroupSelections(param, groupsList);
+        if (selected.length > 0) {
+            selected.forEach(g => addGroupToAntispam(g.jid));
+            let resText = `✅ Anti-Spam protection *ADDED* for *${selected.length}* group(s):\n\n`;
+            selected.forEach((g, idx) => { resText += `  ${idx + 1}. 👥 *${g.name}* (\`${g.jid}\`)\n`; });
+            return reply(resText);
+        }
+        return await fetchAndFormatGroupMenu(conn, from, senderJid, 'antispam', 'add', reply);
+    }
+
+    if (subCmd === 'remove' || subCmd === 'del' || subCmd === 'delete' || subCmd === '-') {
+        if (!param) {
+            return await fetchAndFormatGroupMenu(conn, from, senderJid, 'antispam', 'remove', reply);
+        }
+        if (param.endsWith('@g.us')) {
+            const updated = removeGroupFromAntispam(param);
+            return reply(`✅ *Group Removed from Anti-Spam Protection List!*\n\n👥 *Group JID:* \`${param}\` \n🚨 *Total Protected Groups:* *${updated.length}*`);
+        }
+        let groupsObj = {};
+        try { groupsObj = await safeFetchParticipatingGroups(conn); } catch (_) {}
+        const groupsList = Object.values(groupsObj).map((g, idx) => ({ index: idx + 1, jid: g.id, name: g.subject || 'Unknown Group' }));
+        const selected = parseGroupSelections(param, groupsList);
+        if (selected.length > 0) {
+            selected.forEach(g => removeGroupFromAntispam(g.jid));
+            let resText = `✅ Anti-Spam protection *REMOVED* for *${selected.length}* group(s):\n\n`;
+            selected.forEach((g, idx) => { resText += `  ${idx + 1}. 👥 *${g.name}* (\`${g.jid}\`)\n`; });
+            return reply(resText);
+        }
+        return await fetchAndFormatGroupMenu(conn, from, senderJid, 'antispam', 'remove', reply);
+    }
+
+    if (subCmd === 'list' || subCmd === 'groups') {
+        let text = `╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮\n│   🚨 *PROTECTED ANTI-SPAM GROUPS* 🚨   │\n╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯\n\n`;
+        if (groups.length === 0) {
+            text += `ℹ️ _No specific groups in list. Anti-Spam applies to ALL group chats when ON._`;
+        } else {
+            groups.forEach((g, idx) => {
+                text += `  \`${idx + 1}\` • 👥 \`${g}\` \n`;
+            });
+        }
+        return reply(text);
+    }
+
+    // Default Status & Control Menu
+    const statusLabel = enabled ? '🟢 *ON*' : '🔴 *OFF*';
+    const isCurrentGroupProtected = groups.some(g => g.includes(from.split('@')[0]));
+    const currentGroupLabel = from.endsWith('@g.us') ? (isCurrentGroupProtected ? '🟢 *Protected*' : '🔴 *Not Protected*') : 'N/A (Private Chat)';
+
+    return reply(
+        `╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮\n` +
+        `│      🚨 *ANTI-SPAM CONTROL MENU* 🚨     │\n` +
+        `╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯\n\n` +
+        `📊 *Global Status:* ${statusLabel}\n` +
+        `📍 *This Group Status:* ${currentGroupLabel}\n` +
+        `🚨 *Rate Limit:* *10 msgs / 2 mins*\n` +
+        `👥 *Protected Groups:* *${groups.length}*\n\n` +
+        `┌─❒ *Available Commands*\n` +
+        `│  1️⃣ \`.antispam on\`        ➜ Turn Anti-Spam Global ON\n` +
+        `│  2️⃣ \`.antispam off\`       ➜ Turn Anti-Spam Global OFF\n` +
+        `│  3️⃣ \`.antispam add\`       ➜ Select & Add groups to Anti-Spam list\n` +
+        `│  4️⃣ \`.antispam remove\`    ➜ Select & Remove groups from Anti-Spam list\n` +
+        `│  5️⃣ \`.antispam list\`      ➜ List all protected groups\n` +
+        `└───────────────`
+    );
+}
+
+cmd({
+    pattern: 'antispam',
+    alias: ['aspam', 'spamprotect'],
+    react: '🚨',
+    desc: 'Toggle Anti-Spam (10 msgs / 2 mins) protection ON or OFF, add/remove groups, and show status.',
+    category: 'group',
+    use: '.antispam [on/off/add/remove/list]',
+    filename: __filename
+}, async (conn, mek, m, { from, q, sender }) => {
+    const reply = async (textMsg) => {
+        return conn.sendMessage(from, { text: textMsg }, { quoted: mek });
+    };
+    const senderJid = m.sender || mek.sender || from;
+    await handleAntispamCommand(conn, mek, from, senderJid, q, reply);
+});
+
+DANIE_COMMANDS['antilink'] = async (conn, mek, from, senderJid, args, reply) => {
+    await handleAntilinkCommand(conn, mek, from, senderJid, args, reply);
+};
+DANIE_COMMANDS['al'] = DANIE_COMMANDS['antilink'];
+DANIE_COMMANDS['linkprotect'] = DANIE_COMMANDS['antilink'];
+
+DANIE_COMMANDS['antispam'] = async (conn, mek, from, senderJid, args, reply) => {
+    await handleAntispamCommand(conn, mek, from, senderJid, args, reply);
+};
+DANIE_COMMANDS['aspam'] = DANIE_COMMANDS['antispam'];
+DANIE_COMMANDS['spamprotect'] = DANIE_COMMANDS['antispam'];
 
 // Export initUpsertListener, globalTaskQueue, and isTaskRunning
 module.exports.initUpsertListener = initUpsertListener;

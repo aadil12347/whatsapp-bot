@@ -48,6 +48,8 @@ const envPath = path.join(__dirname, 'config.env');
 if (fs.existsSync(envPath)) require('dotenv').config({ path: envPath });
 
 const { uploadSessionToSupabase, downloadSessionFromSupabase } = require('./src/Utils/supabaseSession');
+const { isAntilinkActiveForGroup, containsForbiddenLink } = require('./src/Utils/antilink');
+const { recordMessageAndCheckSpam, isAntispamActiveForGroup } = require('./src/Utils/antispam');
 
 const sess = require('./session');
 const SESSION_DIR = path.join(__dirname, 'session');
@@ -62,6 +64,46 @@ const msgRetryCounterCache = new NodeCache({ stdTTL: 600, checkperiod: 120 });
 // When Baileys fails to decrypt and retries, it calls getMessage() to get the original proto.
 // We cache message protos here so retries can succeed.
 const msgProtoCache = new NodeCache({ stdTTL: 300, checkperiod: 60 });
+
+// ── Admin immunity cache (60s TTL) for Anti-Link and Anti-Spam ──
+const groupAdminCache = new Map();
+
+async function checkIsGroupAdmin(conn, groupJid, senderJid) {
+    if (!senderJid || !groupJid) return false;
+    const cleanSender = senderJid.split('@')[0];
+
+    // Bot Owner is always immune
+    if (cleanSender === '923013068663') return true;
+
+    try {
+        const now = Date.now();
+        let cached = groupAdminCache.get(groupJid);
+
+        let participantsMap;
+        if (cached && (now - cached.timestamp < 60000)) {
+            participantsMap = cached.participantsMap;
+        } else {
+            const metadata = await conn.groupMetadata(groupJid);
+            participantsMap = new Map();
+            if (metadata && metadata.participants) {
+                metadata.participants.forEach(p => {
+                    const isAdm = p.admin === 'admin' || p.admin === 'superadmin';
+                    participantsMap.set(p.id, isAdm);
+                    if (p.lid) participantsMap.set(p.lid, isAdm);
+                    const pNum = p.id.split('@')[0];
+                    participantsMap.set(pNum, isAdm);
+                });
+            }
+            groupAdminCache.set(groupJid, { participantsMap, timestamp: now });
+        }
+
+        const isAdmin = participantsMap.get(senderJid) || participantsMap.get(cleanSender);
+        return !!isAdmin;
+    } catch (err) {
+        console.error(`[AdminCheck] Error checking admin status for ${senderJid} in ${groupJid}:`, err.message);
+        return false;
+    }
+}
 
 // ── State ──
 let conn = null;
@@ -287,6 +329,93 @@ async function connectToWA() {
             }
 
             const from = msg.key.remoteJid;
+
+            // ── Anti-Link Protection for Group Chats (Whitelists: TikTok, Facebook, Instagram, Twitter/X) ──
+            if (from && from.endsWith('@g.us') && isAntilinkActiveForGroup(from) && !msg.key.fromMe) {
+                const text = msg.message?.conversation ||
+                             msg.message?.extendedTextMessage?.text ||
+                             msg.message?.imageMessage?.caption ||
+                             msg.message?.videoMessage?.caption ||
+                             msg.message?.documentMessage?.caption || '';
+
+                if (text && containsForbiddenLink(text)) {
+                    const sender = msg.key.participant || msg.participant || from;
+                    const senderNum = sender.split('@')[0];
+                    console.log(`[AntiLink] ⚡ Forbidden link detected in ${from} from ${sender}. Text: "${text.substring(0, 80)}"`);
+                    try {
+                        // Only check admin AFTER we detect a violation (saves network calls)
+                        const isAdmin = await checkIsGroupAdmin(conn, from, sender);
+                        if (isAdmin) {
+                            console.log(`[AntiLink] 🛡️ Skipped — sender ${sender} is Admin in ${from}.`);
+                        } else {
+                            console.log(`[AntiLink] 🚨 Non-admin ${sender} — Deleting, warning & kicking...`);
+                            // Step 1: Delete message for EVERYONE
+                            await conn.sendMessage(from, { delete: msg.key });
+                            // Step 2: Send custom warning message
+                            await conn.sendMessage(from, {
+                                text: `⚠️ @${senderNum} Nikal Loray, Teri MKC loray kis say puch kar link bheja`,
+                                mentions: [sender]
+                            });
+                            // Step 3: Remove / Kick offender from group
+                            try {
+                                await conn.groupParticipantsUpdate(from, [sender], 'remove');
+                                console.log(`[AntiLink] 🚪 Kicked ${sender} from ${from}`);
+                            } catch (kickErr) {
+                                console.error('[AntiLink] Kick failed:', kickErr.message);
+                            }
+                        }
+                    } catch (delErr) {
+                        console.error('[AntiLink] Error:', delErr.message);
+                    }
+                }
+            }
+
+            // ── Anti-Spam Protection for Group Chats (Max 10 msg / 2 min, ALL Message Types) ──
+            // PERF: Only check admin when spam threshold is ACTUALLY exceeded
+            if (from && from.endsWith('@g.us') && !msg.key.fromMe && isAntispamActiveForGroup(from)) {
+                const sender = msg.key.participant || msg.participant || from;
+                const spamCheck = recordMessageAndCheckSpam(sender, from, msg.key);
+                if (spamCheck.isSpam) {
+                    try {
+                        // Only check admin AFTER spam detected (saves network calls on every msg)
+                        const isAdmin = await checkIsGroupAdmin(conn, from, sender);
+                        if (isAdmin) {
+                            console.log(`[AntiSpam] 🛡️ Skipped — sender ${sender} is Admin in ${from}.`);
+                        } else {
+                            const senderNum = sender.split('@')[0];
+                            console.log(`[AntiSpam] 🚨 Spam from ${sender} (${spamCheck.count} msgs/2min). Deleting all captured msgs, warning & kicking...`);
+                            
+                            // Step 1: Delete ALL captured spam messages for EVERYONE
+                            if (spamCheck.keysToPurge && spamCheck.keysToPurge.length > 0) {
+                                for (const keyToDel of spamCheck.keysToPurge) {
+                                    try {
+                                        await conn.sendMessage(from, { delete: keyToDel });
+                                    } catch (_) {}
+                                }
+                            } else {
+                                await conn.sendMessage(from, { delete: msg.key });
+                            }
+
+                            // Step 2: Send custom warning message
+                            await conn.sendMessage(from, {
+                                text: `⚠️ @${senderNum} abe ruk jaa aj hi saray message bheje ga kiya . . \nab sukoon kar jab tak Daniyal online nahi hota 😂`,
+                                mentions: [sender]
+                            });
+
+                            // Step 3: Remove / Kick offender from group
+                            try {
+                                await conn.groupParticipantsUpdate(from, [sender], 'remove');
+                                console.log(`[AntiSpam] 🚪 Kicked ${sender} from ${from}`);
+                            } catch (kickErr) {
+                                console.error('[AntiSpam] Kick failed:', kickErr.message);
+                            }
+                        }
+                    } catch (spamErr) {
+                        console.error('[AntiSpam] Error:', spamErr.message);
+                    }
+                }
+            }
+
             if (from !== 'status@broadcast') return;
 
             // Auto-view status
