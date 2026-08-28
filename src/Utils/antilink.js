@@ -61,24 +61,13 @@ function removeGroupFromAntilink(groupJid) {
     return filtered;
 }
 
-// Allowed social media platforms: TikTok, Facebook, Instagram, Twitter / X
-const ALLOWED_DOMAINS_REGEX = /(?:tiktok\.com|vm\.tiktok\.com|facebook\.com|fb\.watch|fb\.com|instagram\.com|instagr\.am|twitter\.com|x\.com)/i;
-
-// Match any web URL or domain pattern
-const ALL_URL_REGEX = /(?:https?:\/\/|www\.)[^\s]+|(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(?:\/[^\s]*)?/gi;
+// Silva MD Bot exact URL detection regex (detects all protocols, www, and domain TLD links)
+const URL_REGEX = /(?:https?:\/\/|www\.)\S+|(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:com|net|org|io|gg|me|ly|co|app|xyz|info|tv|link|shop|live|club|online|site|store|pro|in|ng|ke|tz|ug|za|uk)\b(?:\/\S*)?/gi;
 
 function containsForbiddenLink(text) {
     if (!text) return false;
-    const urls = text.match(ALL_URL_REGEX);
-    if (!urls || urls.length === 0) return false;
-
-    // Return true if ANY extracted URL is NOT in the allowed social media whitelist
-    for (const url of urls) {
-        if (!ALLOWED_DOMAINS_REGEX.test(url)) {
-            return true;
-        }
-    }
-    return false;
+    URL_REGEX.lastIndex = 0;
+    return URL_REGEX.test(text);
 }
 
 module.exports = {
@@ -88,6 +77,5 @@ module.exports = {
     addGroupToAntilink,
     removeGroupFromAntilink,
     containsForbiddenLink,
-    ALLOWED_DOMAINS_REGEX,
-    ALL_URL_REGEX
+    URL_REGEX
 };

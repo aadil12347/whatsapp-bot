@@ -5713,9 +5713,9 @@ async function handleAntilinkCommand(conn, mek, from, senderJid, args, reply) {
             `│      🛡️ *ANTI-LINK PROTECTION* 🛡️      │\n` +
             `╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯\n\n` +
             `✅ *Global Anti-Link Status:* *🟢 ON (ENABLED)*\n` +
-            `🌐 *Allowed Platforms:* *TikTok, Facebook, Instagram, Twitter/X*\n\n` +
+            `🌐 *Protection Scope:* *All URLs / Web Links Detected*\n\n` +
             `👥 *Protected Groups (${groups.length}):*\n${groups.length > 0 ? groups.map((g, i) => `  ${i + 1}. \`${g}\``).join('\n') : '  _ALL Groups (Default)_'}\n\n` +
-            `🚨 *Action:* Anyone sending non-whitelisted links will have their message deleted, warning sent & kicked from group.`
+            `🚨 *Action:* Anyone sending links will have their message deleted, warning sent & kicked from group.`
         );
     }
 
