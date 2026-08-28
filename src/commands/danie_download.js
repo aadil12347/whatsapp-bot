@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const fileType = require('file-type');
-const { browserHttpsAgent, fetchHtmlWithRetry, fetchTmdbMetadata, fetchTmdbById, downloadYoutubeVideoUrl, scrapePostPage, resolveLandingLink, resolveVcloudLink, resolveFinalUrl, scrapeAllPostLinks, extractDirectDownloadLinks, extractSubOptions, searchHdhub4u, extractSeriesVcloudLinks } = require('../Utils/movie_scraper');
+const { browserHttpsAgent, applyPixeldrainWorkerProxy, fetchHtmlWithRetry, fetchTmdbMetadata, fetchTmdbById, downloadYoutubeVideoUrl, scrapePostPage, resolveLandingLink, resolveVcloudLink, resolveFinalUrl, scrapeAllPostLinks, extractDirectDownloadLinks, extractSubOptions, searchHdhub4u, extractSeriesVcloudLinks } = require('../Utils/movie_scraper');
 const { searchStreamImdb, getMediaDetails, getEpisodeEmbedUrl, resolveStreamOptions, downloadStreamWithFFmpeg, verifyMediaFile } = require('../Utils/streamimdb_scraper');
 
 // Global handlers to prevent background network disconnect errors from crashing the Node process
@@ -2349,13 +2349,10 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
                 continue;
             }
 
-            // Normalize Pixeldrain URLs to direct API download endpoint
-            if (url.includes('pixeldrain.com')) {
-                const pdMatch = url.match(/pixeldrain\.com\/(?:u|api\/file)\/([a-zA-Z0-9_-]+)/);
-                if (pdMatch && pdMatch[1]) {
-                    url = `https://pixeldrain.com/api/file/${pdMatch[1]}?download`;
-                    console.log('[DanieDownload] Normalized Pixeldrain URL to direct download endpoint:', url);
-                }
+            // Normalize Pixeldrain URLs via Cloudflare Worker proxy endpoint (bypassing 6GB daily limit)
+            if (url.includes('pixeldrain.com') || url.includes('sriflix.online')) {
+                url = applyPixeldrainWorkerProxy(url);
+                console.log('[DanieDownload] Routed Pixeldrain URL via Cloudflare Worker proxy:', url);
             }
 
             // Determine temporary/target filename

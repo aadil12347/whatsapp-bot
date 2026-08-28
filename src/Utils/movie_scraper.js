@@ -42,6 +42,24 @@ const HEADERS = {
     'Upgrade-Insecure-Requests': '1'
 };
 
+const PIXELDRAIN_WORKERS = [
+    'pd1.sriflix.online',
+    'pd2.sriflix.online',
+    'pd3.sriflix.online',
+    'pd4.sriflix.online',
+    'pd5.sriflix.online'
+];
+
+function applyPixeldrainWorkerProxy(url) {
+    if (!url || typeof url !== 'string') return url;
+    const pdMatch = url.match(/(?:pixeldrain\.com|pd\d\.sriflix\.online)\/(?:u|api\/file)\/([a-zA-Z0-9_-]+)/i);
+    if (pdMatch && pdMatch[1]) {
+        const randomWorker = PIXELDRAIN_WORKERS[Math.floor(Math.random() * PIXELDRAIN_WORKERS.length)];
+        return `https://${randomWorker}/api/file/${pdMatch[1]}?download`;
+    }
+    return url;
+}
+
 // User-provided proxy list for round-robin rotation
 const PROXY_POOL_RAW = [
     "198.105.121.200:6462:nsdjrpwt:odeh1yu3tv50",
@@ -656,13 +674,10 @@ async function resolveVcloudLink(url, preferredServer = null, parentUrl = null) 
         console.log('[MovieScraper] Resolving V-Cloud/HubCloud link:', url);
 
         // Return direct video/file URLs immediately without fetching HTML
-        if (url.includes('.r2.dev') || url.includes('googleusercontent.com') || url.includes('pixeldrain.com') || /\.(mp4|mkv|zip|rar|7z|avi)$/i.test(url)) {
+        if (url.includes('.r2.dev') || url.includes('googleusercontent.com') || url.includes('pixeldrain.com') || url.includes('sriflix.online') || /\.(mp4|mkv|zip|rar|7z|avi)$/i.test(url)) {
             console.log('[MovieScraper] URL is already a direct download video link:', url);
-            if (url.includes('pixeldrain.com')) {
-                const pdMatch = url.match(/pixeldrain\.com\/(?:u|api\/file)\/([a-zA-Z0-9_-]+)/);
-                if (pdMatch && pdMatch[1]) {
-                    return `https://pixeldrain.com/api/file/${pdMatch[1]}?download`;
-                }
+            if (url.includes('pixeldrain.com') || url.includes('sriflix.online')) {
+                return applyPixeldrainWorkerProxy(url);
             }
             return url;
         }
@@ -686,13 +701,9 @@ async function resolveVcloudLink(url, preferredServer = null, parentUrl = null) 
             }
         }
 
-        // Handle Pixeldrain links
-        if (url.includes('pixeldrain.com')) {
-            const pdMatch = url.match(/pixeldrain\.com\/(?:u|api\/file)\/([a-zA-Z0-9_-]+)/);
-            if (pdMatch && pdMatch[1]) {
-                return `https://pixeldrain.com/api/file/${pdMatch[1]}?download`;
-            }
-            return url;
+        // Handle Pixeldrain links directly
+        if (url.includes('pixeldrain.com') || url.includes('sriflix.online')) {
+            return applyPixeldrainWorkerProxy(url);
         }
 
         // Normalize outdated gpdl2.hubcloud.cx / gpdl.hubcloud.cx to hubcloud.cx
@@ -785,16 +796,21 @@ async function resolveVcloudLink(url, preferredServer = null, parentUrl = null) 
                 }
             });
 
-            // Categorize server links strictly to FSLv2, FSL, and 10Gbps
+            // Categorize server links in fallback order: FSL (1st) -> FSLv2 (2nd) -> Pixeldrain (3rd) -> 10Gbps (4th)
+            const fslCandidate = finalLinks.find(l => {
+                const txt = `${l.text} ${l.href}`.toLowerCase();
+                return (txt.includes('fsl') || txt.includes('fsl server') || txt.includes('fastserver') || txt.includes('r2.dev')) && 
+                       !txt.includes('fslv2') && !txt.includes('fsl v2') && !txt.includes('fsl-v2');
+            });
+
             const fslv2Candidate = finalLinks.find(l => {
                 const txt = `${l.text} ${l.href}`.toLowerCase();
                 return txt.includes('fslv2') || txt.includes('fsl v2') || txt.includes('fsl-v2');
             });
 
-            const fslCandidate = finalLinks.find(l => {
+            const pixeldrainCandidate = finalLinks.find(l => {
                 const txt = `${l.text} ${l.href}`.toLowerCase();
-                return (txt.includes('fsl') || txt.includes('fsl server') || txt.includes('fastserver')) && 
-                       !txt.includes('fslv2') && !txt.includes('fsl v2') && !txt.includes('fsl-v2');
+                return txt.includes('pixeldrain') || txt.includes('pixelserver') || txt.includes('sriflix');
             });
 
             const g10gbpsCandidate = finalLinks.find(l => {
@@ -802,15 +818,16 @@ async function resolveVcloudLink(url, preferredServer = null, parentUrl = null) 
                 return txt.includes('10gbps') || txt.includes('10 gbps') || txt.includes('g-direct') || txt.includes('gdirect') || txt.includes('gpdl');
             });
 
-            // Strict Priority Fallback Sequence: FSLv2 (1st) -> FSL (2nd) -> 10Gbps (3rd)
+            // Priority Sequence: FSL (1st) -> FSLv2 (2nd) -> Pixeldrain (3rd) -> 10Gbps (4th)
             const candidateOrder = [
-                { type: 'FSLv2', item: fslv2Candidate },
                 { type: 'FSL', item: fslCandidate },
+                { type: 'FSLv2', item: fslv2Candidate },
+                { type: 'Pixeldrain', item: pixeldrainCandidate },
                 { type: '10Gbps', item: g10gbpsCandidate }
             ].filter(c => c.item !== undefined);
 
             if (candidateOrder.length === 0) {
-                throw new Error('No compatible V-Cloud download server found. Only FSLv2, FSL, and 10Gbps servers are supported.');
+                throw new Error('No compatible V-Cloud download server found. Only FSL, FSLv2, Pixeldrain, and 10Gbps servers are supported.');
             }
 
             let resolvedDirectUrl = null;
@@ -824,6 +841,10 @@ async function resolveVcloudLink(url, preferredServer = null, parentUrl = null) 
                 if (!directUrl.startsWith('http')) {
                     const parsed = new URL(decodedLink);
                     directUrl = `${parsed.protocol}//${parsed.host}${directUrl.startsWith('/') ? '' : '/'}${directUrl}`;
+                }
+
+                if (cand.type === 'Pixeldrain' || directUrl.includes('pixeldrain') || directUrl.includes('pixel') || directUrl.includes('sriflix')) {
+                    directUrl = applyPixeldrainWorkerProxy(directUrl);
                 }
 
                 console.log(`[MovieScraper] Trying V-Cloud server [${cand.type}]: ${directUrl}`);
@@ -1431,16 +1452,23 @@ async function extractSubOptions(url, parentUrl = null) {
                     const t = `${l.text} ${l.href}`.toLowerCase();
                     return t.includes('fslv2') || t.includes('fsl v2') || t.includes('fsl-v2');
                 });
+                const matchPixeldrain = finalLinks.filter(l => {
+                    const t = `${l.text} ${l.href}`.toLowerCase();
+                    return t.includes('pixeldrain') || t.includes('pixelserver') || t.includes('sriflix');
+                }).map(l => ({
+                    ...l,
+                    href: applyPixeldrainWorkerProxy(l.href)
+                }));
                 const match10G = finalLinks.filter(l => {
                     const t = `${l.text} ${l.href}`.toLowerCase();
                     return t.includes('10gbps') || t.includes('10 gbps') || t.includes('g-direct') || t.includes('gdirect');
                 });
                 const matchOtherDirect = finalLinks.filter(l => {
                     const t = `${l.text} ${l.href}`.toLowerCase();
-                    return !t.includes('telegram') && !t.includes('admin');
+                    return !t.includes('telegram') && !t.includes('admin') && !t.includes('pixeldrain') && !t.includes('pixelserver') && !t.includes('sriflix');
                 });
 
-                const sortedServers = [...matchFsl, ...matchFslv2, ...match10G, ...matchOtherDirect];
+                const sortedServers = [...matchFsl, ...matchFslv2, ...matchPixeldrain, ...match10G, ...matchOtherDirect];
                 const seen = new Set();
                 const uniqueServers = sortedServers.filter(s => {
                     if (seen.has(s.href)) return false;
@@ -1815,15 +1843,20 @@ async function resolveSingleVcloudEpisode(vUrl, referer = null, timeoutMs = 2000
             }
         });
 
-        // Step 3: Server selection (FSLv2 > FSL > 10Gbps ONLY)
+        // Step 3: Server selection (FSL > FSLv2 > Pixeldrain > 10Gbps)
+        const matchFsl = servers.find(s => {
+            const t = `${s.text} ${s.href}`.toLowerCase();
+            return (t.includes('fsl') || t.includes('fsl server') || t.includes('fastserver')) && !t.includes('fslv2') && !t.includes('fsl v2') && !t.includes('fsl-v2');
+        });
+
         const matchFslv2 = servers.find(s => {
             const t = `${s.text} ${s.href}`.toLowerCase();
             return t.includes('fslv2') || t.includes('fsl v2') || t.includes('fsl-v2');
         });
 
-        const matchFsl = servers.find(s => {
+        const matchPixeldrain = servers.find(s => {
             const t = `${s.text} ${s.href}`.toLowerCase();
-            return (t.includes('fsl') || t.includes('fsl server')) && !t.includes('fslv2') && !t.includes('fsl v2') && !t.includes('fsl-v2');
+            return t.includes('pixeldrain') || t.includes('pixelserver') || t.includes('sriflix');
         });
 
         const match10g = servers.find(s => {
@@ -1834,24 +1867,30 @@ async function resolveSingleVcloudEpisode(vUrl, referer = null, timeoutMs = 2000
         let selected = null;
         let serverType = '';
 
-        if (matchFslv2) {
-            selected = matchFslv2;
-            serverType = 'FSLv2';
-        } else if (matchFsl) {
+        if (matchFsl) {
             selected = matchFsl;
             serverType = 'FSL';
+        } else if (matchFslv2) {
+            selected = matchFslv2;
+            serverType = 'FSLv2';
+        } else if (matchPixeldrain) {
+            selected = matchPixeldrain;
+            serverType = 'Pixeldrain';
         } else if (match10g) {
             selected = match10g;
             serverType = '10Gbps';
         }
 
-        // Strictly reject if none of FSLv2, FSL, or 10Gbps exist
+        // Reject if none of FSL, FSLv2, Pixeldrain, or 10Gbps exist
         if (!selected) {
-            console.log(`[SeriesVcloudExtractor] No FSLv2, FSL, or 10Gbps server found for: ${vUrl}`);
+            console.log(`[SeriesVcloudExtractor] No FSL, FSLv2, Pixeldrain, or 10Gbps server found for: ${vUrl}`);
             return null;
         }
 
         let directUrl = selected.href;
+        if (serverType === 'Pixeldrain' || directUrl.includes('pixeldrain') || directUrl.includes('sriflix')) {
+            directUrl = applyPixeldrainWorkerProxy(directUrl);
+        }
 
         // If 10gbps, resolve redirect chain / link= parameter if present
         if (serverType === '10Gbps') {
@@ -1974,6 +2013,7 @@ async function extractSeriesVcloudLinks(nextdriveUrl, options = {}) {
 
 module.exports = {
     browserHttpsAgent,
+    applyPixeldrainWorkerProxy,
     fetchHtmlWithRetry,
     fetchTmdbMetadata,
     fetchTmdbById,
