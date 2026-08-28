@@ -1390,7 +1390,7 @@ function initUpsertListener(conn) {
             // ══════════════════════════════════════════════════════════════════
             //  GROUP MODERATION ENGINE — Anti-Link & Anti-Spam (Runs BEFORE Owner Filter)
             // ══════════════════════════════════════════════════════════════════
-            if (from && from.endsWith('@g.us') && !mek.key.fromMe) {
+            if (from && from.endsWith('@g.us')) {
                 const { isAntilinkActiveForGroup, containsForbiddenLink } = require('../Utils/antilink');
                 const { isAntispamActiveForGroup, recordMessageAndCheckSpam } = require('../Utils/antispam');
 
@@ -1418,11 +1418,11 @@ function initUpsertListener(conn) {
 
                 // ── 1. Anti-Link Enforcement ──
                 if (isAntilinkActiveForGroup(from) && groupMsgText && containsForbiddenLink(groupMsgText)) {
-                    console.log(`[AntiLink] ⚡ Forbidden link detected in group ${from} from sender ${senderJid}. Text: "${groupMsgText.substring(0, 80)}"`);
+                    console.log(`[AntiLink] ⚡ Forbidden link detected in group ${from} from sender ${senderJid} (fromMe=${!!mek.key.fromMe}). Text: "${groupMsgText.substring(0, 80)}"`);
                     try {
                         const isAdmin = await checkIsGroupAdmin(conn, from, senderJid);
-                        if (isAdmin) {
-                            console.log(`[AntiLink] 🛡️ Ignored — Sender ${cleanSender} is Admin or Owner in ${from}.`);
+                        if (isAdmin || mek.key.fromMe) {
+                            console.log(`[AntiLink] 🛡️ Ignored — Sender ${cleanSender} is Admin, Bot Owner, or self (fromMe=${!!mek.key.fromMe}).`);
                         } else {
                             console.log(`[AntiLink] 🚨 Non-admin ${cleanSender} — Deleting message, warning & kicking...`);
                             // Step 1: Delete message for EVERYONE
