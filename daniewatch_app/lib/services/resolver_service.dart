@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:html/parser.dart' as html_parser;
+import '../models/server_priority.dart';
 
 /// Data model for an episode link found on landing page
 class EpisodeItem {
@@ -613,18 +614,17 @@ class ResolverService {
     return ResolvedLink(serverName: sorted.first.serverName, directUrl: finalFallback);
   }
 
-  /// Sort servers by download priority:
-  /// 10Gbps (G-Direct / gpdl) → FSLv2 → FSL → GDrive → Pixeldrain → Gofile → any
+  /// Sort servers by download priority using user-configured order from ServerPriorityManager.
+  /// Default: FSL → FSLv2 → 10Gbps. User can reorder via Settings.
   static List<ResolvedLink> _sortByPriority(List<ResolvedLink> servers) {
+    final order = ServerPriorityManager.getOrder();
+
     int priority(ResolvedLink s) {
       final t = '${s.serverName} ${s.directUrl}'.toLowerCase();
-      if (t.contains('10gbps') || t.contains('10 gbps') || t.contains('g-direct') || t.contains('gdirect') || t.contains('gpdl')) return 0;
-      if (t.contains('fslv2')) return 1;
-      if (t.contains('fsl') && !t.contains('fslv2')) return 2;
-      if (t.contains('gdrive') || t.contains('googleusercontent')) return 3;
-      if (t.contains('pixeldrain')) return 4;
-      if (t.contains('gofile')) return 5;
-      return 6;
+      for (int i = 0; i < order.length; i++) {
+        if (order[i].matches(t)) return i;
+      }
+      return order.length; // unmatched → lowest priority
     }
 
     final sorted = List<ResolvedLink>.from(servers);

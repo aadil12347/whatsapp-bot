@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'models/site_config.dart';
+import 'models/server_priority.dart';
 import 'providers/app_state.dart';
 import 'theme/app_theme.dart';
 import 'screens/home_screen.dart';
@@ -9,6 +10,7 @@ import 'screens/home_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await SiteDomainManager.loadCustomDomains();
+  await ServerPriorityManager.loadSavedOrder();
 
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(

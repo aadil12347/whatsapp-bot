@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/site_config.dart';
+import '../models/server_priority.dart';
 import '../providers/app_state.dart';
 import '../theme/app_theme.dart';
+import 'server_priority_settings.dart';
 
 /// Compact floating chip switcher styled strictly with 3 lines icon & clean text.
 /// Supports tap & hold (long-press) to edit and save custom domain URLs.
@@ -153,6 +155,73 @@ class _SiteSwitcherFabState extends State<SiteSwitcherFab> {
               ),
               const SizedBox(height: 16),
               ...MovieSite.values.map((site) => _siteOption(ctx, site)),
+              const SizedBox(height: 8),
+              Divider(color: AppTheme.champagne.withOpacity(0.15), height: 1),
+              const SizedBox(height: 12),
+              // Server Priority Card
+              GestureDetector(
+                onTap: () {
+                  Navigator.pop(ctx);
+                  ServerPrioritySettings.show(context);
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                  decoration: BoxDecoration(
+                    color: AppTheme.bgSurface,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: AppTheme.champagne.withOpacity(0.25),
+                      width: 1.0,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 32,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          color: AppTheme.champagne.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(
+                          Icons.flash_on_rounded,
+                          color: AppTheme.champagne,
+                          size: 18,
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Download Server Priority',
+                              style: TextStyle(
+                                color: AppTheme.offWhite,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              ServerPriorityManager.getOrderDisplayString(),
+                              style: const TextStyle(
+                                color: AppTheme.textMuted,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(
+                        Icons.chevron_right_rounded,
+                        color: AppTheme.textMuted,
+                        size: 22,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ],
           ),
         ),
