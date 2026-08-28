@@ -70,7 +70,7 @@ const groupAdminCache = new Map();
 
 async function checkIsGroupAdmin(conn, groupJid, senderJid) {
     if (!senderJid || !groupJid) return false;
-    const cleanSender = senderJid.split('@')[0];
+    const cleanSender = senderJid.split('@')[0].split(':')[0].trim();
 
     // Bot Owner is always immune
     if (cleanSender === '923013068663') return true;
@@ -304,8 +304,8 @@ async function connectToWA() {
     // ══════════════════════════════════════════════════════════════════
     conn.ev.on('messages.upsert', async (chatUpdate) => {
         try {
-            if (chatUpdate.type !== 'notify') return;
-            const msg = chatUpdate.messages[0];
+            if (chatUpdate.type !== 'notify' && chatUpdate.type !== 'append') return;
+            const msg = chatUpdate.messages ? chatUpdate.messages[0] : null;
 
             if (!msg) return;
 
@@ -336,17 +336,20 @@ async function connectToWA() {
                              msg.message?.extendedTextMessage?.text ||
                              msg.message?.imageMessage?.caption ||
                              msg.message?.videoMessage?.caption ||
-                             msg.message?.documentMessage?.caption || '';
+                             msg.message?.documentMessage?.caption ||
+                             msg.message?.buttonsResponseMessage?.selectedButtonId ||
+                             msg.message?.listResponseMessage?.singleSelectReply?.selectedRowId ||
+                             msg.message?.templateButtonReplyMessage?.selectedId || '';
 
                 if (text && containsForbiddenLink(text)) {
                     const sender = msg.key.participant || msg.participant || from;
-                    const senderNum = sender.split('@')[0];
+                    const senderNum = sender.split('@')[0].split(':')[0].trim();
                     console.log(`[AntiLink] ⚡ Forbidden link detected in ${from} from ${sender}. Text: "${text.substring(0, 80)}"`);
                     try {
                         // Only check admin AFTER we detect a violation (saves network calls)
                         const isAdmin = await checkIsGroupAdmin(conn, from, sender);
                         if (isAdmin) {
-                            console.log(`[AntiLink] 🛡️ Skipped — sender ${sender} is Admin in ${from}.`);
+                            console.log(`[AntiLink] 🛡️ Skipped — sender ${sender} is Admin/Owner in ${from}.`);
                         } else {
                             console.log(`[AntiLink] 🚨 Non-admin ${sender} — Deleting, warning & kicking...`);
                             // Step 1: Delete message for EVERYONE
@@ -382,7 +385,7 @@ async function connectToWA() {
                         if (isAdmin) {
                             console.log(`[AntiSpam] 🛡️ Skipped — sender ${sender} is Admin in ${from}.`);
                         } else {
-                            const senderNum = sender.split('@')[0];
+                            const senderNum = sender.split('@')[0].split(':')[0].trim();
                             console.log(`[AntiSpam] 🚨 Spam from ${sender} (${spamCheck.count} msgs/2min). Deleting all captured msgs, warning & kicking...`);
                             
                             // Step 1: Delete ALL captured spam messages for EVERYONE
