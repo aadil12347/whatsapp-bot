@@ -225,9 +225,7 @@ async function connectToWA() {
                     if (rawId) {
                         const botJid = jidNormalizedUser(rawId);
                         const startupMsg =
-                            `╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮\n` +
-                            `│     🟢 *DANIEWATCH ONLINE* 🟢     │\n` +
-                            `╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯\n\n` +
+                            `╭─── 🟢 *DANIEWATCH ONLINE* 🟢 ───╮\n\n` +
                             `🟢 *Status:* Online & Operational\n` +
                             `🎬 Send any link directly to download!\n` +
                             `⚡ Type *.alive* for status or *.config* for settings.`;

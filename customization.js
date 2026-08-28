@@ -28,7 +28,7 @@ module.exports = {
     "Dinesh Kanagaratnam original"
   ],
   SIGNATURE: function (config) {
-    return `╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮\n│        ✨ *DANIEWATCH BOT* ✨        │\n╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯`;
+    return `╭─── ✨ *DANIEWATCH BOT* ✨ ───╮`;
   },
   //====================menu=================================
   MENUMSG: function (pushname, runtimeOrConfig, configOrUndefined) {
@@ -41,9 +41,7 @@ module.exports = {
     const ramTotal = Math.round(os.totalmem() / 1024 / 1024);
 
     return `
-╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
-│       ✨ *DANIEWATCH MENU* ✨       │
-╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
+╭─── ✨ *DANIEWATCH MENU* ✨ ───╮
 
 ┌─❒ *System Overview*
 │ 👤 *User:* ${pushname}
@@ -68,9 +66,7 @@ module.exports = {
   //======================download============================
   TIKTOK: function (title, author, q) {
     return `
-╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
-│     🎵 *TIKTOK DOWNLOADER* 🎵     │
-╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
+╭─── 🎵 *TIKTOK DOWNLOADER* 🎵 ───╮
 
 ┌─❒ *Video Info*
 │ 📌 *Title:* ${title || "TikTok Video"}
@@ -83,9 +79,7 @@ module.exports = {
   },
   FACEBOOK: function (title, q) {
     return `
-╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
-│    📘 *FACEBOOK DOWNLOADER* 📘    │
-╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
+╭─── 📘 *FACEBOOK DOWNLOADER* 📘 ───╮
 
 ┌─❒ *Video Info*
 │ 📌 *Title:* ${title || "Facebook Video"}
@@ -97,9 +91,7 @@ module.exports = {
   },
   TWITTER: function (desc, q) {
     return `
-╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
-│     🐦 *TWITTER DOWNLOADER* 🐦     │
-╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
+╭─── 🐦 *TWITTER DOWNLOADER* 🐦 ───╮
 
 ┌─❒ *Tweet Info*
 │ 📝 *Description:* ${desc || "No description"}
@@ -130,9 +122,7 @@ module.exports = {
     const ramTotal = Math.round(os.totalmem() / 1024 / 1024);
 
     return `
-╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
-│       ⚡ *DANIEWATCH ALIVE* ⚡       │
-╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
+╭─── ⚡ *DANIEWATCH ALIVE* ⚡ ───╮
 
 ┌─❒ *Bot Status*
 │ ⚡ *Status:* Online & Active!
@@ -157,9 +147,7 @@ module.exports = {
   },
   SINHALASUB: function (movieData) {
     return `
-╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
-│      🎬 *DANIEWATCH CINEMA* 🍿      │
-╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
+╭─── 🎬 *DANIEWATCH CINEMA* 🍿 ───╮
 
 ┌─❒ *Movie Info*
 │ ✨ *Name:* ${movieData.title}
@@ -173,9 +161,7 @@ module.exports = {
   CINESUBZ: function (title, metadata, rating) {
     const genres = metadata?.genres?.map((g) => `#${g}`).join(" • ") || "N/A";
     return `
-╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
-│      🎬 *DANIEWATCH CINEMA* 🍿      │
-╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
+╭─── 🎬 *DANIEWATCH CINEMA* 🍿 ───╮
 
 ┌─❒ *Movie Details*
 │ ✨ *Title:* ${title}
@@ -189,9 +175,7 @@ module.exports = {
   },
   CINETVSHOW: function (movieResponse) {
     return `
-╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
-│     📺 *DANIEWATCH TV SHOW* 🍿     │
-╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
+╭─── 📺 *DANIEWATCH TV SHOW* 🍿 ───╮
 
 ┌─❒ *Episode Info*
 │ 📺 *Show:* ${movieResponse.episodeInfo?.title || "N/A"}
@@ -202,9 +186,7 @@ module.exports = {
   },
   SINHALASUBTVSHOW: function (episodeInfo, quality) {
     return `
-╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
-│     📺 *DANIEWATCH TV SHOW* 🍿     │
-╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
+╭─── 📺 *DANIEWATCH TV SHOW* 🍿 ───╮
 
 ┌─❒ *Episode Details*
 │ 📺 *TV Show:* ${episodeInfo.title || "N/A"}
@@ -216,9 +198,7 @@ module.exports = {
   },
   CINETVSHOWALLDL: function (movieData) {
     return `
-╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
-│     📺 *DANIEWATCH TV SHOW* 🍿     │
-╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
+╭─── 📺 *DANIEWATCH TV SHOW* 🍿 ───╮
 
 ┌─❒ *Show Info*
 │ ✨ *Title:* ${movieData.data.title}
@@ -229,9 +209,7 @@ module.exports = {
   },
   SINHALASUBTVSHOWALLDL: function (movieData) {
     return `
-╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
-│     📺 *DANIEWATCH TV SHOW* 🍿     │
-╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
+╭─── 📺 *DANIEWATCH TV SHOW* 🍿 ───╮
 
 ┌─❒ *Show Info*
 │ ✨ *Title:* ${movieData.data.showInfo.title}
@@ -242,9 +220,7 @@ module.exports = {
   },
   SIMNHALAMOVIE: function (title) {
     return `
-╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
-│      🎬 *DANIEWATCH CINEMA* 🍿      │
-╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
+╭─── 🎬 *DANIEWATCH CINEMA* 🍿 ───╮
 
 ┌─❒ *Title*
 │ 🎞️ ${title}
@@ -253,9 +229,7 @@ module.exports = {
   },
   AWAMOVIE: function (title, releaseDate, country) {
     return `
-╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
-│      🎬 *DANIEWATCH CINEMA* 🍿      │
-╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
+╭─── 🎬 *DANIEWATCH CINEMA* 🍿 ───╮
 
 ┌─❒ *Movie Info*
 │ 🎞️ *Title:* ${title}
@@ -266,9 +240,7 @@ module.exports = {
   },
   ANIMEMOVIE: function (title, releaseDate, country, duration) {
     return `
-╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
-│      ⛩️ *DANIEWATCH ANIME* 🌸      │
-╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
+╭─── ⛩️ *DANIEWATCH ANIME* 🌸 ───╮
 
 ┌─❒ *Anime Details*
 │ ✨ *Title:* ${title}
@@ -280,9 +252,7 @@ module.exports = {
   },
   BAISCOMOVIE: function (title, year, rating, duration) {
     return `
-╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
-│      🎬 *DANIEWATCH CINEMA* 🍿      │
-╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
+╭─── 🎬 *DANIEWATCH CINEMA* 🍿 ───╮
 
 ┌─❒ *Movie Details*
 │ 🎞️ *Title:* ${title}
@@ -294,9 +264,7 @@ module.exports = {
   },
   ADULTMOVIE: function (title, rating, description) {
     return `
-╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
-│      🎬 *DANIEWATCH CINEMA* 🍿      │
-╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
+╭─── 🎬 *DANIEWATCH CINEMA* 🍿 ───╮
 
 ┌─❒ *Movie Details*
 │ ✨ *Title:* ${title}
@@ -311,9 +279,7 @@ ${description || "No description available"}
   },
   ANIMOMOVIE: function (movieData) {
     return `
-╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
-│      ⛩️ *DANIEWATCH ANIME* 🌸      │
-╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
+╭─── ⛩️ *DANIEWATCH ANIME* 🌸 ───╮
 
 ┌─❒ *Anime Info*
 │ ✨ *Title:* ${movieData.title}
@@ -326,9 +292,7 @@ ${movieData.plot || "N/A"}
   },
   FILMPOMOVIE: function (title, rating, year, duration) {
     return `
-╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
-│      🎬 *DANIEWATCH CINEMA* 🍿      │
-╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
+╭─── 🎬 *DANIEWATCH CINEMA* 🍿 ───╮
 
 ┌─❒ *Movie Info*
 │ ✨ *Title:* ${title}
@@ -341,9 +305,7 @@ ${movieData.plot || "N/A"}
   //=====================youtube===========================================
   SONG: function (data) {
     return `
-╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
-│      🎵 *DANIEWATCH MUSIC* 🎧      │
-╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
+╭─── 🎵 *DANIEWATCH MUSIC* 🎧 ───╮
 
 ┌─❒ *Song Found*
 │ 🎶 *Title:* ${data.title}
@@ -358,9 +320,7 @@ ${movieData.plot || "N/A"}
   },
   YTMP3: function (data) {
     return `
-╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
-│      🎵 *DANIEWATCH AUDIO* 🎧      │
-╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
+╭─── 🎵 *DANIEWATCH AUDIO* 🎧 ───╮
 
 ┌─❒ *Audio Details*
 │ 🎶 *Title:* ${data.title}
@@ -375,9 +335,7 @@ ${movieData.plot || "N/A"}
   },
   VIDEO: function (data) {
     return `
-╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
-│      🎬 *DANIEWATCH VIDEO* 🎥      │
-╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
+╭─── 🎬 *DANIEWATCH VIDEO* 🎥 ───╮
 
 ┌─❒ *Video Details*
 │ 🎥 *Title:* ${data.title}
@@ -392,9 +350,7 @@ ${movieData.plot || "N/A"}
   },
   YTMP4: function (data) {
     return `
-╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
-│      🎬 *DANIEWATCH MP4* 🎥      │
-╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
+╭─── 🎬 *DANIEWATCH MP4* 🎥 ───╮
 
 ┌─❒ *MP4 Video Track*
 │ 🎥 *Title:* ${data.title}
@@ -410,9 +366,7 @@ ${movieData.plot || "N/A"}
   //=====================hiru news===========================================
   AUTONEWS: function (source, newsData, isGroup, groupMetadata, conf) {
     return `
-╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
-│      📰 *DANIEWATCH NEWS* 🗞️      │
-╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
+╭─── 📰 *DANIEWATCH NEWS* 🗞️ ───╮
 
 📌 *Source:* ${source.toUpperCase()} News Update
 📌 *Title:* ${newsData.title}
@@ -426,9 +380,7 @@ ${isGroup ? `\n📨 *Shared In:* ${groupMetadata?.subject || "Group"}\n🛡️ *
   },
   AUTOMOVIE: function (title, rating, metadata, description, isGroup, groupMetadata, conf) {
     return `
-╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
-│      🎬 *DANIEWATCH CINEMA* 🍿      │
-╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
+╭─── 🎬 *DANIEWATCH CINEMA* 🍿 ───╮
 
 ┌─❒ *Movie Details*
 │ ✨ *Movie Name:* ${title}
@@ -445,9 +397,7 @@ ${description || "— No details available —"}
   },
   AUTOSONG: function (foundSong, currentArtist, nextArtist, config, botNumber, isGroup, groupMetadata) {
     return `
-╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
-│      ✨ *DANIEWATCH MUSIC* 🎧      │
-╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
+╭─── ✨ *DANIEWATCH MUSIC* 🎧 ───╮
 
 ┌─❒ *Song Details*
 │ 🎶 *Title:* ${foundSong.title}
@@ -475,17 +425,15 @@ You're an advanced AI assistant called "DanieWatch AI." You're professional, res
 
 User Message: {${userMessage}}`;
   },
-  MVDL_SEARCH_PROMPT: `╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮\n│     🔍 *DANIEWATCH SEARCH* 🔍     │\n╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯\n\n📌 *Please provide a search query!*\nExample: \`.movie deadpool\``,
+  MVDL_SEARCH_PROMPT: `╭─── 🔍 *DANIEWATCH SEARCH* 🔍 ───╮\n\n📌 *Please provide a search query!*\nExample: \`.movie deadpool\``,
   MVDL_SEARCH_RESULTS: function (query) {
-    return `╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮\n│     🎬 *SEARCH RESULTS* 🎬     │\n╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯\n\n🔍 *Results for:* "${query.toUpperCase()}"\n───────────────`;
+    return `╭─── 🎬 *SEARCH RESULTS* 🎬 ───╮\n\n🔍 *Results for:* "${query.toUpperCase()}"\n───────────────`;
   },
   MVDL_SEARCH_FAILED: "❌ *Failed to fetch search results! Please try again later.*",
   MVDL_INVALID_REQUEST: "❌ *Invalid download request!*",
   MVDL_MOVIE_INFO: function (movie, isMovie, genres, duration, rating, dubs, cast) {
     return `
-╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
-│      🎬 *DANIEWATCH CINEMA* 🍿      │
-╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
+╭─── 🎬 *DANIEWATCH CINEMA* 🍿 ───╮
 
 ┌─❒ *Title Details*
 │ 📝 *Title:* ${movie.title}
@@ -507,9 +455,7 @@ ${movie.description || "— No summary available —"}
   MVDL_INFO_FAILED: "❌ *Failed to fetch movie/show details!*",
   MVDL_SEASON_CAPTION: function (movie, seasonNumber, maxEpisode) {
     return `
-╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
-│     📺 *DANIEWATCH TV SHOW* 🍿     │
-╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
+╭─── 📺 *DANIEWATCH TV SHOW* 🍿 ───╮
 
 ┌─❒ *Season Details*
 │ 🎬 *Title:* ${movie.title}
@@ -521,9 +467,7 @@ ${movie.description || "— No summary available —"}
   MVDL_SEASON_FAILED: "❌ *Failed to load season details!*",
   MVDL_EPISODE_CAPTION: function (movie, seasonNumber, episodeNumber) {
     return `
-╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
-│     📺 *DANIEWATCH TV SHOW* 🍿     │
-╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
+╭─── 📺 *DANIEWATCH TV SHOW* 🍿 ───╮
 
 ┌─❒ *Episode Details*
 │ 🎬 *Title:* ${movie.title}
@@ -535,9 +479,7 @@ ${movie.description || "— No summary available —"}
   MVDL_EPISODE_FAILED: "❌ *Failed to load episode download options!*",
   MVDL_MOVIE_CARD: function (movie, quality, size, season, episode, format) {
     return `
-╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮
-│   📥 *DANIEWATCH DOWNLOADER* 🚀   │
-╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯
+╭─── 📥 *DANIEWATCH DOWNLOADER* 🚀 ───╮
 
 ┌─❒ *Download Card*
 │ 🎬 *File Name:* ${movie.title}
