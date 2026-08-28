@@ -656,8 +656,14 @@ async function resolveVcloudLink(url, preferredServer = null, parentUrl = null) 
         console.log('[MovieScraper] Resolving V-Cloud/HubCloud link:', url);
 
         // Return direct video/file URLs immediately without fetching HTML
-        if (url.includes('.r2.dev') || url.includes('googleusercontent.com') || url.includes('pixeldrain.com/api/file') || /\.(mp4|mkv|zip|rar|7z|avi)$/i.test(url)) {
+        if (url.includes('.r2.dev') || url.includes('googleusercontent.com') || url.includes('pixeldrain.com') || /\.(mp4|mkv|zip|rar|7z|avi)$/i.test(url)) {
             console.log('[MovieScraper] URL is already a direct download video link:', url);
+            if (url.includes('pixeldrain.com')) {
+                const pdMatch = url.match(/pixeldrain\.com\/(?:u|api\/file)\/([a-zA-Z0-9_-]+)/);
+                if (pdMatch && pdMatch[1]) {
+                    return `https://pixeldrain.com/api/file/${pdMatch[1]}?download`;
+                }
+            }
             return url;
         }
 
@@ -680,9 +686,13 @@ async function resolveVcloudLink(url, preferredServer = null, parentUrl = null) 
             }
         }
 
-        // Pixeldrain links disabled per user rules
-        if (url.includes('pixeldrain')) {
-            throw new Error('Pixeldrain links are disabled.');
+        // Handle Pixeldrain links
+        if (url.includes('pixeldrain.com')) {
+            const pdMatch = url.match(/pixeldrain\.com\/(?:u|api\/file)\/([a-zA-Z0-9_-]+)/);
+            if (pdMatch && pdMatch[1]) {
+                return `https://pixeldrain.com/api/file/${pdMatch[1]}?download`;
+            }
+            return url;
         }
 
         // Normalize outdated gpdl2.hubcloud.cx / gpdl.hubcloud.cx to hubcloud.cx
@@ -1427,7 +1437,7 @@ async function extractSubOptions(url, parentUrl = null) {
                 });
                 const matchOtherDirect = finalLinks.filter(l => {
                     const t = `${l.text} ${l.href}`.toLowerCase();
-                    return !t.includes('pixeldrain') && !t.includes('pixelserver') && !t.includes('telegram') && !t.includes('admin');
+                    return !t.includes('telegram') && !t.includes('admin');
                 });
 
                 const sortedServers = [...matchFsl, ...matchFslv2, ...match10G, ...matchOtherDirect];
@@ -1441,7 +1451,7 @@ async function extractSubOptions(url, parentUrl = null) {
                 if (uniqueServers.length > 0) {
                     return uniqueServers;
                 }
-                return finalLinks.filter(l => !l.href.includes('pixeldrain'));
+                return finalLinks;
             }
         }
 

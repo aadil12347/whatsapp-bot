@@ -799,6 +799,10 @@ async function downloadFileWithResume(url, tempFilePath, customHeaders = {}, abo
     };
     const headers = { ...defaultHeaders, ...customHeaders };
 
+    if (parsedUrl.hostname.includes('pixeldrain.com') && process.env.PIXELDRAIN_API_KEY) {
+        headers['Authorization'] = 'Basic ' + Buffer.from(':' + process.env.PIXELDRAIN_API_KEY.trim()).toString('base64');
+    }
+
     let downloadedBytes = 0;
     let attempts = 0;
     const maxAttempts = 3;
@@ -876,8 +880,16 @@ async function downloadFileWithResume(url, tempFilePath, customHeaders = {}, abo
                 if (writer) writer.destroy();
                 throw err;
             }
-            console.error(`[DanieDownload] Attempt ${attempts} failed:`, err.message);
             if (writer) writer.destroy();
+
+            // Fast fail if HTTP 404 (Not Found) or 410 (Gone) - file deleted/missing on host
+            const statusCode = err.response?.status;
+            if (statusCode === 404 || statusCode === 410) {
+                try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch (_) {}
+                throw new Error(`File not found on host (HTTP ${statusCode}). The file may have been deleted, removed, or the link has expired.`);
+            }
+
+            console.error(`[DanieDownload] Attempt ${attempts} failed:`, err.message);
 
             if (attempts >= maxAttempts) {
                 throw new Error(`Download failed after ${maxAttempts} attempts. Error: ${err.message}`);
@@ -2335,6 +2347,15 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
             if (!url.startsWith('http://') && !url.startsWith('https://')) {
                 await reply(`❌ Invalid link format for item ${i + 1}! Skipping.\nParsed URL: \`${url}\``);
                 continue;
+            }
+
+            // Normalize Pixeldrain URLs to direct API download endpoint
+            if (url.includes('pixeldrain.com')) {
+                const pdMatch = url.match(/pixeldrain\.com\/(?:u|api\/file)\/([a-zA-Z0-9_-]+)/);
+                if (pdMatch && pdMatch[1]) {
+                    url = `https://pixeldrain.com/api/file/${pdMatch[1]}?download`;
+                    console.log('[DanieDownload] Normalized Pixeldrain URL to direct download endpoint:', url);
+                }
             }
 
             // Determine temporary/target filename
