@@ -55,7 +55,7 @@ const sess = require('./session');
 const SESSION_DIR = path.join(__dirname, 'session');
 
 // ── Logger (silent — ANJU-XPRO-V5 style) ──
-const logger = pino({ level: 'silent' });
+const logger = pino({ level: 'warn' });
 
 // ── Message retry cache (ANJU-XPRO-V5 style) ──
 const msgRetryCounterCache = new NodeCache({ stdTTL: 600, checkperiod: 120 });

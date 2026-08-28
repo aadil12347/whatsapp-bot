@@ -1360,22 +1360,11 @@ function initUpsertListener(conn) {
             const cleanSender = cleanJid(senderJid);
 
             if (!mek.message) {
-                // Silently discard undecryptable messages from offline backlog or startup period
-                if ((conn._startupTime && (Date.now() - conn._startupTime < 60000)) ||
-                    (conn._connectTimeSeconds && msgTimestamp > 0 && msgTimestamp < conn._connectTimeSeconds)) {
-                    return;
-                }
-
-                // After grace period, track & log summaries at very reduced frequency for live messages
-                if (!conn._undecryptableCount) conn._undecryptableCount = 0;
-                if (!conn._lastUndecryptableLog) conn._lastUndecryptableLog = 0;
-                conn._undecryptableCount++;
-                const now = Date.now();
-                if (now - conn._lastUndecryptableLog > 300000) { // 5 minutes summary threshold
-                    console.log(`[DanieWatch] ℹ️ ${conn._undecryptableCount} message(s) awaiting E2EE session re-negotiation.`);
-                    conn._undecryptableCount = 0;
-                    conn._lastUndecryptableLog = now;
-                }
+                // ALWAYS log undecryptable messages with full sender info for debugging
+                const undecryptFrom = mek.key?.remoteJid || 'unknown';
+                const undecryptSender = mek.key?.participant || mek.key?.remoteJid || 'unknown';
+                const undecryptFromMe = !!mek.key?.fromMe;
+                console.log(`[DanieWatch] ⚠️ UNDECRYPTABLE message: from="${undecryptFrom}" sender="${undecryptSender}" fromMe=${undecryptFromMe} stubType=${mek.messageStubType || 'none'} id=${mek.key?.id || 'N/A'}`);
                 return;
             }
 
@@ -1690,21 +1679,28 @@ function initUpsertListener(conn) {
 
 let _groupFetchCache = { data: null, timestamp: 0 };
 
-async function safeFetchParticipatingGroups(conn, timeoutMs = 2500) {
+async function safeFetchParticipatingGroups(conn, timeoutMs = 15000) {
     const now = Date.now();
     if (_groupFetchCache.data && (now - _groupFetchCache.timestamp < 120000)) {
         return _groupFetchCache.data;
     }
     try {
         if (!conn) return _groupFetchCache.data || {};
+        console.log('[DanieWatch] 🔍 Fetching participating groups from WhatsApp...');
         const fetchPromise = conn.groupFetchAllParticipating();
         const timeoutPromise = new Promise(resolve => setTimeout(() => resolve(null), timeoutMs));
         const res = await Promise.race([fetchPromise, timeoutPromise]);
         if (res && typeof res === 'object') {
+            const count = Object.keys(res).length;
+            console.log(`[DanieWatch] ✅ Found ${count} participating group(s).`);
             _groupFetchCache = { data: res, timestamp: now };
             return res;
+        } else {
+            console.log('[DanieWatch] ⚠️ groupFetchAllParticipating timed out or returned null.');
         }
-    } catch (_) {}
+    } catch (e) {
+        console.error('[DanieWatch] ❌ groupFetchAllParticipating error:', e.message);
+    }
     return _groupFetchCache.data || {};
 }
 
