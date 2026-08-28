@@ -1504,8 +1504,7 @@ function initUpsertListener(conn) {
                                 const senderNum = (senderJid || cleanSender || '').split('@')[0].split(':')[0].trim();
                                 try {
                                     await conn.sendMessage(from, {
-                                        text: `⚠️ *@${senderNum}* *abe ruk jaa aj hi saray message bheje ga kiya . .*\n` +
-                                              `*ab sukoon kar jab tak Daniyal online nahi hota 😂*`,
+                                        text: `⚠️ *@${senderNum}* *Nikal Loray, Teri MKC loray kis say puch kar link bheja*`,
                                         mentions: [senderJid]
                                     });
                                 } catch (e) { console.error('[AntiLink] Warning failed:', e.message); }
