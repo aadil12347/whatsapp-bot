@@ -307,12 +307,22 @@ async function connectToWA() {
             if (chatUpdate.type !== 'notify' && chatUpdate.type !== 'append') return;
             const msg = chatUpdate.messages ? chatUpdate.messages[0] : null;
 
-            if (!msg) return;
+            let msgTimestamp = 0;
+            if (typeof msg.messageTimestamp === 'number') {
+                msgTimestamp = msg.messageTimestamp;
+            } else if (typeof msg.messageTimestamp === 'string') {
+                msgTimestamp = parseInt(msg.messageTimestamp, 10) || 0;
+            } else if (typeof msg.messageTimestamp === 'bigint') {
+                msgTimestamp = Number(msg.messageTimestamp);
+            } else if (msg.messageTimestamp && typeof msg.messageTimestamp.toNumber === 'function') {
+                try { msgTimestamp = msg.messageTimestamp.toNumber(); } catch (_) {}
+            } else if (msg.messageTimestamp && typeof msg.messageTimestamp.low === 'number') {
+                msgTimestamp = msg.messageTimestamp.low;
+            }
 
             // Connection timestamp gate: silently drop offline backlog messages
-            // sent before the bot connected. This eliminates 30-50 min E2EE catch-up lag!
-            const msgTimestamp = msg.messageTimestamp || 0;
-            if (_connectTimeSeconds && msgTimestamp < _connectTimeSeconds - 5) {
+            // sent before the bot connected. This eliminates catch-up lag!
+            if (_connectTimeSeconds && msgTimestamp > 0 && msgTimestamp < (_connectTimeSeconds - 5)) {
                 return; // Discard offline backlog message
             }
 

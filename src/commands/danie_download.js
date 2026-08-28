@@ -5561,6 +5561,9 @@ async function handleAntilinkCommand(conn, mek, from, senderJid, args, reply) {
     const param = parts.slice(1).join(' ').trim();
 
     if (subCmd === 'on' || subCmd === 'enable' || subCmd === '1' || subCmd === 'true') {
+        if (from && from.endsWith('@g.us') && !groups.some(g => g.includes(from.split('@')[0]))) {
+            groups.push(from);
+        }
         saveAntilinkData(true, groups);
         return reply(
             `╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮\n` +
@@ -5685,6 +5688,9 @@ async function handleAntispamCommand(conn, mek, from, senderJid, args, reply) {
     const param = parts.slice(1).join(' ').trim();
 
     if (subCmd === 'on' || subCmd === 'enable' || subCmd === '1' || subCmd === 'true') {
+        if (from && from.endsWith('@g.us') && !groups.some(g => g.includes(from.split('@')[0]))) {
+            groups.push(from);
+        }
         saveAntispamData(true, groups, limit, windowMs);
         return reply(
             `╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮\n` +
