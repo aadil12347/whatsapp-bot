@@ -1500,11 +1500,12 @@ function initUpsertListener(conn) {
                                 console.log(`[AntiLink] 🚨 Non-admin ${cleanSender} — Blacklisting, sending warning, kicking & purging history msgs...`);
                                 blacklistKickedUser(senderJid, from);
 
-                                // Step 1: Send custom warning message first
+                                // Step 1: Send custom warning message first (clean phone number, bold simple text)
+                                const senderNum = (senderJid || cleanSender || '').split('@')[0].split(':')[0].trim();
                                 try {
                                     await conn.sendMessage(from, {
-                                        text: `⚠️ @${cleanSender} abe ruk jaa aj hi saray message bheje ga kiya . . \n` +
-                                              `ab sukoon kar jab tak Daniyal online nahi hota 😂`,
+                                        text: `⚠️ *@${senderNum}* *abe ruk jaa aj hi saray message bheje ga kiya . .*\n` +
+                                              `*ab sukoon kar jab tak Daniyal online nahi hota 😂*`,
                                         mentions: [senderJid]
                                     });
                                 } catch (e) { console.error('[AntiLink] Warning failed:', e.message); }
@@ -1550,11 +1551,12 @@ function initUpsertListener(conn) {
                                     console.log(`[AntiSpam] 🚨 Non-admin ${cleanSender} — Blacklisting, sending warning, kicking & purging history msgs...`);
                                     blacklistKickedUser(senderJid, from);
 
-                                    // Step 1: Send custom warning message first
+                                    // Step 1: Send custom warning message first (clean phone number, bold simple text)
+                                    const senderNum = (senderJid || cleanSender || '').split('@')[0].split(':')[0].trim();
                                     try {
                                         await conn.sendMessage(from, {
-                                            text: `⚠️ @${cleanSender} abe ruk jaa aj hi saray message bheje ga kiya . . \n` +
-                                                  `ab sukoon kar jab tak Daniyal online nahi hota 😂`,
+                                            text: `⚠️ *@${senderNum}* *abe ruk jaa aj hi saray message bheje ga kiya . .*\n` +
+                                                  `*ab sukoon kar jab tak Daniyal online nahi hota 😂*`,
                                             mentions: [senderJid]
                                         });
                                     } catch (e) { console.error('[AntiSpam] Warning failed:', e.message); }
