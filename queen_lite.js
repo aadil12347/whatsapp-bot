@@ -150,7 +150,7 @@ async function connectToWA() {
     conn = makeWASocket({
         version,
         logger,
-        printQRInTerminal: true,
+        printQRInTerminal: false,
         auth: {
             creds: state.creds,
             keys: makeCacheableSignalKeyStore(state.keys, logger)
@@ -168,9 +168,11 @@ async function connectToWA() {
         shouldIgnoreJid: (jid) => jid?.endsWith('@newsletter'),
         retryRequestDelayMs: 5000, // Slower retries to reduce E2EE renegotiation storm
         getMessage: async (key) => {
-            const cached = msgProtoCache.get(key.id);
-            if (cached) return cached;
-            return { conversation: null };
+            if (key?.id) {
+                const cached = msgProtoCache.get(key.id);
+                if (cached) return cached;
+            }
+            return undefined;
         }
     });
 
