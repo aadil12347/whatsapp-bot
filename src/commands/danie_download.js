@@ -934,6 +934,7 @@ function getQuotedMessageId(mek) {
 
 const pendingConfig = {};
 const pendingSearch = {};
+const pendingGroupSelection = {};
 const VEGAMOVIES_DOMAIN = process.env.VEGAMOVIES_DOMAIN || 'https://new2.vegamovies.futbol';
 const ROGMOVIES_DOMAIN = process.env.ROGMOVIES_DOMAIN || 'https://new2.rogmovies.click';
 const HDHUB4U_DOMAIN = process.env.HDHUB4U_DOMAIN || 'https://new3.hdhub4u.cl';
