@@ -1421,10 +1421,10 @@ function initUpsertListener(conn) {
                             console.log(`[AntiLink] 🚨 Non-admin ${cleanSender} — Deleting message, warning & kicking...`);
                             // Step 1: Delete message for EVERYONE
                             try { await conn.sendMessage(from, { delete: mek.key }); } catch (e) { console.error('[AntiLink] Delete failed:', e.message); }
-                            // Step 2: Send custom warning message
+                            // Step 2: Send Silva-MD styled warning message
                             try {
                                 await conn.sendMessage(from, {
-                                    text: `⚠️ @${cleanSender} Nikal Loray, Teri MKC loray kis say puch kar link bheja`,
+                                    text: `⚠️ @${cleanSender} links are not allowed in this group!`,
                                     mentions: [senderJid]
                                 });
                             } catch (e) { console.error('[AntiLink] Warning failed:', e.message); }
@@ -5696,7 +5696,8 @@ async function handleGroupSelectionReply(conn, mek, senderJid, text, reply) {
 }
 
 async function handleAntilinkCommand(conn, mek, from, senderJid, args, reply) {
-    if (!isOwner(senderJid)) return reply('❌ Only the bot owner can configure Anti-Link settings.');
+    const isAdmin = await checkIsGroupAdmin(conn, from, senderJid);
+    if (!isAdmin && !isOwner(senderJid, mek)) return reply('⛔ Only group admins or the bot owner can configure Anti-Link settings.');
     const { getAntilinkData, saveAntilinkData, addGroupToAntilink, removeGroupFromAntilink } = require('../Utils/antilink');
     const { enabled, groups } = getAntilinkData();
     const parts = (args || '').trim().split(/\s+/);

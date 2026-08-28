@@ -79,3 +79,4 @@ module.exports = {
     containsForbiddenLink,
     URL_REGEX
 };
+
