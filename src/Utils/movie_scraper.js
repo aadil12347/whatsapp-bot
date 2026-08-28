@@ -43,19 +43,18 @@ const HEADERS = {
 };
 
 const PIXELDRAIN_WORKERS = [
-    'pd1.sriflix.online',
-    'pd2.sriflix.online',
-    'pd3.sriflix.online',
-    'pd4.sriflix.online',
-    'pd5.sriflix.online'
+    'cdn.pixeldrain.eu.cc',
+    'pixeldrain.isuru.eu.org'
 ];
 
 function applyPixeldrainWorkerProxy(url) {
     if (!url || typeof url !== 'string') return url;
-    const match = url.match(/(?:pixeldrain\.[a-z]+|pd\d\.sriflix\.online)\/(?:u|api\/file|file|d)\/([a-zA-Z0-9_-]+)/i);
+    const match = url.match(/(?:pixeldrain\.[a-z]+|pd\d\.sriflix\.online|cdn\.pixeldrain\.eu\.cc|pixeldrain\.isuru\.eu\.org)\/(?:u\/|api\/file\/|file\/)?([a-zA-Z0-9_-]+)/i);
     if (match && match[1]) {
-        const randomWorker = PIXELDRAIN_WORKERS[Math.floor(Math.random() * PIXELDRAIN_WORKERS.length)];
-        return `https://${randomWorker}/api/file/${match[1]}?download`;
+        const id = match[1];
+        if (id.toLowerCase() !== 'u' && id.toLowerCase() !== 'api' && id.toLowerCase() !== 'file') {
+            return `https://cdn.pixeldrain.eu.cc/${id}`;
+        }
     }
     return url;
 }

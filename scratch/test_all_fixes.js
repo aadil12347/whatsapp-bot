@@ -9,8 +9,8 @@ console.log('=== RUNNING VERIFICATION TESTS ===');
 const devUrl = 'https://pixeldrain.dev/u/cnnC5su9';
 const proxiedDev = applyPixeldrainWorkerProxy(devUrl);
 console.log('Test 1 - Proxied Dev URL:', proxiedDev);
-assert(proxiedDev.includes('.sriflix.online/api/file/cnnC5su9?download'), 'Pixeldrain .dev proxy failed!');
-console.log('✅ Test 1 PASSED: Pixeldrain .dev domain correctly proxied to Cloudflare worker');
+assert(proxiedDev === 'https://cdn.pixeldrain.eu.cc/cnnC5su9', 'Pixeldrain cdn worker proxy failed!');
+console.log('✅ Test 1 PASSED: Pixeldrain .dev domain correctly converted to rate-limit bypass worker proxy');
 
 // Test 2: Ad Link Detection
 const adUrl = 'https://adexchangerapid.com/ad/visit.php?al=1';

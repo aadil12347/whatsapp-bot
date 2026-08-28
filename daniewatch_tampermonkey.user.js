@@ -267,9 +267,9 @@
                         const parsed = new URL(decodedLink);
                         directUrl = `${parsed.protocol}//${parsed.host}${directUrl.startsWith('/') ? '' : '/'}${directUrl}`;
                     }
-                    if (directUrl.includes('pixeldrain.com/u/')) {
-                        const id = directUrl.split('/u/')[1].split('?')[0];
-                        directUrl = `https://pixeldrain.com/api/file/${id}?download`;
+                    const matchPxl = directUrl.match(/(?:pixeldrain\.[a-z]+|pd\d\.sriflix\.online|cdn\.pixeldrain\.eu\.cc|pixeldrain\.isuru\.eu\.org)\/(?:u\/|api\/file\/|file\/)?([a-zA-Z0-9_-]+)/i);
+                    if (matchPxl && matchPxl[1]) {
+                        directUrl = `https://cdn.pixeldrain.eu.cc/${matchPxl[1]}`;
                     }
                     return directUrl;
                 }
@@ -401,9 +401,9 @@
                 copyBtn.addEventListener('click', (e) => {
                     e.preventDefault();
                     let directUrl = href;
-                    if (directUrl.includes('pixeldrain.com/u/')) {
-                        const id = directUrl.split('/u/')[1].split('?')[0];
-                        directUrl = `https://pixeldrain.com/api/file/${id}?download`;
+                    const matchPxl = directUrl.match(/(?:pixeldrain\.[a-z]+|pd\d\.sriflix\.online|cdn\.pixeldrain\.eu\.cc|pixeldrain\.isuru\.eu\.org)\/(?:u\/|api\/file\/|file\/)?([a-zA-Z0-9_-]+)/i);
+                    if (matchPxl && matchPxl[1]) {
+                        directUrl = `https://cdn.pixeldrain.eu.cc/${matchPxl[1]}`;
                     }
                     const cleanTitle = getCleanTitle();
                     copyCommand(cleanTitle, directUrl);

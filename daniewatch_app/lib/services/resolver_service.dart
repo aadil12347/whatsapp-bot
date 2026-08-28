@@ -54,23 +54,21 @@ class MultiResolveResult {
 /// to direct download URLs (supporting both movies and multi-episode series).
 class ResolverService {
   static const List<String> _pixeldrainWorkers = [
-    'pd1.sriflix.online',
-    'pd2.sriflix.online',
-    'pd3.sriflix.online',
-    'pd4.sriflix.online',
-    'pd5.sriflix.online',
+    'cdn.pixeldrain.eu.cc',
+    'pixeldrain.isuru.eu.org',
   ];
 
   static String applyPixeldrainWorkerProxy(String url) {
     if (url.isEmpty) return url;
     final match = RegExp(
-      r'(?:pixeldrain\.(?:com|dev|org|net)|pd\d\.sriflix\.online)\/(?:u|api\/file|file|d)\/([a-zA-Z0-9_-]+)',
+      r'(?:pixeldrain\.(?:com|dev|org|net)|pd\d\.sriflix\.online|cdn\.pixeldrain\.eu\.cc|pixeldrain\.isuru\.eu\.org)\/(?:u\/|api\/file\/|file\/)?([a-zA-Z0-9_-]+)',
       caseSensitive: false,
     ).firstMatch(url);
     if (match != null && match.group(1) != null) {
-      final list = List<String>.from(_pixeldrainWorkers)..shuffle();
-      final worker = list.first;
-      return 'https://$worker/api/file/${match.group(1)}?download';
+      final id = match.group(1)!;
+      if (id.toLowerCase() != 'u' && id.toLowerCase() != 'api' && id.toLowerCase() != 'file') {
+        return 'https://cdn.pixeldrain.eu.cc/$id';
+      }
     }
     return url;
   }
