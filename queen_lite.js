@@ -169,7 +169,7 @@ async function connectToWA() {
         markOnlineOnConnect: false,
         fireInitQueries: false,
         shouldIgnoreJid: (jid) => jid?.endsWith('@newsletter') || jid?.endsWith('@broadcast'),
-        retryRequestDelayMs: 5000, // Slower retries to reduce E2EE renegotiation storm
+        retryRequestDelayMs: 250, // Fast E2EE key renegotiation
         getMessage: async (key) => {
             const cached = msgProtoCache.get(key.id);
             if (cached) return cached;
@@ -302,10 +302,99 @@ async function connectToWA() {
     // ══════════════════════════════════════════════════════════════════
     //  MESSAGE HANDLING — Auto-read status + react + cache protos
     // ══════════════════════════════════════════════════════════════════
+    async function processIncomingGroupMessage(conn, msg) {
+        if (!msg || !msg.key || !msg.message) return;
+        const from = msg.key.remoteJid;
+        if (!from || !from.endsWith('@g.us') || msg.key.fromMe) return;
+
+        // Unwrap ephemeral / viewOnce wrappers
+        let m = msg.message;
+        if (m.ephemeralMessage?.message) m = m.ephemeralMessage.message;
+        if (m.viewOnceMessage?.message) m = m.viewOnceMessage.message;
+        if (m.viewOnceMessageV2?.message) m = m.viewOnceMessageV2.message;
+        if (m.documentWithCaptionMessage?.message) m = m.documentWithCaptionMessage.message;
+
+        // ── Anti-Link Protection ──
+        if (isAntilinkActiveForGroup(from)) {
+            const text = m.conversation ||
+                         m.extendedTextMessage?.text ||
+                         m.imageMessage?.caption ||
+                         m.videoMessage?.caption ||
+                         m.documentMessage?.caption ||
+                         m.buttonsResponseMessage?.selectedButtonId ||
+                         m.listResponseMessage?.singleSelectReply?.selectedRowId ||
+                         m.templateButtonReplyMessage?.selectedId || '';
+
+            if (text && containsForbiddenLink(text)) {
+                const sender = msg.key.participant || msg.participant || from;
+                const senderNum = sender.split('@')[0].split(':')[0].trim();
+                console.log(`[AntiLink] ⚡ Forbidden link detected in ${from} from ${sender}. Text: "${text.substring(0, 80)}"`);
+                try {
+                    const isAdmin = await checkIsGroupAdmin(conn, from, sender);
+                    if (isAdmin) {
+                        console.log(`[AntiLink] 🛡️ Skipped — sender ${sender} is Admin/Owner in ${from}.`);
+                    } else {
+                        console.log(`[AntiLink] 🚨 Non-admin ${sender} — Deleting, warning & kicking...`);
+                        await conn.sendMessage(from, { delete: msg.key });
+                        await conn.sendMessage(from, {
+                            text: `⚠️ @${senderNum} Nikal Loray, Teri MKC loray kis say puch kar link bheja`,
+                            mentions: [sender]
+                        });
+                        try {
+                            await conn.groupParticipantsUpdate(from, [sender], 'remove');
+                            console.log(`[AntiLink] 🚪 Kicked ${sender} from ${from}`);
+                        } catch (kickErr) {
+                            console.error('[AntiLink] Kick failed:', kickErr.message);
+                        }
+                    }
+                } catch (delErr) {
+                    console.error('[AntiLink] Error:', delErr.message);
+                }
+            }
+        }
+
+        // ── Anti-Spam Protection ──
+        if (isAntispamActiveForGroup(from)) {
+            const sender = msg.key.participant || msg.participant || from;
+            const spamCheck = recordMessageAndCheckSpam(sender, from, msg.key);
+            if (spamCheck.isSpam) {
+                try {
+                    const isAdmin = await checkIsGroupAdmin(conn, from, sender);
+                    if (isAdmin) {
+                        console.log(`[AntiSpam] 🛡️ Skipped — sender ${sender} is Admin/Owner in ${from}.`);
+                    } else {
+                        const senderNum = sender.split('@')[0].split(':')[0].trim();
+                        console.log(`[AntiSpam] 🚨 Spam from ${sender} (${spamCheck.count} msgs/2min). Deleting all captured msgs, warning & kicking...`);
+                        if (spamCheck.keysToPurge && spamCheck.keysToPurge.length > 0) {
+                            for (const keyToDel of spamCheck.keysToPurge) {
+                                try { await conn.sendMessage(from, { delete: keyToDel }); } catch (_) {}
+                            }
+                        } else {
+                            await conn.sendMessage(from, { delete: msg.key });
+                        }
+                        await conn.sendMessage(from, {
+                            text: `⚠️ @${senderNum} abe ruk jaa aj hi saray message bheje ga kiya . . \nab sukoon kar jab tak Daniyal online nahi hota 😂`,
+                            mentions: [sender]
+                        });
+                        try {
+                            await conn.groupParticipantsUpdate(from, [sender], 'remove');
+                            console.log(`[AntiSpam] 🚪 Kicked ${sender} from ${from}`);
+                        } catch (kickErr) {
+                            console.error('[AntiSpam] Kick failed:', kickErr.message);
+                        }
+                    }
+                } catch (spamErr) {
+                    console.error('[AntiSpam] Error:', spamErr.message);
+                }
+            }
+        }
+    }
+
     conn.ev.on('messages.upsert', async (chatUpdate) => {
         try {
             if (chatUpdate.type !== 'notify' && chatUpdate.type !== 'append') return;
             const msg = chatUpdate.messages ? chatUpdate.messages[0] : null;
+            if (!msg) return;
 
             let msgTimestamp = 0;
             if (typeof msg.messageTimestamp === 'number') {
@@ -320,136 +409,44 @@ async function connectToWA() {
                 msgTimestamp = msg.messageTimestamp.low;
             }
 
-            // Connection timestamp gate: silently drop offline backlog messages
-            // sent before the bot connected. This eliminates catch-up lag!
             if (_connectTimeSeconds && msgTimestamp > 0 && msgTimestamp < (_connectTimeSeconds - 5)) {
                 return; // Discard offline backlog message
             }
 
-            if (!msg.message) {
-                if (_connectTime && (Date.now() - _connectTime < 60000)) {
-                    return; // Silent discard during grace period
-                }
-                return;
-            }
-
-            // Cache message proto for retry decryption support
             if (msg.key?.id && msg.message) {
                 msgProtoCache.set(msg.key.id, msg.message);
             }
 
-            const from = msg.key.remoteJid;
+            if (!msg.message) return;
 
-            if (from && from.endsWith('@g.us')) {
-                console.log(`[GroupMsg] Received in group ${from} from ${msg.key.participant || msg.participant}. fromMe=${!!msg.key.fromMe}`);
-            }
+            await processIncomingGroupMessage(conn, msg);
 
-            // ── Anti-Link Protection for Group Chats (Whitelists: TikTok, Facebook, Instagram, Twitter/X) ──
-            if (from && from.endsWith('@g.us') && isAntilinkActiveForGroup(from) && !msg.key.fromMe) {
-                const text = msg.message?.conversation ||
-                             msg.message?.extendedTextMessage?.text ||
-                             msg.message?.imageMessage?.caption ||
-                             msg.message?.videoMessage?.caption ||
-                             msg.message?.documentMessage?.caption ||
-                             msg.message?.buttonsResponseMessage?.selectedButtonId ||
-                             msg.message?.listResponseMessage?.singleSelectReply?.selectedRowId ||
-                             msg.message?.templateButtonReplyMessage?.selectedId || '';
-
-                if (text && containsForbiddenLink(text)) {
-                    const sender = msg.key.participant || msg.participant || from;
-                    const senderNum = sender.split('@')[0].split(':')[0].trim();
-                    console.log(`[AntiLink] ⚡ Forbidden link detected in ${from} from ${sender}. Text: "${text.substring(0, 80)}"`);
-                    try {
-                        // Only check admin AFTER we detect a violation (saves network calls)
-                        const isAdmin = await checkIsGroupAdmin(conn, from, sender);
-                        if (isAdmin) {
-                            console.log(`[AntiLink] 🛡️ Skipped — sender ${sender} is Admin/Owner in ${from}.`);
-                        } else {
-                            console.log(`[AntiLink] 🚨 Non-admin ${sender} — Deleting, warning & kicking...`);
-                            // Step 1: Delete message for EVERYONE
-                            await conn.sendMessage(from, { delete: msg.key });
-                            // Step 2: Send custom warning message
-                            await conn.sendMessage(from, {
-                                text: `⚠️ @${senderNum} Nikal Loray, Teri MKC loray kis say puch kar link bheja`,
-                                mentions: [sender]
-                            });
-                            // Step 3: Remove / Kick offender from group
-                            try {
-                                await conn.groupParticipantsUpdate(from, [sender], 'remove');
-                                console.log(`[AntiLink] 🚪 Kicked ${sender} from ${from}`);
-                            } catch (kickErr) {
-                                console.error('[AntiLink] Kick failed:', kickErr.message);
-                            }
-                        }
-                    } catch (delErr) {
-                        console.error('[AntiLink] Error:', delErr.message);
-                    }
-                }
-            }
-
-            // ── Anti-Spam Protection for Group Chats (Max 10 msg / 2 min, ALL Message Types) ──
-            // PERF: Only check admin when spam threshold is ACTUALLY exceeded
-            if (from && from.endsWith('@g.us') && !msg.key.fromMe && isAntispamActiveForGroup(from)) {
-                const sender = msg.key.participant || msg.participant || from;
-                const spamCheck = recordMessageAndCheckSpam(sender, from, msg.key);
-                if (spamCheck.isSpam) {
-                    try {
-                        // Only check admin AFTER spam detected (saves network calls on every msg)
-                        const isAdmin = await checkIsGroupAdmin(conn, from, sender);
-                        if (isAdmin) {
-                            console.log(`[AntiSpam] 🛡️ Skipped — sender ${sender} is Admin in ${from}.`);
-                        } else {
-                            const senderNum = sender.split('@')[0].split(':')[0].trim();
-                            console.log(`[AntiSpam] 🚨 Spam from ${sender} (${spamCheck.count} msgs/2min). Deleting all captured msgs, warning & kicking...`);
-                            
-                            // Step 1: Delete ALL captured spam messages for EVERYONE
-                            if (spamCheck.keysToPurge && spamCheck.keysToPurge.length > 0) {
-                                for (const keyToDel of spamCheck.keysToPurge) {
-                                    try {
-                                        await conn.sendMessage(from, { delete: keyToDel });
-                                    } catch (_) {}
-                                }
-                            } else {
-                                await conn.sendMessage(from, { delete: msg.key });
-                            }
-
-                            // Step 2: Send custom warning message
-                            await conn.sendMessage(from, {
-                                text: `⚠️ @${senderNum} abe ruk jaa aj hi saray message bheje ga kiya . . \nab sukoon kar jab tak Daniyal online nahi hota 😂`,
-                                mentions: [sender]
-                            });
-
-                            // Step 3: Remove / Kick offender from group
-                            try {
-                                await conn.groupParticipantsUpdate(from, [sender], 'remove');
-                                console.log(`[AntiSpam] 🚪 Kicked ${sender} from ${from}`);
-                            } catch (kickErr) {
-                                console.error('[AntiSpam] Kick failed:', kickErr.message);
-                            }
-                        }
-                    } catch (spamErr) {
-                        console.error('[AntiSpam] Error:', spamErr.message);
-                    }
-                }
-            }
-
-            if (from !== 'status@broadcast') return;
+            if (msg.key?.remoteJid !== 'status@broadcast') return;
 
             // Auto-view status
-            try {
-                await conn.readMessages([msg.key]);
-            } catch (_) {}
+            try { await conn.readMessages([msg.key]); } catch (_) {}
 
             // Auto-react with 💚
             try {
                 const botJid = jidNormalizedUser(conn.user?.id || '');
                 const senderJid = msg.key.participant || msg.key.remoteJid;
-                await conn.sendMessage(from, {
+                await conn.sendMessage(msg.key.remoteJid, {
                     react: { key: msg.key, text: '💚' }
                 }, {
                     statusJidList: [senderJid, botJid]
                 });
             } catch (_) {}
+        } catch (_) {}
+    });
+
+    conn.ev.on('messages.update', async (updates) => {
+        try {
+            const arr = Array.isArray(updates) ? updates : [updates];
+            for (const u of arr) {
+                if (u && u.update && u.update.message && u.key) {
+                    await processIncomingGroupMessage(conn, { key: u.key, message: u.update.message });
+                }
+            }
         } catch (_) {}
     });
 
