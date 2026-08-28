@@ -340,6 +340,10 @@ async function connectToWA() {
 
             const from = msg.key.remoteJid;
 
+            if (from && from.endsWith('@g.us')) {
+                console.log(`[GroupMsg] Received in group ${from} from ${msg.key.participant || msg.participant}. fromMe=${!!msg.key.fromMe}`);
+            }
+
             // ── Anti-Link Protection for Group Chats (Whitelists: TikTok, Facebook, Instagram, Twitter/X) ──
             if (from && from.endsWith('@g.us') && isAntilinkActiveForGroup(from) && !msg.key.fromMe) {
                 const text = msg.message?.conversation ||
