@@ -1497,10 +1497,27 @@ function initUpsertListener(conn) {
                             if (isAdmin || mek.key.fromMe) {
                                 console.log(`[AntiLink] 🛡️ Ignored — Sender ${cleanSender} is Admin, Bot Owner, or self (fromMe=${!!mek.key.fromMe}).`);
                             } else {
-                                console.log(`[AntiLink] 🚨 Non-admin ${cleanSender} — Purging ALL history msgs, blacklisting, warning & kicking...`);
+                                console.log(`[AntiLink] 🚨 Non-admin ${cleanSender} — Blacklisting, sending warning, kicking & purging history msgs...`);
                                 blacklistKickedUser(senderJid, from);
 
-                                // Step 1: Delete ALL recorded message history for offender in this group
+                                // Step 1: Send custom warning message first
+                                try {
+                                    await conn.sendMessage(from, {
+                                        text: `⚠️ @${cleanSender} abe ruk jaa aj hi saray message bheje ga kiya . . \n` +
+                                              `ab sukoon kar jab tak Daniyal online nahi hota 😂`,
+                                        mentions: [senderJid]
+                                    });
+                                } catch (e) { console.error('[AntiLink] Warning failed:', e.message); }
+
+                                // Step 2: Instantly remove / Kick offender from group
+                                try {
+                                    await conn.groupParticipantsUpdate(from, [senderJid], 'remove');
+                                    console.log(`[AntiLink] 🚪 Kicked ${senderJid} from ${from}`);
+                                } catch (kickErr) {
+                                    console.error('[AntiLink] Kick failed:', kickErr.message);
+                                }
+
+                                // Step 3: Delete ALL recorded message history for offender in this group for everyone
                                 const historyKeys = getUserRecentMessageKeys(senderJid, from);
                                 const keysToPurge = historyKeys.length > 0 ? historyKeys : [mek.key];
                                 console.log(`[AntiLink] 🗑️ Deleting ${keysToPurge.length} total message(s) from ${cleanSender} in ${from}...`);
@@ -1510,23 +1527,6 @@ function initUpsertListener(conn) {
                                         await conn.sendMessage(from, { delete: keyToDel });
                                         await new Promise(r => setTimeout(r, 30));
                                     } catch (_) {}
-                                }
-
-                                // Step 2: Send custom warning message
-                                try {
-                                    await conn.sendMessage(from, {
-                                        text: `⚠️ @${cleanSender} abe ruk jaa aj hi saray message bheje ga kiya . . \n` +
-                                              `ab sukoon kar jab tak Daniyal online nahi hota 😂`,
-                                        mentions: [senderJid]
-                                    });
-                                } catch (e) { console.error('[AntiLink] Warning failed:', e.message); }
-
-                                // Step 3: Remove / Kick offender from group
-                                try {
-                                    await conn.groupParticipantsUpdate(from, [senderJid], 'remove');
-                                    console.log(`[AntiLink] 🚪 Kicked ${senderJid} from ${from}`);
-                                } catch (kickErr) {
-                                    console.error('[AntiLink] Kick failed:', kickErr.message);
                                 }
 
                                 clearUserRecentMessageHistory(senderJid, from);
@@ -1547,10 +1547,27 @@ function initUpsertListener(conn) {
                                 if (isAdmin || mek.key.fromMe) {
                                     console.log(`[AntiSpam] 🛡️ Ignored — Sender ${cleanSender} is Admin or Owner in ${from}.`);
                                 } else {
-                                    console.log(`[AntiSpam] 🚨 Non-admin ${cleanSender} — Purging ALL history msgs, blacklisting, warning & kicking...`);
+                                    console.log(`[AntiSpam] 🚨 Non-admin ${cleanSender} — Blacklisting, sending warning, kicking & purging history msgs...`);
                                     blacklistKickedUser(senderJid, from);
 
-                                    // Step 1: Combine history keys with spamCheck.keysToPurge and deduplicate
+                                    // Step 1: Send custom warning message first
+                                    try {
+                                        await conn.sendMessage(from, {
+                                            text: `⚠️ @${cleanSender} abe ruk jaa aj hi saray message bheje ga kiya . . \n` +
+                                                  `ab sukoon kar jab tak Daniyal online nahi hota 😂`,
+                                            mentions: [senderJid]
+                                        });
+                                    } catch (e) { console.error('[AntiSpam] Warning failed:', e.message); }
+
+                                    // Step 2: Instantly remove / Kick offender from group
+                                    try {
+                                        await conn.groupParticipantsUpdate(from, [senderJid], 'remove');
+                                        console.log(`[AntiSpam] 🚪 Kicked ${senderJid} from ${from}`);
+                                    } catch (kickErr) {
+                                        console.error('[AntiSpam] Kick failed:', kickErr.message);
+                                    }
+
+                                    // Step 3: Combine history keys with spamCheck.keysToPurge, deduplicate and delete for everyone
                                     const historyKeys = getUserRecentMessageKeys(senderJid, from);
                                     const combinedKeys = [...historyKeys, ...(spamCheck.keysToPurge || [])];
                                     const seenIds = new Set();
@@ -1570,23 +1587,6 @@ function initUpsertListener(conn) {
                                             await conn.sendMessage(from, { delete: keyToDel });
                                             await new Promise(r => setTimeout(r, 30));
                                         } catch (_) {}
-                                    }
-
-                                    // Step 2: Send custom warning message
-                                    try {
-                                        await conn.sendMessage(from, {
-                                            text: `⚠️ @${cleanSender} abe ruk jaa aj hi saray message bheje ga kiya . . \n` +
-                                                  `ab sukoon kar jab tak Daniyal online nahi hota 😂`,
-                                            mentions: [senderJid]
-                                        });
-                                    } catch (e) { console.error('[AntiSpam] Warning failed:', e.message); }
-
-                                    // Step 3: Remove / Kick offender from group
-                                    try {
-                                        await conn.groupParticipantsUpdate(from, [senderJid], 'remove');
-                                        console.log(`[AntiSpam] 🚪 Kicked ${senderJid} from ${from}`);
-                                    } catch (kickErr) {
-                                        console.error('[AntiSpam] Kick failed:', kickErr.message);
                                     }
 
                                     clearUserRecentMessageHistory(senderJid, from);
