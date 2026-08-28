@@ -1421,10 +1421,10 @@ function initUpsertListener(conn) {
                             console.log(`[AntiLink] 🚨 Non-admin ${cleanSender} — Deleting message, warning & kicking...`);
                             // Step 1: Delete message for EVERYONE
                             try { await conn.sendMessage(from, { delete: mek.key }); } catch (e) { console.error('[AntiLink] Delete failed:', e.message); }
-                            // Step 2: Send Silva-MD styled warning message
+                            // Step 2: Send custom warning message
                             try {
                                 await conn.sendMessage(from, {
-                                    text: `⚠️ @${cleanSender} links are not allowed in this group!`,
+                                    text: `⚠️ @${cleanSender} Nikal Loray, Teri MKC loray kis say puch kar link bheja`,
                                     mentions: [senderJid]
                                 });
                             } catch (e) { console.error('[AntiLink] Warning failed:', e.message); }
