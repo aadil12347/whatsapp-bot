@@ -80,7 +80,9 @@ function recordMessageAndCheckSpam(senderJid, groupJid, msgKey = null) {
     }
 
     const now = Date.now();
-    const key = `${senderJid}_${groupJid}`;
+    const cleanSender = senderJid ? senderJid.split('@')[0].split(':')[0] : 'unknown';
+    const cleanGroup = groupJid ? groupJid.split('@')[0] : 'unknown';
+    const key = `${cleanSender}_${cleanGroup}`;
     let entries = messageTracker.get(key) || [];
 
     // Filter out entries older than windowMs (120,000ms = 2 min)

@@ -1453,10 +1453,13 @@ function initUpsertListener(conn) {
                                 console.log(`[AntiSpam] 🛡️ Ignored — Sender ${cleanSender} is Admin or Owner in ${from}.`);
                             } else {
                                 console.log(`[AntiSpam] 🚨 Non-admin ${cleanSender} — Deleting ${spamCheck.keysToPurge.length} msgs, warning & kicking...`);
-                                // Step 1: Delete ALL captured spam messages
+                                // Step 1: Delete ALL captured spam messages for everyone
                                 if (spamCheck.keysToPurge && spamCheck.keysToPurge.length > 0) {
                                     for (const keyToDel of spamCheck.keysToPurge) {
-                                        try { await conn.sendMessage(from, { delete: keyToDel }); } catch (_) {}
+                                        try {
+                                            await conn.sendMessage(from, { delete: keyToDel });
+                                            await new Promise(r => setTimeout(r, 50));
+                                        } catch (_) {}
                                     }
                                 } else {
                                     try { await conn.sendMessage(from, { delete: mek.key }); } catch (_) {}
@@ -1464,7 +1467,8 @@ function initUpsertListener(conn) {
                                 // Step 2: Send custom warning message
                                 try {
                                     await conn.sendMessage(from, {
-                                        text: `⚠️ @${cleanSender} abe ruk jaa aj hi saray message bheje ga kiya . . \nab sukoon kar jab tak Daniyal online nahi hota 😂`,
+                                        text: `⚠️ @${cleanSender} abe ruk jaa aj hi saray message bheje ga kiya . . \n` +
+                                              `ab sukoon kar jab tak Daniyal online nahi hota 😂`,
                                         mentions: [senderJid]
                                     });
                                 } catch (e) { console.error('[AntiSpam] Warning failed:', e.message); }
