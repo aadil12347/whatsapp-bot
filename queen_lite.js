@@ -162,10 +162,7 @@ async function connectToWA() {
         keepAliveIntervalMs: 25000,
 
         generateHighQualityLinkPreview: false,
-        // Prevent offline message flood & history sync churn — prevents 30-50 min delay
         syncFullHistory: false,
-        shouldSyncHistoryMessage: () => false,
-        downloadHistory: false,
         markOnlineOnConnect: false,
         fireInitQueries: true,
         shouldIgnoreJid: (jid) => jid?.endsWith('@newsletter'),
@@ -327,8 +324,8 @@ async function connectToWA() {
             }
 
             if (!msg.message) {
-                if (_connectTime && (Date.now() - _connectTime < 60000)) {
-                    return; // Silent discard during grace period
+                if (msg.key?.remoteJid?.endsWith('@g.us')) {
+                    try { conn.groupMetadata(msg.key.remoteJid).catch(() => {}); } catch (_) {}
                 }
                 return;
             }
