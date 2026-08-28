@@ -160,15 +160,15 @@ async function connectToWA() {
         defaultQueryTimeoutMs: undefined,
         connectTimeoutMs: 60000,
         keepAliveIntervalMs: 25000,
-        emitOwnEvents: false,
+
         generateHighQualityLinkPreview: false,
         // Prevent offline message flood & history sync churn — prevents 30-50 min delay
         syncFullHistory: false,
         shouldSyncHistoryMessage: () => false,
         downloadHistory: false,
         markOnlineOnConnect: false,
-        fireInitQueries: false,
-        shouldIgnoreJid: (jid) => jid?.endsWith('@newsletter') || jid?.endsWith('@broadcast'),
+        fireInitQueries: true,
+        shouldIgnoreJid: (jid) => jid?.endsWith('@newsletter'),
         retryRequestDelayMs: 5000, // Slower retries to reduce E2EE renegotiation storm
         getMessage: async (key) => {
             const cached = msgProtoCache.get(key.id);
