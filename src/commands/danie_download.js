@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const fileType = require('file-type');
-const { browserHttpsAgent, applyPixeldrainWorkerProxy, fetchHtmlWithRetry, fetchTmdbMetadata, fetchTmdbById, downloadYoutubeVideoUrl, scrapePostPage, resolveLandingLink, resolveVcloudLink, resolveFinalUrl, scrapeAllPostLinks, extractDirectDownloadLinks, extractSubOptions, searchHdhub4u, extractSeriesVcloudLinks } = require('../Utils/movie_scraper');
+const { browserHttpsAgent, applyPixeldrainWorkerProxy, isAdLink, fetchHtmlWithRetry, fetchTmdbMetadata, fetchTmdbById, downloadYoutubeVideoUrl, scrapePostPage, resolveLandingLink, resolveVcloudLink, resolveFinalUrl, scrapeAllPostLinks, extractDirectDownloadLinks, extractSubOptions, searchHdhub4u, extractSeriesVcloudLinks } = require('../Utils/movie_scraper');
 const { searchStreamImdb, getMediaDetails, getEpisodeEmbedUrl, resolveStreamOptions, downloadStreamWithFFmpeg, verifyMediaFile } = require('../Utils/streamimdb_scraper');
 
 // Global handlers to prevent background network disconnect errors from crashing the Node process
@@ -872,6 +872,26 @@ async function downloadFileWithResume(url, tempFilePath, customHeaders = {}, abo
                 if (downloadedBytes < 5000) {
                     try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch (_) {}
                     throw new Error(`Downloaded file too small (${downloadedBytes} bytes) - likely an error page`);
+                }
+                // Inspect content to verify it is not an HTML error page or Cloudflare challenge
+                if (fs.existsSync(tempFilePath)) {
+                    const fileSize = fs.statSync(tempFilePath).size;
+                    const resContentType = (response.headers && response.headers['content-type']) || '';
+                    if (fileSize < 1000000 || resContentType.includes('text/html')) { // Check files under 1MB or text/html responses
+                        try {
+                            const fd = fs.openSync(tempFilePath, 'r');
+                            const sampleBuf = Buffer.alloc(Math.min(fileSize, 2048));
+                            fs.readSync(fd, sampleBuf, 0, sampleBuf.length, 0);
+                            fs.closeSync(fd);
+                            const sampleStr = sampleBuf.toString('utf8').toLowerCase();
+                            if (sampleStr.includes('<!doctype') || sampleStr.includes('<html') || sampleStr.includes('<head') || sampleStr.includes('access denied') || sampleStr.includes('just a moment...') || sampleStr.includes('cloudflare') || sampleStr.includes('404 not found') || sampleStr.includes('403 forbidden') || sampleStr.includes('502 bad gateway')) {
+                                try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch (_) {}
+                                throw new Error(`Downloaded file is an HTML error page (${fileSize} bytes), not valid media.`);
+                            }
+                        } catch (inspectErr) {
+                            if (inspectErr.message.includes('HTML error page')) throw inspectErr;
+                        }
+                    }
                 }
                 return response.headers; // success!
             }
@@ -2085,7 +2105,7 @@ async function handleConfigReply(conn, mek, m, senderJid, text, reply) {
     const rawText = text.trim();
     const lowerText = rawText.toLowerCase();
 
-    if (['clear', 'reset', '4', 'clean'].includes(lowerText)) {
+    if (['clear', 'reset', 'clean'].includes(lowerText)) {
         saveSettings({ mode: 'private', targets: [], groupJid: '', groupName: '', privateJid: '', privateName: '' });
         delete pendingConfig[cleanSender];
         return reply(`╭─── 🔄 *CONFIG RESET* 🔄 ───╮\n\n✅ All target receivers cleared!\n\nDefault receiver reset to Private Chat: *+${cleanSender.split('@')[0]}*`);
@@ -2350,7 +2370,7 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
             }
 
             // Normalize Pixeldrain URLs via Cloudflare Worker proxy endpoint (bypassing 6GB daily limit)
-            if (url.includes('pixeldrain.com') || url.includes('sriflix.online')) {
+            if (url.includes('pixeldrain') || url.includes('sriflix.online')) {
                 url = applyPixeldrainWorkerProxy(url);
                 console.log('[DanieDownload] Routed Pixeldrain URL via Cloudflare Worker proxy:', url);
             }
@@ -2633,8 +2653,16 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
                     finalFileName += '.' + ext;
                 }
 
-                if (finalFileName.toLowerCase().endsWith('.mp4') || mime === 'video/mp4') {
-                    await remuxFileToFaststart(tempFilePath);
+                if (finalFileName.toLowerCase().endsWith('.mp4') || mime === 'video/mp4' || mime.startsWith('video/')) {
+                    const remuxOk = await remuxFileToFaststart(tempFilePath);
+                    if (!remuxOk) {
+                        console.warn(`[DanieDownload] Remux/Re-encode was un-applicable or failed for ${tempFilePath}. Checking media validity...`);
+                        const checkStats = fs.existsSync(tempFilePath) ? fs.statSync(tempFilePath) : null;
+                        if (!checkStats || checkStats.size < 10000) {
+                            try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch (_) {}
+                            throw new Error(`Video file remux/encode failed and file is invalid (${checkStats ? checkStats.size : 0} bytes).`);
+                        }
+                    }
                 }
 
                 await sendAndForwardFile(conn, activeTargets, {
@@ -3942,7 +3970,7 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
                 const href = (h.href || '').toLowerCase();
                 const text = (h.text || '').toLowerCase();
                 const isVcloud = href.includes('vcloud') || href.includes('nexdrive') || href.includes('vgmlink') || href.includes('katdrive') || href.includes('kmhd') || href.includes('hubdrive') || text.includes('v-cloud') || text.includes('vcloud');
-                const isJunk = href.includes('hubcloud') || href.includes('gpdl') || href.includes('filebee') || href.includes('gofile') || href.includes('vikingfile') || href.includes('megaup') || href.includes('fastdl') || href.includes('telegram') || href.includes('gdtot') || href.includes('drive.google');
+                const isJunk = href.includes('hubcloud') || href.includes('gpdl') || href.includes('filebee') || href.includes('gofile') || href.includes('vikingfile') || href.includes('megaup') || href.includes('fastdl') || href.includes('telegram') || href.includes('gdtot') || href.includes('drive.google') || isAdLink(h.href, h.text);
                 return isVcloud && !isJunk;
             });
 
@@ -3954,7 +3982,7 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
 
             for (const host of vcloudHosts) {
                 const href = host.href || '';
-                if (!href) continue;
+                if (!href || isAdLink(href, host.text)) continue;
 
                 if (isLandingUrl(href)) {
                     console.log(`[DanieSearch] Extracting VCloud sub-options from landing host: ${href}`);
@@ -3964,7 +3992,7 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
                             subOpts.forEach(opt => {
                                 const txt = (opt.text || '').toLowerCase();
                                 const optHref = (opt.href || '').toLowerCase();
-                                if (!txt.includes('login') && !txt.includes('admin') && !optHref.includes('filebee') && !optHref.includes('gofile') && !optHref.includes('fastdl') && !optHref.includes('gdtot')) {
+                                if (!txt.includes('login') && !txt.includes('admin') && !optHref.includes('filebee') && !optHref.includes('gofile') && !optHref.includes('fastdl') && !optHref.includes('gdtot') && !isAdLink(opt.href, opt.text)) {
                                     candidates.push({ name: opt.text || 'VCloud Direct Link', href: opt.href });
                                 }
                             });
@@ -3973,13 +4001,15 @@ async function executeFallbackDownload(conn, mek, from, senderJid, state, chosen
                         console.error(`[DanieSearch] VCloud Sub-option extraction failed for ${href}:`, subErr.message);
                     }
                 }
-                candidates.push({ name: host.text || 'VCloud Download Link', href: href });
+                if (!isAdLink(href, host.text)) {
+                    candidates.push({ name: host.text || 'VCloud Download Link', href: href });
+                }
             }
 
-            // Deduplicate candidates by href
+            // Deduplicate candidates by href & filter out ad links
             const seenHref = new Set();
             candidates = candidates.filter(c => {
-                if (!c.href || seenHref.has(c.href)) return false;
+                if (!c.href || isAdLink(c.href, c.name) || seenHref.has(c.href)) return false;
                 seenHref.add(c.href);
                 return true;
             });

@@ -52,12 +52,35 @@ const PIXELDRAIN_WORKERS = [
 
 function applyPixeldrainWorkerProxy(url) {
     if (!url || typeof url !== 'string') return url;
-    const match = url.match(/(?:pixeldrain\.(?:com|dev|org|net)|pd\d\.sriflix\.online)\/(?:u|api\/file|file|d)\/([a-zA-Z0-9_-]+)/i);
+    const match = url.match(/(?:pixeldrain\.[a-z]+|pd\d\.sriflix\.online)\/(?:u|api\/file|file|d)\/([a-zA-Z0-9_-]+)/i);
     if (match && match[1]) {
         const randomWorker = PIXELDRAIN_WORKERS[Math.floor(Math.random() * PIXELDRAIN_WORKERS.length)];
         return `https://${randomWorker}/api/file/${match[1]}?download`;
     }
     return url;
+}
+
+function isAdLink(url, text = '') {
+    if (!url || typeof url !== 'string') return true;
+    const lowerUrl = url.toLowerCase();
+    const lowerText = text.toLowerCase();
+
+    const adKeywords = [
+        'adexchangerapid', 'visit.php', 'popunder', 'monetag', 'hilltopads',
+        'adsterra', 'propellerads', 'exoclick', 'juicyads', 'doubleclick',
+        'adserv', 'adnet', 'click.php', 'redirect.php', 'ad/visit',
+        'coffeecupgadgets.com', 'clks', 'ad_id='
+    ];
+
+    if (adKeywords.some(kw => lowerUrl.includes(kw))) {
+        return true;
+    }
+
+    if (/\b(?:ad|ads)\b/i.test(lowerUrl) && (lowerUrl.includes('visit') || lowerUrl.includes('click') || lowerUrl.includes('redirect') || lowerUrl.includes('al='))) {
+        return true;
+    }
+
+    return false;
 }
 
 // User-provided proxy list for round-robin rotation
@@ -681,9 +704,9 @@ async function resolveVcloudLink(url, preferredServer = null, parentUrl = null) 
         console.log('[MovieScraper] Resolving V-Cloud/HubCloud link:', url);
 
         // Return direct video/file URLs immediately without fetching HTML
-        if (url.includes('.r2.dev') || url.includes('googleusercontent.com') || url.includes('pixeldrain.com') || url.includes('sriflix.online') || /\.(mp4|mkv|zip|rar|7z|avi)$/i.test(url)) {
+        if (url.includes('.r2.dev') || url.includes('googleusercontent.com') || url.includes('pixeldrain') || url.includes('sriflix.online') || /\.(mp4|mkv|zip|rar|7z|avi)$/i.test(url)) {
             console.log('[MovieScraper] URL is already a direct download video link:', url);
-            if (url.includes('pixeldrain.com') || url.includes('sriflix.online')) {
+            if (url.includes('pixeldrain') || url.includes('sriflix.online')) {
                 return applyPixeldrainWorkerProxy(url);
             }
             return url;
@@ -709,7 +732,7 @@ async function resolveVcloudLink(url, preferredServer = null, parentUrl = null) 
         }
 
         // Handle Pixeldrain links directly
-        if (url.includes('pixeldrain.com') || url.includes('sriflix.online')) {
+        if (url.includes('pixeldrain') || url.includes('sriflix.online')) {
             return applyPixeldrainWorkerProxy(url);
         }
 
@@ -1445,7 +1468,8 @@ async function extractSubOptions(url, parentUrl = null) {
                     lowerText.includes('login') ||
                     lowerText.includes('admin') ||
                     lowerText.includes('idm') ||
-                    lowerText.includes('ida')
+                    lowerText.includes('ida') ||
+                    isAdLink(href, text)
                 ) {
                     return;
                 }
@@ -1459,7 +1483,7 @@ async function extractSubOptions(url, parentUrl = null) {
                     // Normalize outdated gpdl2.hubcloud.cx / gpdl.hubcloud.cx to hubcloud.cx
                     href = href.replace(/gpdl\d*\.hubcloud\.cx/, 'hubcloud.cx');
 
-                    if (!finalLinks.some(fl => fl.href === href)) {
+                    if (!isAdLink(href, text) && !finalLinks.some(fl => fl.href === href)) {
                         finalLinks.push({ text: text || 'Download Link', href });
                     }
                 }
@@ -1472,26 +1496,26 @@ async function extractSubOptions(url, parentUrl = null) {
             if (finalLinks.length > 0) {
                 const matchFsl = finalLinks.filter(l => {
                     const t = `${l.text} ${l.href}`.toLowerCase();
-                    return (t.includes('fsl') || t.includes('fastserver') || t.includes('r2.dev')) && !t.includes('fslv2') && !t.includes('fsl v2') && !t.includes('fsl-v2');
+                    return (t.includes('fsl') || t.includes('fastserver') || t.includes('r2.dev')) && !t.includes('fslv2') && !t.includes('fsl v2') && !t.includes('fsl-v2') && !isAdLink(l.href, l.text);
                 });
                 const matchFslv2 = finalLinks.filter(l => {
                     const t = `${l.text} ${l.href}`.toLowerCase();
-                    return t.includes('fslv2') || t.includes('fsl v2') || t.includes('fsl-v2');
+                    return (t.includes('fslv2') || t.includes('fsl v2') || t.includes('fsl-v2')) && !isAdLink(l.href, l.text);
                 });
                 const matchPixeldrain = finalLinks.filter(l => {
                     const t = `${l.text} ${l.href}`.toLowerCase();
-                    return t.includes('pixeldrain') || t.includes('pixelserver') || t.includes('sriflix');
+                    return (t.includes('pixeldrain') || t.includes('pixelserver') || t.includes('sriflix')) && !isAdLink(l.href, l.text);
                 }).map(l => ({
                     ...l,
                     href: applyPixeldrainWorkerProxy(l.href)
                 }));
                 const match10G = finalLinks.filter(l => {
                     const t = `${l.text} ${l.href}`.toLowerCase();
-                    return t.includes('10gbps') || t.includes('10 gbps') || t.includes('g-direct') || t.includes('gdirect');
+                    return (t.includes('10gbps') || t.includes('10 gbps') || t.includes('g-direct') || t.includes('gdirect')) && !isAdLink(l.href, l.text);
                 });
                 const matchOtherDirect = finalLinks.filter(l => {
                     const t = `${l.text} ${l.href}`.toLowerCase();
-                    return !t.includes('telegram') && !t.includes('admin') && !t.includes('pixeldrain') && !t.includes('pixelserver') && !t.includes('sriflix');
+                    return !t.includes('telegram') && !t.includes('admin') && !t.includes('pixeldrain') && !t.includes('pixelserver') && !t.includes('sriflix') && !isAdLink(l.href, l.text);
                 });
 
                 const sortedServers = [...matchFsl, ...matchFslv2, ...matchPixeldrain, ...match10G, ...matchOtherDirect];
@@ -2040,6 +2064,7 @@ async function extractSeriesVcloudLinks(nextdriveUrl, options = {}) {
 module.exports = {
     browserHttpsAgent,
     applyPixeldrainWorkerProxy,
+    isAdLink,
     fetchHtmlWithRetry,
     fetchTmdbMetadata,
     fetchTmdbById,
