@@ -42,9 +42,13 @@ function killPreviousInstances() {
 
                     if (process.platform === 'win32') {
                         try {
-                            execSync(`taskkill /F /PID ${oldPid}`, { stdio: 'ignore' });
+                            execSync(`taskkill /F /T /PID ${oldPid}`, { stdio: 'ignore' });
                         } catch (_) {}
                     }
+                    try {
+                        const { releaseBotLock } = require('./supabaseSession');
+                        releaseBotLock();
+                    } catch (_) {}
                 }
             }
         } catch (e) {
