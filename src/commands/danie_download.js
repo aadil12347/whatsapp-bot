@@ -5715,6 +5715,32 @@ function parseGroupSelections(inputText, groupsList) {
     return selected;
 }
 
+async function resolveGroupNamesForList(conn, jidList) {
+    if (!Array.isArray(jidList) || jidList.length === 0) return [];
+    let participatingObj = {};
+    try {
+        participatingObj = await safeFetchParticipatingGroups(conn);
+    } catch (_) {}
+
+    const results = [];
+    for (const item of jidList) {
+        if (!item || typeof item !== 'string') continue;
+        const cleanJid = item.trim();
+        const cleanNumber = cleanJid.split('@')[0];
+
+        const matchedGroup = participatingObj[cleanJid] || 
+                             Object.values(participatingObj).find(g => g && g.id && g.id.includes(cleanNumber));
+
+        if (matchedGroup) {
+            const name = matchedGroup.subject || matchedGroup.name || cleanNumber;
+            results.push({ jid: matchedGroup.id || cleanJid, name, isParticipating: true });
+        } else if (cleanJid === 'all') {
+            results.push({ jid: 'all', name: 'ALL Group Chats', isParticipating: true });
+        }
+    }
+    return results;
+}
+
 async function fetchAndFormatGroupMenu(conn, from, senderJid, mode, action, reply) {
     let groupsObj = {};
     try {
@@ -5827,14 +5853,19 @@ async function handleAntilinkCommand(conn, mek, from, senderJid, args, reply) {
             groups.push(from);
         }
         saveAntilinkData(true, groups);
+        const activeGroups = await resolveGroupNamesForList(conn, groups);
+        const groupListText = activeGroups.length > 0 
+            ? activeGroups.map((g, i) => `  ${i + 1}. 👥 *${g.name}*`).join('\n')
+            : '  _ALL Groups (Default)_';
+
         return reply(
             `╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮\n` +
             `│      🛡️ *ANTI-LINK PROTECTION* 🛡️      │\n` +
             `╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯\n\n` +
             `✅ *Global Anti-Link Status:* *🟢 ON (ENABLED)*\n` +
             `🌐 *Protection Scope:* *All URLs / Web Links Detected*\n\n` +
-            `👥 *Protected Groups (${groups.length}):*\n${groups.length > 0 ? groups.map((g, i) => `  ${i + 1}. \`${g}\``).join('\n') : '  _ALL Groups (Default)_'}\n\n` +
-            `🚨 *Action:* Anyone sending links will have their message deleted, warning sent & kicked from group.`
+            `👥 *Protected Groups (${activeGroups.length}):*\n${groupListText}\n\n` +
+            `🚨 *Action:* Anyone sending links will have their warning sent, user kicked & messages deleted.`
         );
     }
 
@@ -5855,7 +5886,10 @@ async function handleAntilinkCommand(conn, mek, from, senderJid, args, reply) {
         }
         if (param.endsWith('@g.us')) {
             const updated = addGroupToAntilink(param);
-            return reply(`✅ *Group Added to Anti-Link Protection List!*\n\n👥 *Group JID:* \`${param}\` \n🛡️ *Total Protected Groups:* *${updated.length}*`);
+            const activeGroups = await resolveGroupNamesForList(conn, updated);
+            const addedGroupObj = activeGroups.find(g => g.jid === param);
+            const displayName = addedGroupObj ? addedGroupObj.name : param.split('@')[0];
+            return reply(`✅ *Group Added to Anti-Link Protection List!*\n\n👥 *Group Name:* *${displayName}*\n🛡️ *Total Active Protected Groups:* *${activeGroups.length}*`);
         }
         let groupsObj = {};
         try { groupsObj = await safeFetchParticipatingGroups(conn); } catch (_) {}
@@ -5864,7 +5898,7 @@ async function handleAntilinkCommand(conn, mek, from, senderJid, args, reply) {
         if (selected.length > 0) {
             selected.forEach(g => addGroupToAntilink(g.jid));
             let resText = `✅ Anti-Link protection *ADDED* for *${selected.length}* group(s):\n\n`;
-            selected.forEach((g, idx) => { resText += `  ${idx + 1}. 👥 *${g.name}* (\`${g.jid}\`)\n`; });
+            selected.forEach((g, idx) => { resText += `  ${idx + 1}. 👥 *${g.name}*\n`; });
             return reply(resText);
         }
         return await fetchAndFormatGroupMenu(conn, from, senderJid, 'antilink', 'add', reply);
@@ -5876,7 +5910,8 @@ async function handleAntilinkCommand(conn, mek, from, senderJid, args, reply) {
         }
         if (param.endsWith('@g.us')) {
             const updated = removeGroupFromAntilink(param);
-            return reply(`✅ *Group Removed from Anti-Link Protection List!*\n\n👥 *Group JID:* \`${param}\` \n🛡️ *Total Protected Groups:* *${updated.length}*`);
+            const activeGroups = await resolveGroupNamesForList(conn, updated);
+            return reply(`✅ *Group Removed from Anti-Link Protection List!*\n\n👥 *Group:* \`${param.split('@')[0]}\` \n🛡️ *Total Active Protected Groups:* *${activeGroups.length}*`);
         }
         let groupsObj = {};
         try { groupsObj = await safeFetchParticipatingGroups(conn); } catch (_) {}
@@ -5885,19 +5920,20 @@ async function handleAntilinkCommand(conn, mek, from, senderJid, args, reply) {
         if (selected.length > 0) {
             selected.forEach(g => removeGroupFromAntilink(g.jid));
             let resText = `✅ Anti-Link protection *REMOVED* for *${selected.length}* group(s):\n\n`;
-            selected.forEach((g, idx) => { resText += `  ${idx + 1}. 👥 *${g.name}* (\`${g.jid}\`)\n`; });
+            selected.forEach((g, idx) => { resText += `  ${idx + 1}. 👥 *${g.name}*\n`; });
             return reply(resText);
         }
         return await fetchAndFormatGroupMenu(conn, from, senderJid, 'antilink', 'remove', reply);
     }
 
     if (subCmd === 'list' || subCmd === 'groups') {
+        const activeGroups = await resolveGroupNamesForList(conn, groups);
         let text = `╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮\n│   🛡️ *PROTECTED ANTI-LINK GROUPS* 🛡️   │\n╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯\n\n`;
-        if (groups.length === 0) {
-            text += `ℹ️ _No specific groups in list. Anti-Link applies to ALL group chats when ON._`;
+        if (activeGroups.length === 0) {
+            text += `ℹ️ _No active protected groups found. Anti-Link applies to ALL group chats when ON._`;
         } else {
-            groups.forEach((g, idx) => {
-                text += `  \`${idx + 1}\` • 👥 \`${g}\` \n`;
+            activeGroups.forEach((g, idx) => {
+                text += `  \`${idx + 1}\` • 👥 *${g.name}*\n`;
             });
         }
         return reply(text);
@@ -5905,6 +5941,7 @@ async function handleAntilinkCommand(conn, mek, from, senderJid, args, reply) {
 
     // Default Status & Control Menu
     const statusLabel = enabled ? '🟢 *ON*' : '🔴 *OFF*';
+    const activeGroups = await resolveGroupNamesForList(conn, groups);
     const isCurrentGroupProtected = groups.some(g => g.includes(from.split('@')[0]));
     const currentGroupLabel = from.endsWith('@g.us') ? (isCurrentGroupProtected ? '🟢 *Protected*' : '🔴 *Not Protected*') : 'N/A (Private Chat)';
 
@@ -5914,7 +5951,7 @@ async function handleAntilinkCommand(conn, mek, from, senderJid, args, reply) {
         `╰────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╯\n\n` +
         `📊 *Global Status:* ${statusLabel}\n` +
         `📍 *This Group Status:* ${currentGroupLabel}\n` +
-        `🛡️ *Protected Groups:* *${groups.length}*\n\n` +
+        `🛡️ *Active Protected Groups:* *${activeGroups.length}*\n\n` +
         `┌─❒ *Available Commands*\n` +
         `│  1️⃣ \`.antilink on\`        ➜ Turn Anti-Link Global ON\n` +
         `│  2️⃣ \`.antilink off\`       ➜ Turn Anti-Link Global OFF\n` +
@@ -5954,6 +5991,11 @@ async function handleAntispamCommand(conn, mek, from, senderJid, args, reply) {
             groups.push(from);
         }
         saveAntispamData(true, groups, limit, windowMs);
+        const activeGroups = await resolveGroupNamesForList(conn, groups);
+        const groupListText = activeGroups.length > 0 
+            ? activeGroups.map((g, i) => `  ${i + 1}. 👥 *${g.name}*`).join('\n')
+            : '  _ALL Groups (Default)_';
+
         return reply(
             `╭────────────── ⋆ ⋅ ✦ ⋅ ⋆ ──────────────╮\n` +
             `│      🚨 *ANTI-SPAM PROTECTION* 🚨      │\n` +
