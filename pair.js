@@ -142,6 +142,8 @@ async function startPairing(cleanStart = true) {
             selectedPairingMode = 'qr';
         } else if (cliArgs.includes('--code') || cliArgs.includes('-code') || cliArgs.includes('code') || cliArgs.includes('1')) {
             selectedPairingMode = 'code';
+        } else if (!process.stdin.isTTY) {
+            selectedPairingMode = 'code';
         } else {
             console.log('');
             console.log('╔═══════════════════════════════════════════════════════╗');
@@ -170,6 +172,10 @@ async function startPairing(cleanStart = true) {
         let rawNum = process.argv.find(a => /^\+?\d{7,15}$/.test(a.trim())) || process.env.NUMBER || process.env.BOT_NUMBER;
         
         if (!rawNum || rawNum.includes('your account') || rawNum.trim() === '') {
+            if (!process.stdin.isTTY) {
+                console.error('❌ Error: Phone number missing in non-interactive environment (GitHub Actions). Set BOT_NUMBER secret or pass phone_number input.');
+                process.exit(1);
+            }
             const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
             rawNum = await new Promise((resolve) => {
                 rl.question('📱 Enter your WhatsApp phone number with country code (e.g. 923013068663): ', (ans) => {

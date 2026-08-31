@@ -1,0 +1,65 @@
+name: Pairing
+
+on:
+  workflow_dispatch:
+    inputs:
+      phone_number:
+        description: 'WhatsApp Phone Number with country code (e.g. 923253068800). Leave empty to use secrets.NUMBER'
+        required: false
+        default: ''
+      mode:
+        description: 'Pairing Mode (code = Pairing Code, qr = QR Code)'
+        required: false
+        default: 'code'
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: whatsapp-bot-pairing
+  cancel-in-progress: true
+
+jobs:
+  clean-pairing:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 📦 Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 10
+
+      - name: ⚙️ Install Dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: 🧹 Execute Clean Pairing
+        env:
+          URL: '${{ secrets.URL }}'
+          KEY: '${{ secrets.KEY }}'
+          NUMBER: '${{ github.event.inputs.phone_number || secrets.NUMBER }}'
+          SUPABASE_URL: '${{ secrets.URL }}'
+          SUPABASE_KEY: '${{ secrets.KEY }}'
+          BOT_NUMBER: '${{ github.event.inputs.phone_number || secrets.BOT_NUMBER }}'
+        run: |
+          echo "🧹 Running clean pairing process on GitHub Actions..."
+          node clean_pair.js ${{ github.event.inputs.mode || 'code' }} ${{ github.event.inputs.phone_number || secrets.NUMBER || secrets.BOT_NUMBER }}
+
+      - name: ☁️ Sync Fresh Paired Keys to Supabase
+        if: always()
+        env:
+          URL: '${{ secrets.URL }}'
+          KEY: '${{ secrets.KEY }}'
+          SUPABASE_URL: '${{ secrets.URL }}'
+          SUPABASE_KEY: '${{ secrets.KEY }}'
+        run: |
+          echo "☁️ Ensuring fresh paired session keys are synced to Supabase..."
+          node scratch/upload_current_session.js || true
