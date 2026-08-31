@@ -1776,47 +1776,72 @@ function initUpsertListener(conn) {
             }
 
             // ---- AUTO-URL DETECTOR FOR OWNER (Direct Link Auto-Downloader) ----
-            const urlMatch = trimmedText.match(/https?:\/\/[^\s]+/i);
-            if (urlMatch && urlMatch[0]) {
-                const detectedUrl = urlMatch[0];
-                const lowerUrl = detectedUrl.toLowerCase();
+            const isBotOutputMessage = mek.key.fromMe && (
+                trimmedText.startsWith('❌') || 
+                trimmedText.startsWith('╭') || 
+                trimmedText.startsWith('┌') || 
+                trimmedText.startsWith('🎬') || 
+                trimmedText.startsWith('⚠️') || 
+                trimmedText.startsWith('🟢') || 
+                trimmedText.startsWith('Done') ||
+                trimmedText.includes('Failed to download') ||
+                trimmedText.includes('Cloudflare protection') ||
+                trimmedText.includes('Direct YouTube video URL') ||
+                trimmedText.includes('Auto-routing') ||
+                trimmedText.includes('Task completed')
+            );
 
-                console.log(`[DanieWatch] 🔗 Direct URL detected from owner: "${detectedUrl}"`);
+            if (!isBotOutputMessage) {
+                const urlMatch = trimmedText.match(/https?:\/\/[^\s]+/i);
+                if (urlMatch && urlMatch[0]) {
+                    let detectedUrl = urlMatch[0].replace(/[)\],.*_*]+$/, '').trim();
+                    const lowerUrl = detectedUrl.toLowerCase();
 
-                if (lowerUrl.includes('tiktok.com')) {
-                    console.log(`[DanieWatch] Auto-routing TikTok link to .tiktok handler...`);
-                    await DANIE_COMMANDS['tiktok'](conn, mek, targetJid, senderJid, detectedUrl, reply);
-                    return;
-                }
-                if (lowerUrl.includes('instagram.com') || lowerUrl.includes('instagr.am')) {
-                    console.log(`[DanieWatch] Auto-routing Instagram link to .ig handler...`);
-                    await DANIE_COMMANDS['ig'](conn, mek, targetJid, senderJid, detectedUrl, reply);
-                    return;
-                }
-                if (lowerUrl.includes('facebook.com') || lowerUrl.includes('fb.watch') || lowerUrl.includes('fb.gg') || lowerUrl.includes('fb.com')) {
-                    console.log(`[DanieWatch] Auto-routing Facebook link to .fb handler...`);
-                    await DANIE_COMMANDS['fb'](conn, mek, targetJid, senderJid, detectedUrl, reply);
-                    return;
-                }
-                if (lowerUrl.includes('twitter.com') || lowerUrl.includes('x.com')) {
-                    console.log(`[DanieWatch] Auto-routing Twitter/X link to .twitter handler...`);
-                    await DANIE_COMMANDS['twitter'](conn, mek, targetJid, senderJid, detectedUrl, reply);
-                    return;
-                }
-                if (lowerUrl.includes('youtube.com') || lowerUrl.includes('youtu.be')) {
-                    if (lowerUrl.includes('music.youtube.com') || trimmedText.toLowerCase().includes('audio') || trimmedText.toLowerCase().includes('song') || trimmedText.toLowerCase().includes('mp3')) {
-                        console.log(`[DanieWatch] Auto-routing YouTube Music link to .ytm handler...`);
-                        await DANIE_COMMANDS['ytm'](conn, mek, targetJid, senderJid, detectedUrl, reply);
-                    } else {
-                        console.log(`[DanieWatch] Auto-routing YouTube Video link to .yt handler...`);
-                        await DANIE_COMMANDS['yt'](conn, mek, targetJid, senderJid, detectedUrl, reply);
+                    console.log(`[DanieWatch] 🔗 Direct URL detected: "${detectedUrl}"`);
+
+                    const safeExec = async (cmdKey) => {
+                        if (typeof DANIE_COMMANDS[cmdKey] === 'function') {
+                            await DANIE_COMMANDS[cmdKey](conn, mek, targetJid, senderJid, detectedUrl, reply);
+                        } else {
+                            console.warn(`[DanieWatch] Auto-route target command "${cmdKey}" is not registered in DANIE_COMMANDS.`);
+                        }
+                    };
+
+                    if (lowerUrl.includes('tiktok.com')) {
+                        console.log(`[DanieWatch] Auto-routing TikTok link to .tiktok handler...`);
+                        await safeExec('tiktok');
+                        return;
                     }
-                    return;
-                }
-                if (lowerUrl.includes('nexdrive.fit') || lowerUrl.includes('vcloud.fit') || lowerUrl.includes('vcloud.zip')) {
-                    console.log(`[DanieWatch] Auto-routing Series link to .se handler...`);
-                    await DANIE_COMMANDS['se'](conn, mek, targetJid, senderJid, detectedUrl, reply);
-                    return;
+                    if (lowerUrl.includes('instagram.com') || lowerUrl.includes('instagr.am')) {
+                        console.log(`[DanieWatch] Auto-routing Instagram link to .ig handler...`);
+                        await safeExec('ig');
+                        return;
+                    }
+                    if (lowerUrl.includes('facebook.com') || lowerUrl.includes('fb.watch') || lowerUrl.includes('fb.gg') || lowerUrl.includes('fb.com')) {
+                        console.log(`[DanieWatch] Auto-routing Facebook link to .fb handler...`);
+                        await safeExec('fb');
+                        return;
+                    }
+                    if (lowerUrl.includes('twitter.com') || lowerUrl.includes('x.com')) {
+                        console.log(`[DanieWatch] Auto-routing Twitter/X link to .twitter handler...`);
+                        await safeExec('twitter');
+                        return;
+                    }
+                    if (lowerUrl.includes('youtube.com') || lowerUrl.includes('youtu.be')) {
+                        if (lowerUrl.includes('music.youtube.com') || trimmedText.toLowerCase().includes('audio') || trimmedText.toLowerCase().includes('song') || trimmedText.toLowerCase().includes('mp3')) {
+                            console.log(`[DanieWatch] Auto-routing YouTube Music link to .ytm handler...`);
+                            await safeExec('ytm');
+                        } else {
+                            console.log(`[DanieWatch] Auto-routing YouTube Video link to .yt handler...`);
+                            await safeExec('yt');
+                        }
+                        return;
+                    }
+                    if (lowerUrl.includes('nexdrive.fit') || lowerUrl.includes('vcloud.fit') || lowerUrl.includes('vcloud.zip')) {
+                        console.log(`[DanieWatch] Auto-routing Series link to .se handler...`);
+                        await safeExec('se');
+                        return;
+                    }
                 }
             }
         }
@@ -3626,6 +3651,28 @@ DANIE_COMMANDS['sh'] = async (conn, mek, from, senderJid, args, reply) => {
 DANIE_COMMANDS['si'] = async (conn, mek, from, senderJid, args, reply) => {
     await streamImdbSearchHandler(conn, mek, from, senderJid, args, reply);
 };
+
+DANIE_COMMANDS['se'] = async (conn, mek, from, senderJid, args, reply) => {
+    const nextdriveUrl = (args || '').trim();
+    if (!nextdriveUrl || !nextdriveUrl.startsWith('http')) {
+        return reply('❌ Please provide a valid Nextdrive / V-Cloud landing page URL!\n\n*Example:* `.se https://nexdrive.fit/genxfm784776495266/`');
+    }
+    await reply(`⏳ *Extracting episode links from Nextdrive/V-Cloud...*\n⚡ *Concurrency:* 2 links simultaneously | ⏱️ *Timeout:* 20s per link`);
+    try {
+        const result = await extractSeriesVcloudLinks(nextdriveUrl, {
+            concurrency: 2,
+            timeoutMs: 20000
+        });
+        await reply(result.whatsappMessage);
+    } catch (err) {
+        console.error('[SeriesExtractor] Command failed:', err);
+        reply(`❌ Failed to extract series episode links: ${err.message}`);
+    }
+};
+DANIE_COMMANDS['seextract'] = DANIE_COMMANDS['se'];
+DANIE_COMMANDS['serieslinks'] = DANIE_COMMANDS['se'];
+DANIE_COMMANDS['nexdrive'] = DANIE_COMMANDS['se'];
+DANIE_COMMANDS['vcloudlinks'] = DANIE_COMMANDS['se'];
 
 async function fetchImdbId(tmdbId, type = 'movie') {
     const TMDB_KEY = 'fc6d85b3839330e3458701b975195487';

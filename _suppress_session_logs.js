@@ -31,7 +31,8 @@ const _blockStartPatterns = [
   'No session found to decrypt message',
   'USync fetch yielded no results',
   'transaction failed, rolling back',
-  'UNDECRYPTABLE message'
+  'UNDECRYPTABLE message',
+  'link-preview-js'
 ];
 
 const _blockContentPatterns = [
