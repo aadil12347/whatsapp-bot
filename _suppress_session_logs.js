@@ -26,6 +26,12 @@ const _blockStartPatterns = [
   'Decrypted message with closed session',
   'Closing open session in favor of incoming prekey bundle',
   'Failed to decrypt message with any known session',
+  'failed to find key',
+  'to decode mutation',
+  'No session found to decrypt message',
+  'USync fetch yielded no results',
+  'transaction failed, rolling back',
+  'UNDECRYPTABLE message'
 ];
 
 const _blockContentPatterns = [
@@ -54,7 +60,10 @@ const _blockContentPatterns = [
   'verifyMAC',
   'doDecryptWhisperMessage',
   'decryptWithSessions',
-  '_asyncQueueExecutor'
+  '_asyncQueueExecutor',
+  'decodeSyncdMutations',
+  'decodeSyncdSnapshot',
+  'getKey'
 ];
 
 /**

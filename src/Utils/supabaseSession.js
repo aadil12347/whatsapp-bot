@@ -80,7 +80,7 @@ async function uploadSessionToSupabase(sessionDir = path.join(__dirname, '../../
             return false;
         }
 
-        // Pre-prune excess pre-key files (> 15 files) to prevent session inflation
+        // Keep up to 200 pre-key files to prevent Signal E2EE handshake failures
         const preKeyFiles = files.filter(f => f.startsWith('pre-key-') && f.endsWith('.json'))
             .map(f => {
                 const fp = path.join(sessionDir, f);
@@ -90,13 +90,14 @@ async function uploadSessionToSupabase(sessionDir = path.join(__dirname, '../../
             .sort((a, b) => b.mtime - a.mtime);
 
         let prunedCount = 0;
-        if (preKeyFiles.length > 15) {
-            const toDelete = preKeyFiles.slice(15);
+        if (preKeyFiles.length > 200) {
+            const toDelete = preKeyFiles.slice(200);
             for (const item of toDelete) {
                 try { fs.unlinkSync(item.path); prunedCount++; } catch (_) {}
             }
         }
 
+        // Keep up to 500 app-state-sync keys to prevent "failed to find key to decode mutation" errors
         const appStateFiles = files.filter(f => f.startsWith('app-state-sync-') && f.endsWith('.json'))
             .map(f => {
                 const fp = path.join(sessionDir, f);
@@ -105,8 +106,8 @@ async function uploadSessionToSupabase(sessionDir = path.join(__dirname, '../../
             .filter(Boolean)
             .sort((a, b) => b.mtime - a.mtime);
 
-        if (appStateFiles.length > 10) {
-            const toDelete = appStateFiles.slice(10);
+        if (appStateFiles.length > 500) {
+            const toDelete = appStateFiles.slice(500);
             for (const item of toDelete) {
                 try { fs.unlinkSync(item.path); prunedCount++; } catch (_) {}
             }
