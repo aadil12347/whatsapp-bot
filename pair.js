@@ -138,9 +138,9 @@ async function startPairing(cleanStart = true) {
     // ── STEP 1: Select Pairing Method (Code vs QR) ──
     if (!selectedPairingMode) {
         const cliArgs = process.argv.slice(2);
-        if (cliArgs.includes('--qr') || cliArgs.includes('-qr') || cliArgs.includes('qr')) {
+        if (cliArgs.includes('--qr') || cliArgs.includes('-qr') || cliArgs.includes('qr') || cliArgs.includes('2')) {
             selectedPairingMode = 'qr';
-        } else if (cliArgs.includes('--code') || cliArgs.includes('-code') || cliArgs.includes('code')) {
+        } else if (cliArgs.includes('--code') || cliArgs.includes('-code') || cliArgs.includes('code') || cliArgs.includes('1')) {
             selectedPairingMode = 'code';
         } else {
             console.log('');
@@ -258,14 +258,25 @@ async function startPairing(cleanStart = true) {
         console.log('✅ Session already registered — connecting with existing creds...');
     }
 
+    let lastPrintedQr = null;
+    const QRCode = require('qrcode');
+
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
 
-        if (qr && selectedPairingMode === 'qr') {
+        if (qr && selectedPairingMode === 'qr' && qr !== lastPrintedQr) {
+            lastPrintedQr = qr;
             try {
-                const qrcode = require('qrcode-terminal');
-                console.log('\n📷 Scan the QR code below using WhatsApp (Linked Devices → Link a Device):\n');
-                qrcode.generate(qr, { small: true });
+                QRCode.toString(qr, { type: 'terminal', small: true }, (err, miniQr) => {
+                    if (!err && miniQr) {
+                        console.log('\n=======================================================');
+                        console.log('📷 Scan the Mini QR Code below with your phone camera:');
+                        console.log('   (WhatsApp → Settings → Linked Devices → Link a Device)');
+                        console.log('=======================================================\n');
+                        console.log(miniQr);
+                        console.log('\n⏳ Waiting for scan...');
+                    }
+                });
             } catch (_) {}
         }
 
