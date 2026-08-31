@@ -116,12 +116,16 @@ function checkAndCleanSession() {
 
 let pairingRetries = 0;
 const MAX_PAIRING_RETRIES = 3;
+let selectedPairingMode = null; // 'code' or 'qr'
+let selectedBotNumber = null;
 
 async function startPairing(cleanStart = true) {
     try { require('./src/Utils/singleInstance').killPreviousInstances(); } catch(e) {}
 
     if (cleanStart) {
         pairingRetries = 0;
+        selectedPairingMode = null;
+        selectedBotNumber = null;
         // Always force-nuke on a fresh start to guarantee clean pairing
         await nukeAllSessions();
     }
@@ -129,30 +133,69 @@ async function startPairing(cleanStart = true) {
     if (!fs.existsSync(SESSION_DIR)) fs.mkdirSync(SESSION_DIR, { recursive: true });
     if (!fs.existsSync(SESS_ALT_DIR)) fs.mkdirSync(SESS_ALT_DIR, { recursive: true });
 
-    let botNumber = process.argv[2] || process.env.NUMBER || process.env.BOT_NUMBER;
-    
-    if (!botNumber || botNumber.includes('your account') || botNumber.trim() === '') {
-        const readline = require('readline');
-        const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-        botNumber = await new Promise((resolve) => {
-            rl.question('📱 Enter your WhatsApp phone number with country code (e.g. 923013068663): ', (ans) => {
-                rl.close();
-                resolve(ans);
+    const readline = require('readline');
+
+    // ── STEP 1: Select Pairing Method (Code vs QR) ──
+    if (!selectedPairingMode) {
+        const cliArgs = process.argv.slice(2);
+        if (cliArgs.includes('--qr') || cliArgs.includes('-qr') || cliArgs.includes('qr')) {
+            selectedPairingMode = 'qr';
+        } else if (cliArgs.includes('--code') || cliArgs.includes('-code') || cliArgs.includes('code')) {
+            selectedPairingMode = 'code';
+        } else {
+            console.log('');
+            console.log('╔═══════════════════════════════════════════════════════╗');
+            console.log('║        📲 SELECT WHATSAPP PAIRING METHOD              ║');
+            console.log('╠═══════════════════════════════════════════════════════╣');
+            console.log('║                                                       ║');
+            console.log('║   [1] 🔑 Pairing Code (Link with Phone Number)         ║');
+            console.log('║   [2] 📷 QR Code (Scan with WhatsApp Camera)          ║');
+            console.log('║                                                       ║');
+            console.log('╚═══════════════════════════════════════════════════════╝');
+            console.log('');
+
+            const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+            selectedPairingMode = await new Promise((resolve) => {
+                rl.question('👉 Select pairing method (1 or 2) [Default: 1]: ', (ans) => {
+                    rl.close();
+                    const trimmed = ans.trim();
+                    resolve(trimmed === '2' ? 'qr' : 'code');
+                });
             });
-        });
+        }
     }
 
-    if (!botNumber || botNumber.trim() === '') {
-        console.log('❌ No valid phone number provided! Exiting.');
-        process.exit(1);
+    // ── STEP 2: If Pairing Code mode, obtain Phone Number ──
+    if (selectedPairingMode === 'code' && !selectedBotNumber) {
+        let rawNum = process.argv.find(a => /^\+?\d{7,15}$/.test(a.trim())) || process.env.NUMBER || process.env.BOT_NUMBER;
+        
+        if (!rawNum || rawNum.includes('your account') || rawNum.trim() === '') {
+            const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+            rawNum = await new Promise((resolve) => {
+                rl.question('📱 Enter your WhatsApp phone number with country code (e.g. 923013068663): ', (ans) => {
+                    rl.close();
+                    resolve(ans);
+                });
+            });
+        }
+
+        if (!rawNum || rawNum.trim() === '') {
+            console.log('❌ No valid phone number provided! Exiting.');
+            process.exit(1);
+        }
+
+        selectedBotNumber = rawNum.replace(/[^0-9]/g, '');
     }
 
-    botNumber = botNumber.replace(/[^0-9]/g, '');
-    
     const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR);
     const { version } = await fetchLatestBaileysVersion().catch(() => ({ version: [2, 3000, 1015901307] }));
 
     console.log(`📡 Baileys version: ${version.join('.')}`);
+    if (selectedPairingMode === 'code') {
+        console.log(`🤖 Mode: 🔑 Pairing Code (+${selectedBotNumber})`);
+    } else {
+        console.log('🤖 Mode: 📷 QR Code Scanner');
+    }
 
     const sock = makeWASocket({
         version,
@@ -172,22 +215,19 @@ async function startPairing(cleanStart = true) {
         await saveCreds();
         syncSessionFiles();
     });
-    
-    console.log(`🤖 Target Phone Number: +${botNumber}`);
+
     console.log('⏳ Connecting to WhatsApp servers...');
 
     let pairingCodeRequested = false;
     let pairingCodeTimeout = null;
 
-    if (!sock.authState.creds.registered) {
-        // Wait for the WS to actually connect before requesting pairing code
-        // Use a delay of 5s to let the WebSocket handshake complete
+    if (selectedPairingMode === 'code' && !sock.authState.creds.registered) {
         pairingCodeTimeout = setTimeout(async () => {
             if (pairingCodeRequested) return;
             pairingCodeRequested = true;
             try {
                 console.log('⏳ Requesting fresh pairing code from WhatsApp...');
-                let code = await sock.requestPairingCode(botNumber);
+                let code = await sock.requestPairingCode(selectedBotNumber);
                 code = code?.match(/.{1,4}/g)?.join("-") || code;
                 console.log('');
                 console.log('╔═══════════════════════════════════════════╗');
@@ -212,12 +252,22 @@ async function startPairing(cleanStart = true) {
                 }
             }
         }, 5000);
+    } else if (selectedPairingMode === 'qr' && !sock.authState.creds.registered) {
+        console.log('📷 Waiting for QR code generation... Scan it with your phone.');
     } else {
         console.log('✅ Session already registered — connecting with existing creds...');
     }
 
     sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect } = update;
+        const { connection, lastDisconnect, qr } = update;
+
+        if (qr && selectedPairingMode === 'qr') {
+            try {
+                const qrcode = require('qrcode-terminal');
+                console.log('\n📷 Scan the QR code below using WhatsApp (Linked Devices → Link a Device):\n');
+                qrcode.generate(qr, { small: true });
+            } catch (_) {}
+        }
 
         if (connection === 'open') {
             // Clear any pending pairing code timeout
