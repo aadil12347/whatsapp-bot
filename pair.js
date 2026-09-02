@@ -293,6 +293,9 @@ async function startPairing(cleanStart = true) {
             console.log('');
             console.log('=========================================');
             console.log('🎉 SUCCESS! WhatsApp Connected!');
+            if (sock.authState && sock.authState.creds) {
+                sock.authState.creds.registered = true;
+            }
             await saveCreds();
             await delay(1000);
             syncSessionFiles();
