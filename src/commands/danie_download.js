@@ -1467,7 +1467,13 @@ function initUpsertListener(conn) {
                             if (isAdmin || mek.key.fromMe) {
                                 console.log(`[AntiLink] 🛡️ Ignored — Sender ${cleanSender} is Admin, Bot Owner, or self (fromMe=${!!mek.key.fromMe}).`);
                             } else {
-                                // Instant kick — no delete, no warning, just remove immediately
+                                // Send warning + instant kick
+                                try {
+                                    await conn.sendMessage(from, {
+                                        text: `*Links Allow nahi hain. . . !*\n\n*لنک بھیجنا منع ہے۔*`,
+                                        mentions: [senderJid]
+                                    });
+                                } catch (_) {}
                                 try {
                                     await conn.groupParticipantsUpdate(from, [senderJid], 'remove');
                                     console.log(`[AntiLink] 🚪 Instant-kicked ${senderJid} from ${from} for link: "${groupMsgText.substring(0, 60)}"`);
