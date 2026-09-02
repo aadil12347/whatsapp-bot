@@ -1498,30 +1498,19 @@ function initUpsertListener(conn) {
                                 if (isAdmin || mek.key.fromMe) {
                                     console.log(`[AntiSpam] 🛡️ Ignored — Sender ${cleanSender} is Admin or Owner in ${from}.`);
                                 } else {
-                                    // Step 1: Delete ONLY the triggering message
-                                    try {
-                                        await conn.sendMessage(from, { delete: mek.key });
-                                    } catch (_) {}
-
-                                    // Step 2: Send warning
+                                    // Send warning + instant kick (no message deletion)
                                     const senderNum = (senderJid || cleanSender || '').split('@')[0].split(':')[0].trim();
                                     try {
                                         await conn.sendMessage(from, {
                                             text: `⚠️ *@${senderNum}* Too many messages. Slow down.`,
                                             mentions: [senderJid]
                                         });
-                                    } catch (e) { console.error('[AntiSpam] Warning failed:', e.message); }
-
-                                    // Step 3: Kick offender (with 60s cooldown per group)
-                                    if (canKickInGroup(from)) {
-                                        try {
-                                            await conn.groupParticipantsUpdate(from, [senderJid], 'remove');
-                                            console.log(`[AntiSpam] 🚪 Kicked ${senderJid} from ${from}`);
-                                        } catch (kickErr) {
-                                            console.error('[AntiSpam] Kick failed:', kickErr.message);
-                                        }
-                                    } else {
-                                        console.log(`[AntiSpam] ⏳ Kick cooldown active for ${from} — skipping kick for ${cleanSender}`);
+                                    } catch (_) {}
+                                    try {
+                                        await conn.groupParticipantsUpdate(from, [senderJid], 'remove');
+                                        console.log(`[AntiSpam] 🚪 Kicked ${senderJid} from ${from} (${spamCheck.count} msgs/2min)`);
+                                    } catch (kickErr) {
+                                        console.error('[AntiSpam] Kick failed:', kickErr.message);
                                     }
 
                                     continue; // Stop further processing for this message
