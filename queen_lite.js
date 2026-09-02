@@ -48,14 +48,12 @@ const envPath = path.join(__dirname, 'config.env');
 if (fs.existsSync(envPath)) require('dotenv').config({ path: envPath });
 
 const { uploadSessionToSupabase, downloadSessionFromSupabase } = require('./src/Utils/supabaseSession');
-const { isAntilinkActiveForGroup, containsForbiddenLink } = require('./src/Utils/antilink');
-const { recordMessageAndCheckSpam, isAntispamActiveForGroup } = require('./src/Utils/antispam');
 
 const sess = require('./session');
 const SESSION_DIR = path.join(__dirname, 'session');
 
 // ── Logger (silent — ANJU-XPRO-V5 style) ──
-const logger = pino({ level: 'warn' });
+const logger = pino({ level: 'silent' });
 
 // ── Message retry cache (ANJU-XPRO-V5 style) ──
 const msgRetryCounterCache = new NodeCache({ stdTTL: 600, checkperiod: 120 });
@@ -65,45 +63,6 @@ const msgRetryCounterCache = new NodeCache({ stdTTL: 600, checkperiod: 120 });
 // We cache message protos here so retries can succeed.
 const msgProtoCache = new NodeCache({ stdTTL: 300, checkperiod: 60 });
 
-// ── Admin immunity cache (60s TTL) for Anti-Link and Anti-Spam ──
-const groupAdminCache = new Map();
-
-async function checkIsGroupAdmin(conn, groupJid, senderJid) {
-    if (!senderJid || !groupJid) return false;
-    const cleanSender = senderJid.split('@')[0].split(':')[0].trim();
-
-    // Bot Owner is always immune
-    if (cleanSender === '923013068663') return true;
-
-    try {
-        const now = Date.now();
-        let cached = groupAdminCache.get(groupJid);
-
-        let participantsMap;
-        if (cached && (now - cached.timestamp < 60000)) {
-            participantsMap = cached.participantsMap;
-        } else {
-            const metadata = await conn.groupMetadata(groupJid);
-            participantsMap = new Map();
-            if (metadata && metadata.participants) {
-                metadata.participants.forEach(p => {
-                    const isAdm = p.admin === 'admin' || p.admin === 'superadmin';
-                    participantsMap.set(p.id, isAdm);
-                    if (p.lid) participantsMap.set(p.lid, isAdm);
-                    const pNum = p.id.split('@')[0];
-                    participantsMap.set(pNum, isAdm);
-                });
-            }
-            groupAdminCache.set(groupJid, { participantsMap, timestamp: now });
-        }
-
-        const isAdmin = participantsMap.get(senderJid) || participantsMap.get(cleanSender);
-        return !!isAdmin;
-    } catch (err) {
-        console.error(`[AdminCheck] Error checking admin status for ${senderJid} in ${groupJid}:`, err.message);
-        return false;
-    }
-}
 
 // ── State ──
 let conn = null;
@@ -161,11 +120,12 @@ async function connectToWA() {
         connectTimeoutMs: 60000,
         keepAliveIntervalMs: 25000,
 
+        emitOwnEvents: false,
         generateHighQualityLinkPreview: false,
         syncFullHistory: false,
         markOnlineOnConnect: false,
-        fireInitQueries: true,
-        shouldIgnoreJid: (jid) => jid?.endsWith('@newsletter'),
+        fireInitQueries: false,
+        shouldIgnoreJid: (jid) => jid?.endsWith('@newsletter') || jid?.endsWith('@broadcast'),
         retryRequestDelayMs: 5000, // Slower retries to reduce E2EE renegotiation storm
         getMessage: async (key) => {
             if (key?.id) {
@@ -299,59 +259,17 @@ async function connectToWA() {
     // ══════════════════════════════════════════════════════════════════
     //  MESSAGE HANDLING — Auto-read status + react + cache protos
     // ══════════════════════════════════════════════════════════════════
+    // Message upsert: only cache message protos for retry decryption support
     conn.ev.on('messages.upsert', async (chatUpdate) => {
         try {
-            if (chatUpdate.type !== 'notify' && chatUpdate.type !== 'append') return;
+            if (chatUpdate.type !== 'notify') return;
             const msg = chatUpdate.messages ? chatUpdate.messages[0] : null;
+            if (!msg) return;
 
-            let msgTimestamp = 0;
-            if (typeof msg.messageTimestamp === 'number') {
-                msgTimestamp = msg.messageTimestamp;
-            } else if (typeof msg.messageTimestamp === 'string') {
-                msgTimestamp = parseInt(msg.messageTimestamp, 10) || 0;
-            } else if (typeof msg.messageTimestamp === 'bigint') {
-                msgTimestamp = Number(msg.messageTimestamp);
-            } else if (msg.messageTimestamp && typeof msg.messageTimestamp.toNumber === 'function') {
-                try { msgTimestamp = msg.messageTimestamp.toNumber(); } catch (_) {}
-            } else if (msg.messageTimestamp && typeof msg.messageTimestamp.low === 'number') {
-                msgTimestamp = msg.messageTimestamp.low;
-            }
-
-            // Connection timestamp gate: silently drop offline backlog messages
-            // sent before the bot connected. This eliminates catch-up lag!
-            if (_connectTimeSeconds && msgTimestamp > 0 && msgTimestamp < (_connectTimeSeconds - 5)) {
-                return; // Discard offline backlog message
-            }
-
-            if (!msg.message) {
-                if (msg.key?.remoteJid?.endsWith('@g.us')) {
-                    try { conn.groupMetadata(msg.key.remoteJid).catch(() => {}); } catch (_) {}
-                }
-                return;
-            }
-
+            // Cache message proto for retry decryption support
             if (msg.key?.id && msg.message) {
                 msgProtoCache.set(msg.key.id, msg.message);
             }
-
-            const from = msg.key?.remoteJid;
-            if (from !== 'status@broadcast') return;
-
-            // Auto-view status
-            try {
-                await conn.readMessages([msg.key]);
-            } catch (_) {}
-
-            // Auto-react with 💚
-            try {
-                const botJid = jidNormalizedUser(conn.user?.id || '');
-                const senderJid = msg.key.participant || msg.key.remoteJid;
-                await conn.sendMessage(from, {
-                    react: { key: msg.key, text: '💚' }
-                }, {
-                    statusJidList: [senderJid, botJid]
-                });
-            } catch (_) {}
         } catch (_) {}
     });
 

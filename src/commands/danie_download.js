@@ -969,66 +969,14 @@ const pendingSearch = {};
 const pendingGroupSelection = {};
 const groupAdminCache = new Map();
 
-// ── Message History Tracker for Mass Script Purge ──
-// Maps cleanSender_cleanGroup -> Array of { key, timestamp } (max 200 items, 10 min window)
-const userRecentMessagesMap = new Map();
-
-// ── Blacklisted Kicked Spammers / Link Spammers Grace Period ──
-// Maps cleanSender_cleanGroup -> kickTimestamp (expires in 5 minutes)
-const blacklistedKickedUsers = new Map();
-
-function recordUserMessageHistory(senderJid, groupJid, msgKey) {
-    if (!senderJid || !groupJid || !msgKey) return;
-    const cleanSender = senderJid.split('@')[0].split(':')[0];
-    const cleanGroup = groupJid.split('@')[0];
-    const mapKey = `${cleanSender}_${cleanGroup}`;
-
+// ── Anti-Link/Anti-Spam Kick Cooldown ──
+// Prevents rapid kicks: max 1 kick per 60 seconds per group
+const _kickCooldown = new Map();
+function canKickInGroup(groupJid) {
     const now = Date.now();
-    let entries = userRecentMessagesMap.get(mapKey) || [];
-    entries = entries.filter(e => (now - e.timestamp) < 600000); // 10 minutes
-    entries.push({ key: msgKey, timestamp: now });
-    if (entries.length > 200) {
-        entries = entries.slice(-200);
-    }
-    userRecentMessagesMap.set(mapKey, entries);
-}
-
-function getUserRecentMessageKeys(senderJid, groupJid) {
-    if (!senderJid || !groupJid) return [];
-    const cleanSender = senderJid.split('@')[0].split(':')[0];
-    const cleanGroup = groupJid.split('@')[0];
-    const mapKey = `${cleanSender}_${cleanGroup}`;
-    const entries = userRecentMessagesMap.get(mapKey) || [];
-    return entries.map(e => e.key).filter(Boolean);
-}
-
-function clearUserRecentMessageHistory(senderJid, groupJid) {
-    if (!senderJid || !groupJid) return;
-    const cleanSender = senderJid.split('@')[0].split(':')[0];
-    const cleanGroup = groupJid.split('@')[0];
-    const mapKey = `${cleanSender}_${cleanGroup}`;
-    userRecentMessagesMap.delete(mapKey);
-}
-
-function blacklistKickedUser(senderJid, groupJid) {
-    if (!senderJid || !groupJid) return;
-    const cleanSender = senderJid.split('@')[0].split(':')[0];
-    const cleanGroup = groupJid.split('@')[0];
-    const mapKey = `${cleanSender}_${cleanGroup}`;
-    blacklistedKickedUsers.set(mapKey, Date.now());
-}
-
-function isKickedUserBlacklisted(senderJid, groupJid) {
-    if (!senderJid || !groupJid) return false;
-    const cleanSender = senderJid.split('@')[0].split(':')[0];
-    const cleanGroup = groupJid.split('@')[0];
-    const mapKey = `${cleanSender}_${cleanGroup}`;
-    const timestamp = blacklistedKickedUsers.get(mapKey);
-    if (!timestamp) return false;
-    if (Date.now() - timestamp > 300000) { // 5 minutes TTL
-        blacklistedKickedUsers.delete(mapKey);
-        return false;
-    }
+    const last = _kickCooldown.get(groupJid) || 0;
+    if (now - last < 60000) return false; // 60s cooldown
+    _kickCooldown.set(groupJid, now);
     return true;
 }
 
@@ -1509,19 +1457,9 @@ function initUpsertListener(conn) {
                     const { isAntilinkActiveForGroup, containsForbiddenLink } = require('../Utils/antilink');
                     const { isAntispamActiveForGroup, recordMessageAndCheckSpam } = require('../Utils/antispam');
 
-                    // Check if sender is blacklisted (kicked recently for AntiLink/AntiSpam)
-                    if (isKickedUserBlacklisted(senderJid, from)) {
-                        console.log(`[GroupModeration] 🗑️ Auto-purging in-flight message from blacklisted offender ${cleanSender} in group ${from}`);
-                        try { await conn.sendMessage(from, { delete: mek.key }); } catch (_) {}
-                        continue;
-                    }
-
-                    // Record message in history buffer for potential mass purge
-                    recordUserMessageHistory(senderJid, from, mek.key);
-
                     console.log(`[GroupMsg] 📩 Processing group message in "${from}" from "${senderJid}". Text: "${groupMsgText.substring(0, 80)}"`);
 
-                    // ── 1. Anti-Link Enforcement ──
+                    // ── 1. Anti-Link Enforcement (single message delete + kick with cooldown) ──
                     if (isAntilinkActiveForGroup(from) && groupMsgText && containsForbiddenLink(groupMsgText)) {
                         console.log(`[AntiLink] ⚡ Forbidden link detected in group ${from} from sender ${senderJid} (fromMe=${!!mek.key.fromMe}). Text: "${groupMsgText.substring(0, 80)}"`);
                         try {
@@ -1529,39 +1467,32 @@ function initUpsertListener(conn) {
                             if (isAdmin || mek.key.fromMe) {
                                 console.log(`[AntiLink] 🛡️ Ignored — Sender ${cleanSender} is Admin, Bot Owner, or self (fromMe=${!!mek.key.fromMe}).`);
                             } else {
-                                console.log(`[AntiLink] 🚨 Non-admin ${cleanSender} — Blacklisting, sending warning, kicking & purging history msgs...`);
-                                blacklistKickedUser(senderJid, from);
+                                // Step 1: Delete ONLY the offending message
+                                try {
+                                    await conn.sendMessage(from, { delete: mek.key });
+                                } catch (_) {}
 
-                                // Step 1: Send custom warning message first (clean phone number, bold simple text)
+                                // Step 2: Send warning (rate-limited)
                                 const senderNum = (senderJid || cleanSender || '').split('@')[0].split(':')[0].trim();
                                 try {
                                     await conn.sendMessage(from, {
-                                        text: `⚠️ *@${senderNum}* *Nikal Loray, Teri MKC loray kis say puch kar link bheja*`,
+                                        text: `⚠️ *@${senderNum}* Links are not allowed in this group.`,
                                         mentions: [senderJid]
                                     });
                                 } catch (e) { console.error('[AntiLink] Warning failed:', e.message); }
 
-                                // Step 2: Instantly remove / Kick offender from group
-                                try {
-                                    await conn.groupParticipantsUpdate(from, [senderJid], 'remove');
-                                    console.log(`[AntiLink] 🚪 Kicked ${senderJid} from ${from}`);
-                                } catch (kickErr) {
-                                    console.error('[AntiLink] Kick failed:', kickErr.message);
-                                }
-
-                                // Step 3: Delete ALL recorded message history for offender in this group for everyone
-                                const historyKeys = getUserRecentMessageKeys(senderJid, from);
-                                const keysToPurge = historyKeys.length > 0 ? historyKeys : [mek.key];
-                                console.log(`[AntiLink] 🗑️ Deleting ${keysToPurge.length} total message(s) from ${cleanSender} in ${from}...`);
-
-                                for (const keyToDel of keysToPurge) {
+                                // Step 3: Kick offender (with 60s cooldown per group)
+                                if (canKickInGroup(from)) {
                                     try {
-                                        await conn.sendMessage(from, { delete: keyToDel });
-                                        await new Promise(r => setTimeout(r, 30));
-                                    } catch (_) {}
+                                        await conn.groupParticipantsUpdate(from, [senderJid], 'remove');
+                                        console.log(`[AntiLink] 🚪 Kicked ${senderJid} from ${from}`);
+                                    } catch (kickErr) {
+                                        console.error('[AntiLink] Kick failed:', kickErr.message);
+                                    }
+                                } else {
+                                    console.log(`[AntiLink] ⏳ Kick cooldown active for ${from} — skipping kick for ${cleanSender}`);
                                 }
 
-                                clearUserRecentMessageHistory(senderJid, from);
                                 continue; // Stop further processing for this message
                             }
                         } catch (err) {
@@ -1569,7 +1500,7 @@ function initUpsertListener(conn) {
                         }
                     }
 
-                    // ── 2. Anti-Spam Enforcement (10 msgs / 2 mins) ──
+                    // ── 2. Anti-Spam Enforcement (single message delete + kick with cooldown) ──
                     if (isAntispamActiveForGroup(from)) {
                         const spamCheck = recordMessageAndCheckSpam(senderJid, from, mek.key);
                         if (spamCheck.isSpam) {
@@ -1579,50 +1510,32 @@ function initUpsertListener(conn) {
                                 if (isAdmin || mek.key.fromMe) {
                                     console.log(`[AntiSpam] 🛡️ Ignored — Sender ${cleanSender} is Admin or Owner in ${from}.`);
                                 } else {
-                                    console.log(`[AntiSpam] 🚨 Non-admin ${cleanSender} — Blacklisting, sending warning, kicking & purging history msgs...`);
-                                    blacklistKickedUser(senderJid, from);
+                                    // Step 1: Delete ONLY the triggering message
+                                    try {
+                                        await conn.sendMessage(from, { delete: mek.key });
+                                    } catch (_) {}
 
-                                    // Step 1: Send custom warning message first (clean phone number, bold simple text)
+                                    // Step 2: Send warning
                                     const senderNum = (senderJid || cleanSender || '').split('@')[0].split(':')[0].trim();
                                     try {
                                         await conn.sendMessage(from, {
-                                            text: `⚠️ *@${senderNum}* *abe ruk jaa aj hi saray message bheje ga kiya . .*\n` +
-                                                  `*ab sukoon kar jab tak Daniyal online nahi hota 😂*`,
+                                            text: `⚠️ *@${senderNum}* Too many messages. Slow down.`,
                                             mentions: [senderJid]
                                         });
                                     } catch (e) { console.error('[AntiSpam] Warning failed:', e.message); }
 
-                                    // Step 2: Instantly remove / Kick offender from group
-                                    try {
-                                        await conn.groupParticipantsUpdate(from, [senderJid], 'remove');
-                                        console.log(`[AntiSpam] 🚪 Kicked ${senderJid} from ${from}`);
-                                    } catch (kickErr) {
-                                        console.error('[AntiSpam] Kick failed:', kickErr.message);
-                                    }
-
-                                    // Step 3: Combine history keys with spamCheck.keysToPurge, deduplicate and delete for everyone
-                                    const historyKeys = getUserRecentMessageKeys(senderJid, from);
-                                    const combinedKeys = [...historyKeys, ...(spamCheck.keysToPurge || [])];
-                                    const seenIds = new Set();
-                                    const keysToPurge = [];
-                                    for (const k of combinedKeys) {
-                                        if (k && k.id && !seenIds.has(k.id)) {
-                                            seenIds.add(k.id);
-                                            keysToPurge.push(k);
-                                        }
-                                    }
-                                    if (keysToPurge.length === 0) keysToPurge.push(mek.key);
-
-                                    console.log(`[AntiSpam] 🗑️ Deleting ${keysToPurge.length} total message(s) from ${cleanSender} in ${from}...`);
-
-                                    for (const keyToDel of keysToPurge) {
+                                    // Step 3: Kick offender (with 60s cooldown per group)
+                                    if (canKickInGroup(from)) {
                                         try {
-                                            await conn.sendMessage(from, { delete: keyToDel });
-                                            await new Promise(r => setTimeout(r, 30));
-                                        } catch (_) {}
+                                            await conn.groupParticipantsUpdate(from, [senderJid], 'remove');
+                                            console.log(`[AntiSpam] 🚪 Kicked ${senderJid} from ${from}`);
+                                        } catch (kickErr) {
+                                            console.error('[AntiSpam] Kick failed:', kickErr.message);
+                                        }
+                                    } else {
+                                        console.log(`[AntiSpam] ⏳ Kick cooldown active for ${from} — skipping kick for ${cleanSender}`);
                                     }
 
-                                    clearUserRecentMessageHistory(senderJid, from);
                                     continue; // Stop further processing for this message
                                 }
                             } catch (err) {

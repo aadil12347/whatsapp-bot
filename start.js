@@ -53,27 +53,6 @@ function patchLibsignal() {
         if (patched > 0) {
             console.log(`🔧 Auto-patched libsignal session logging (${patched} file(s)) — prevents session dump spam`);
         }
-        // Also patch session_builder.js to handle missing preKeys gracefully
-        const builderCandidates = [
-            path.join(__dirname, 'node_modules', '.pnpm', 'libsignal@6.0.0', 'node_modules', 'libsignal', 'src', 'session_builder.js'),
-        ];
-        try {
-            const libsignalMain = require.resolve('libsignal');
-            const libsignalDir = path.dirname(libsignalMain);
-            builderCandidates.push(path.join(libsignalDir, 'src', 'session_builder.js'));
-        } catch (_) {}
-        for (const filePath of builderCandidates) {
-            if (!fs.existsSync(filePath)) continue;
-            let content = fs.readFileSync(filePath, 'utf-8');
-            if (content.includes("throw new errors.PreKeyError('Invalid PreKey ID');")) {
-                content = content.replace(
-                    "const preKeyPair = await this.storage.loadPreKey(message.preKeyId);\n        if (message.preKeyId && !preKeyPair) {\n            throw new errors.PreKeyError('Invalid PreKey ID');\n        }",
-                    "let preKeyPair = await this.storage.loadPreKey(message.preKeyId);\n        if (message.preKeyId && !preKeyPair) {\n            preKeyPair = await this.storage.loadSignedPreKey(message.signedPreKeyId);\n        }"
-                );
-                fs.writeFileSync(filePath, content, 'utf-8');
-                console.log(`🔧 Auto-patched libsignal session_builder (${filePath}) — prevents PreKeyError decryption failures`);
-            }
-        }
     } catch (err) {
         console.warn('⚠️ Could not auto-patch libsignal (non-critical):', err.message);
     }
@@ -146,9 +125,42 @@ function pruneSessionDirectory(dir) {
     try {
         const files = fs.readdirSync(dir);
         let removedCount = 0;
+        const now = Date.now();
+        const thirtyDays = 30 * 24 * 60 * 60 * 1000;
 
-        // Clean ONLY 0-byte or corrupted non-essential files
-        for (const file of files) {
+        // Prune excess pre-keys beyond 15 newest
+        const preKeys = files.filter(f => f.startsWith('pre-key-') && f.endsWith('.json'))
+            .map(f => {
+                const fp = path.join(dir, f);
+                try { return { file: f, path: fp, mtime: fs.statSync(fp).mtimeMs }; } catch (_) { return null; }
+            })
+            .filter(Boolean)
+            .sort((a, b) => b.mtime - a.mtime);
+
+        if (preKeys.length > 15) {
+            for (const item of preKeys.slice(15)) {
+                try { fs.unlinkSync(item.path); removedCount++; } catch (_) {}
+            }
+        }
+
+        // Prune excess app-state beyond 10 newest
+        const appStates = files.filter(f => f.startsWith('app-state-sync-') && f.endsWith('.json'))
+            .map(f => {
+                const fp = path.join(dir, f);
+                try { return { file: f, path: fp, mtime: fs.statSync(fp).mtimeMs }; } catch (_) { return null; }
+            })
+            .filter(Boolean)
+            .sort((a, b) => b.mtime - a.mtime);
+
+        if (appStates.length > 10) {
+            for (const item of appStates.slice(10)) {
+                try { fs.unlinkSync(item.path); removedCount++; } catch (_) {}
+            }
+        }
+
+        // Clean 0-byte, corrupted, non-essential, or stale (>30 days) files
+        const remainingFiles = fs.readdirSync(dir);
+        for (const file of remainingFiles) {
             if (!file.endsWith('.json')) continue;
             const fullPath = path.join(dir, file);
             try {
@@ -158,11 +170,17 @@ function pruneSessionDirectory(dir) {
                 if (!isEssentialSessionFile(file)) {
                     fs.unlinkSync(fullPath);
                     removedCount++;
+                    continue;
+                }
+                const stat = fs.statSync(fullPath);
+                if (now - stat.mtimeMs > thirtyDays) {
+                    fs.unlinkSync(fullPath);
+                    removedCount++;
                 }
             } catch (_) {}
         }
         if (removedCount > 0) {
-            console.log(`🧹 Pruned ${removedCount} non-essential session files from ${path.basename(dir)}/`);
+            console.log(`🧹 Pruned ${removedCount} non-essential/excess session files from ${path.basename(dir)}/`);
         }
     } catch (err) {
         console.warn('⚠️ Error during session pruning:', err.message);

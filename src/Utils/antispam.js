@@ -18,7 +18,7 @@ function getAntispamData() {
             };
         }
     } catch (_) {}
-    return { enabled: true, groups: [], limit: 10, windowMs: 120000 };
+    return { enabled: false, groups: [], limit: 10, windowMs: 120000 };
 }
 
 function saveAntispamData(enabled, groups, limit = 10, windowMs = 120000) {

@@ -13,7 +13,7 @@ function getAntilinkData() {
             };
         }
     } catch (_) {}
-    return { enabled: true, groups: [] };
+    return { enabled: false, groups: [] };
 }
 
 function saveAntilinkData(enabled, groups) {

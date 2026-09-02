@@ -214,7 +214,7 @@ async function startPairing(cleanStart = true) {
         browser: Browsers.appropriate('Chrome'),
         connectTimeoutMs: 60000,
         keepAliveIntervalMs: 30000,
-        retryRequestDelayMs: 250,
+        retryRequestDelayMs: 2000,
     });
 
     sock.ev.on('creds.update', async () => {
