@@ -486,22 +486,35 @@ function generateVideoThumbnailBuffer(videoPath) {
     return null;
 }
 
-async function extractArchive(archivePath, targetDir) {
+async function extractArchive(archivePath, targetDir, hintExtOrFilename = '') {
     if (!fs.existsSync(targetDir)) {
         fs.mkdirSync(targetDir, { recursive: true });
     }
-    const ext = path.extname(archivePath).toLowerCase();
-    const fileSize = fs.existsSync(archivePath) ? fs.statSync(archivePath).size : 0;
-    const TWO_GIB = 2 * 1024 * 1024 * 1024; // adm-zip limit
+    let ext = path.extname(archivePath).toLowerCase();
+    if ((!ext || ext === '.') && hintExtOrFilename) {
+        const hintExt = path.extname(hintExtOrFilename).toLowerCase();
+        ext = hintExt || (hintExtOrFilename.startsWith('.') ? hintExtOrFilename.toLowerCase() : '.' + hintExtOrFilename.toLowerCase());
+    }
 
-    // 1. ZIP  native system unzip (fastest C execution, 0 MB Node RAM overhead), fallback to 7z or adm-zip
-    if (ext === '.zip') {
+    const fileSize = fs.existsSync(archivePath) ? fs.statSync(archivePath).size : 0;
+    const TWO_GIB = 2 * 1024 * 1024 * 1024;
+    const combinedName = (path.basename(archivePath) + ' ' + (hintExtOrFilename || '')).toLowerCase();
+
+    const isZip = ext === '.zip' || combinedName.includes('.zip');
+    const isRar = ext === '.rar' || ext === '.rar5' || combinedName.includes('.rar');
+    const is7zOrOther = ['.7z', '.tar', '.gz', '.tgz', '.z01', '.001', '.iso', '.wim'].includes(ext) || 
+                        combinedName.includes('.7z') || combinedName.includes('.tar') || combinedName.includes('.gz');
+
+    console.log(`[DanieDownload] Extracting archive: "${path.basename(archivePath)}" (detected ext: "${ext}", size: ${(fileSize / 1024 / 1024).toFixed(1)} MB)...`);
+
+    // 1. ZIP Extraction
+    if (isZip) {
         try {
-            console.log(`[DanieDownload] Extracting ZIP via native system unzip (${(fileSize / 1024 / 1024).toFixed(1)} MB)...`);
+            console.log('[DanieDownload] Extracting ZIP via native system unzip...');
             await execAsync(`unzip -o -q "${archivePath}" -d "${targetDir}"`, { maxBuffer: 1024 * 1024 * 50 });
             return true;
         } catch (unzipErr) {
-            console.warn('[DanieDownload] Native system unzip unavailable, trying 7z...');
+            console.warn('[DanieDownload] Native system unzip unavailable or failed, trying 7z...');
             try {
                 await execAsync(`7z x -y -o"${targetDir}" "${archivePath}"`, { maxBuffer: 1024 * 1024 * 50 });
                 return true;
@@ -522,10 +535,10 @@ async function extractArchive(archivePath, targetDir) {
         }
     }
 
-    // 2. RAR  via system unrar (async non-blocking)
-    if (ext === '.rar') {
+    // 2. RAR Extraction
+    if (isRar) {
         try {
-            console.log('[DanieDownload] Extracting RAR via system unrar (async non-blocking)...');
+            console.log('[DanieDownload] Extracting RAR via system unrar...');
             await execAsync(`unrar x -o+ "${archivePath}" "${targetDir}/"`, { maxBuffer: 1024 * 1024 * 50 });
             return true;
         } catch (err) {
@@ -540,10 +553,10 @@ async function extractArchive(archivePath, targetDir) {
         }
     }
 
-    // 3. Other formats (7z, tar, gz)
-    if (['.7z', '.tar', '.gz', '.tgz'].includes(ext)) {
+    // 3. 7z / TAR / GZ / Other archives
+    if (is7zOrOther) {
         try {
-            console.log(`[DanieDownload] Extracting ${ext} via 7z (async)...`);
+            console.log(`[DanieDownload] Extracting ${ext || 'archive'} via 7z...`);
             await execAsync(`7z x -y -o"${targetDir}" "${archivePath}"`, { maxBuffer: 1024 * 1024 * 50 });
             return true;
         } catch (err) {
@@ -552,7 +565,24 @@ async function extractArchive(archivePath, targetDir) {
         }
     }
 
-    throw new Error(`Unsupported archive format: ${ext}. Only .zip, .rar, .7z are supported.`);
+    // Universal Fallback: Attempt 7z extraction regardless of extension
+    try {
+        console.log(`[DanieDownload] Attempting universal 7z extraction for unknown format "${ext}"...`);
+        await execAsync(`7z x -y -o"${targetDir}" "${archivePath}"`, { maxBuffer: 1024 * 1024 * 50 });
+        return true;
+    } catch (univErr) {
+        // Fallback for zip files without extension
+        if (fileSize < TWO_GIB) {
+            try {
+                console.log('[DanieDownload] Universal 7z failed, trying adm-zip fallback...');
+                const AdmZip = require('adm-zip');
+                const zip = new AdmZip(archivePath);
+                zip.extractAllTo(targetDir, true);
+                return true;
+            } catch (_) {}
+        }
+        throw new Error(`Unsupported or corrupted archive format: "${ext || path.basename(archivePath)}". Only .zip, .rar, .7z are supported.`);
+    }
 }
 
 function getAllFiles(dirPath, arrayOfFiles) {
@@ -2395,11 +2425,32 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
             }
 
             const extLower = ext.toLowerCase();
-            const isArchive = ['zip', 'tar', 'gz', 'tgz', 'rar', 'rar5', '7z'].includes(extLower) ||
+            const filenameLower = (tempFilename || '').toLowerCase();
+            const isArchive = ['zip', 'tar', 'gz', 'tgz', 'rar', 'rar5', '7z', '001', 'z01'].includes(extLower) ||
+                              filenameLower.endsWith('.zip') || filenameLower.endsWith('.rar') || filenameLower.endsWith('.7z') || filenameLower.endsWith('.001') ||
                               ['application/zip', 'application/x-tar', 'application/x-rar-compressed', 'application/x-gzip', 'application/x-zip-compressed'].includes(mime.toLowerCase());
 
+            // Ensure physical file on disk has the proper extension so external extraction tools recognize it
+            let currentExt = path.extname(tempFilePath).toLowerCase();
+            if (!currentExt && (ext || tempFilename)) {
+                const targetExt = ext ? (ext.startsWith('.') ? ext : '.' + ext) : path.extname(tempFilename);
+                if (targetExt && targetExt !== '.') {
+                    const renamedPath = tempFilePath + targetExt;
+                    try {
+                        if (fs.existsSync(tempFilePath)) {
+                            fs.renameSync(tempFilePath, renamedPath);
+                            tempFilePath = renamedPath;
+                            if (activeDownloadRef) activeDownloadRef.filePath = tempFilePath;
+                            console.log(`[DanieDownload] Renamed physical temp file to add detected extension: "${path.basename(tempFilePath)}"`);
+                        }
+                    } catch (renameErr) {
+                        console.warn('[DanieDownload] Temp file rename warning:', renameErr.message);
+                    }
+                }
+            }
+
             // 2GB size limit applies ONLY to non-archive files.
-            // Archives can be any size  individual files inside are checked after extraction.
+            // Archives can be any size — individual files inside are checked after extraction.
             if (!isArchive && sizeInBytes > 2000 * 1024 * 1024) {
                 try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch (_) {}
                 await reply(`❌ File ${tempFilename} is too large (${sizeInMB} MB). Max upload limit is 2 GB.`);
@@ -2410,7 +2461,7 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
                 await reply(`📥 Archive detected: *${tempFilename}* (${sizeInMB} MB). Extracting files...`);
                 const targetDir = path.join(__dirname, 'extracted_' + Date.now());
                 try {
-                    await extractArchive(tempFilePath, targetDir);
+                    await extractArchive(tempFilePath, targetDir, tempFilename || ext);
 
                     if (abortSignal && abortSignal.aborted) {
                         throw new Error('Aborted');
