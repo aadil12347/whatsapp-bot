@@ -120,7 +120,6 @@ async function connectToWA() {
         connectTimeoutMs: 60000,
         keepAliveIntervalMs: 25000,
 
-        emitOwnEvents: false,
         generateHighQualityLinkPreview: false,
         syncFullHistory: false,
         markOnlineOnConnect: false,
