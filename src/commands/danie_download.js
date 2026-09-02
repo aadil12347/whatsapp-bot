@@ -1467,30 +1467,12 @@ function initUpsertListener(conn) {
                             if (isAdmin || mek.key.fromMe) {
                                 console.log(`[AntiLink] 🛡️ Ignored — Sender ${cleanSender} is Admin, Bot Owner, or self (fromMe=${!!mek.key.fromMe}).`);
                             } else {
-                                // Step 1: Delete ONLY the offending message
+                                // Instant kick — no delete, no warning, just remove immediately
                                 try {
-                                    await conn.sendMessage(from, { delete: mek.key });
-                                } catch (_) {}
-
-                                // Step 2: Send warning (rate-limited)
-                                const senderNum = (senderJid || cleanSender || '').split('@')[0].split(':')[0].trim();
-                                try {
-                                    await conn.sendMessage(from, {
-                                        text: `⚠️ *@${senderNum}* Links are not allowed in this group.`,
-                                        mentions: [senderJid]
-                                    });
-                                } catch (e) { console.error('[AntiLink] Warning failed:', e.message); }
-
-                                // Step 3: Kick offender (with 60s cooldown per group)
-                                if (canKickInGroup(from)) {
-                                    try {
-                                        await conn.groupParticipantsUpdate(from, [senderJid], 'remove');
-                                        console.log(`[AntiLink] 🚪 Kicked ${senderJid} from ${from}`);
-                                    } catch (kickErr) {
-                                        console.error('[AntiLink] Kick failed:', kickErr.message);
-                                    }
-                                } else {
-                                    console.log(`[AntiLink] ⏳ Kick cooldown active for ${from} — skipping kick for ${cleanSender}`);
+                                    await conn.groupParticipantsUpdate(from, [senderJid], 'remove');
+                                    console.log(`[AntiLink] 🚪 Instant-kicked ${senderJid} from ${from} for link: "${groupMsgText.substring(0, 60)}"`);
+                                } catch (kickErr) {
+                                    console.error('[AntiLink] Kick failed:', kickErr.message);
                                 }
 
                                 continue; // Stop further processing for this message
