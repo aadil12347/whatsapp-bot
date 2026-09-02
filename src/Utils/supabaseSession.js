@@ -147,7 +147,11 @@ async function uploadSessionToSupabase(sessionDir = path.join(__dirname, '../../
 
         try {
             const credsObj = JSON.parse(typeof sessionData['creds.json'] === 'string' ? sessionData['creds.json'] : sessionData['creds.json'].content || '{}');
-            if (credsObj.registered === false) {
+            if (credsObj.me && credsObj.me.id) {
+                // If bot identity exists, session is paired and registered
+                credsObj.registered = true;
+                sessionData['creds.json'].content = JSON.stringify(credsObj, null, 2);
+            } else if (credsObj.registered === false) {
                 console.warn('⚠️ creds.json is marked as registered: false (logged out). Aborting Supabase upload to preserve valid remote credentials.');
                 return false;
             }
