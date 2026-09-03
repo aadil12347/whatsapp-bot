@@ -2332,7 +2332,56 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
                 } catch (err) {}
             }
 
-            const tempFilePath = path.join(__dirname, 'tmp_' + Date.now() + '_' + tempFilename);
+            // ── HEAD request for filename pre-detection ──
+            // FSL/FSLv2 CDN links have hash-based URLs with no filename.
+            // The real filename is in the Content-Disposition header — the same
+            // name that appears when you download on phone/PC/any downloader.
+            if (!targetFilename) {
+                try {
+                    const parsedHeadUrl = new URL(url);
+                    const headResponse = await axios.head(url, {
+                        headers: {
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+                            'Accept': '*/*',
+                            'Referer': parsedHeadUrl.origin + '/'
+                        },
+                        httpsAgent: browserHttpsAgent,
+                        timeout: 15000,
+                        maxRedirects: 10,
+                        validateStatus: (s) => s >= 200 && s < 400
+                    });
+                    const headCD = (headResponse.headers && headResponse.headers['content-disposition']) || '';
+                    if (headCD) {
+                        // Try filename*= (RFC 5987) first, then filename="...", then filename=...
+                        const cdMatch = headCD.match(/filename\*=(?:UTF-8''|utf-8'')([^;\n"']+)/i)
+                                     || headCD.match(/filename="([^"]+)"/i)
+                                     || headCD.match(/filename=([^;\n"'\s]+)/i);
+                        if (cdMatch && cdMatch[1]) {
+                            const headFilename = decodeURIComponent(cdMatch[1].trim());
+                            if (headFilename && headFilename.length > 1) {
+                                tempFilename = headFilename;
+                                console.log('[DanieDownload] ✅ Filename from HEAD Content-Disposition:', headFilename);
+                            }
+                        }
+                    }
+                    // Also check the final redirected URL for a filename
+                    const finalUrl = headResponse.request?.res?.responseUrl || headResponse.config?.url || '';
+                    if (finalUrl && tempFilename.startsWith('file_')) {
+                        try {
+                            const finalPath = new URL(finalUrl).pathname;
+                            const finalFile = finalPath.substring(finalPath.lastIndexOf('/') + 1);
+                            if (finalFile && finalFile.includes('.') && finalFile.length > 3) {
+                                tempFilename = decodeURIComponent(finalFile);
+                                console.log('[DanieDownload] ✅ Filename from final redirect URL:', tempFilename);
+                            }
+                        } catch (_) {}
+                    }
+                } catch (headErr) {
+                    console.log('[DanieDownload] HEAD request for filename pre-detection failed (non-fatal):', headErr.message);
+                }
+            }
+
+            let tempFilePath = path.join(__dirname, 'tmp_' + Date.now() + '_' + tempFilename);
 
             // If the URL points to a redirector/landing page, resolve it first
             if (isLandingUrl(url)) {
@@ -2369,16 +2418,22 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
                 throw new Error('Aborted');
             }
 
-            // Extract real filename from Content-Disposition header
+            // Extract real filename from Content-Disposition header (download response)
+            // This is the DEFINITIVE filename — the same name mobile/PC downloaders show.
             const contentDisposition = (responseHeaders && responseHeaders['content-disposition']) || '';
             if (contentDisposition) {
                 try {
-                    const cdMatch = contentDisposition.match(/filename\*?=['"]?(?:UTF-8'')?([^;\n"']+)/i);
+                    // Try filename*= (RFC 5987) first, then filename="...", then filename=...
+                    const cdMatch = contentDisposition.match(/filename\*=(?:UTF-8''|utf-8'')([^;\n"']+)/i)
+                                 || contentDisposition.match(/filename="([^"]+)"/i)
+                                 || contentDisposition.match(/filename=([^;\n"'\s]+)/i);
                     if (cdMatch && cdMatch[1]) {
                         const cdFilename = decodeURIComponent(cdMatch[1].trim());
-                        if (cdFilename && cdFilename.includes('.')) {
-                            if (!targetFilename) tempFilename = cdFilename;
-                            console.log('[DanieDownload] Detected filename from Content-Disposition:', cdFilename);
+                        if (cdFilename && cdFilename.length > 1) {
+                            if (!targetFilename) {
+                                tempFilename = cdFilename;
+                                console.log('[DanieDownload] ✅ Filename from download Content-Disposition:', cdFilename);
+                            }
                         }
                     }
                 } catch (err) {
@@ -2394,19 +2449,24 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
             const sizeInBytes = stats.size;
             const sizeInMB = (sizeInBytes / (1024 * 1024)).toFixed(2);
 
-            // Determine extension from URL path, tempFilename, or Content-Disposition
+            // Determine extension: prefer tempFilename (from Content-Disposition) over URL path
             let ext = '';
-            try {
-                const urlPath = new URL(url).pathname;
-                const urlFile = urlPath.substring(urlPath.lastIndexOf('/') + 1);
-                if (urlFile && urlFile.includes('.')) {
-                    ext = urlFile.split('.').pop();
-                }
-            } catch (err) {}
-            if (!ext && tempFilename && tempFilename.includes('.')) {
+            // 1st priority: extension from Content-Disposition / detected filename
+            if (tempFilename && tempFilename.includes('.')) {
                 ext = tempFilename.split('.').pop();
             }
-            if (!ext) ext = 'mp4'; // fallback
+            // 2nd priority: extension from URL path
+            if (!ext) {
+                try {
+                    const urlPath = new URL(url).pathname;
+                    const urlFile = urlPath.substring(urlPath.lastIndexOf('/') + 1);
+                    if (urlFile && urlFile.includes('.')) {
+                        ext = urlFile.split('.').pop();
+                    }
+                } catch (err) {}
+            }
+            // 3rd priority: fallback — will likely be overridden by magic bytes detection below
+            if (!ext) ext = 'bin'; // safe fallback, magic bytes will correct this
 
             // Detect mime type using file magic bytes (read only first 4100 bytes, not the whole file)
             let mime = (responseHeaders && responseHeaders['content-type']) || 'application/octet-stream';
@@ -2607,6 +2667,10 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
                 }
             } else {
                 // Non-archive file upload
+                // ── Upload AS-IS: NO remux/re-encode ──
+                // Direct downloads (.d) are uploaded exactly as downloaded.
+                // This preserves ALL audio tracks (multi-language), subtitles,
+                // and avoids the remux failure that caused "0 bytes" errors.
                 let displayName = '';
                 if (targetFilename) {
                     displayName = cleanFileName(targetFilename);
@@ -2619,15 +2683,29 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
                     finalFileName += '.' + ext;
                 }
 
-                if (finalFileName.toLowerCase().endsWith('.mp4') || mime === 'video/mp4' || mime.startsWith('video/')) {
-                    const remuxOk = await remuxFileToFaststart(tempFilePath);
-                    if (!remuxOk) {
-                        console.warn(`[DanieDownload] Remux/Re-encode was un-applicable or failed for ${tempFilePath}. Checking media validity...`);
-                        const checkStats = fs.existsSync(tempFilePath) ? fs.statSync(tempFilePath) : null;
-                        if (!checkStats || checkStats.size < 10000) {
-                            try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch (_) {}
-                            throw new Error(`Video file remux/encode failed and file is invalid (${checkStats ? checkStats.size : 0} bytes).`);
+                // Validate file exists and is not empty
+                if (!fs.existsSync(tempFilePath)) {
+                    throw new Error('Downloaded file disappeared from disk before upload.');
+                }
+                const preUploadStats = fs.statSync(tempFilePath);
+                if (preUploadStats.size === 0) {
+                    try { fs.unlinkSync(tempFilePath); } catch (_) {}
+                    throw new Error('Downloaded file is empty (0 bytes). The download link may be expired or invalid.');
+                }
+                if (preUploadStats.size < 5000) {
+                    // Very small — might be an error page, check content
+                    try {
+                        const sampleBuf = Buffer.alloc(Math.min(preUploadStats.size, 2048));
+                        const fd = fs.openSync(tempFilePath, 'r');
+                        fs.readSync(fd, sampleBuf, 0, sampleBuf.length, 0);
+                        fs.closeSync(fd);
+                        const sampleStr = sampleBuf.toString('utf8').toLowerCase();
+                        if (sampleStr.includes('<html') || sampleStr.includes('<!doctype') || sampleStr.includes('access denied') || sampleStr.includes('cloudflare') || sampleStr.includes('403 forbidden') || sampleStr.includes('404 not found')) {
+                            try { fs.unlinkSync(tempFilePath); } catch (_) {}
+                            throw new Error('Download returned an HTML error page instead of a media file. The link may be expired or blocked.');
                         }
+                    } catch (sampleErr) {
+                        if (sampleErr.message.includes('HTML error page') || sampleErr.message.includes('0 bytes')) throw sampleErr;
                     }
                 }
 
