@@ -265,25 +265,201 @@ async function startPairing(cleanStart = true) {
     }
 
     let lastPrintedQr = null;
+    let currentRawQr = null;
+    let qrServer = null;
     const QRCode = require('qrcode');
+    const http = require('http');
+
+    function startQrWebServer() {
+        if (qrServer) return;
+        try {
+            const PORT = process.env.PORT || 3000;
+            qrServer = http.createServer(async (req, res) => {
+                if (req.url.startsWith('/qr.png') || req.url === '/qr') {
+                    if (currentRawQr) {
+                        try {
+                            const pngBuffer = await QRCode.toBuffer(currentRawQr, { type: 'png', width: 600, margin: 4 });
+                            res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'no-cache, no-store, must-revalidate' });
+                            return res.end(pngBuffer);
+                        } catch (_) {}
+                    }
+                    const qrPath = path.join(__dirname, 'qr.png');
+                    if (fs.existsSync(qrPath)) {
+                        res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'no-cache, no-store, must-revalidate' });
+                        return res.end(fs.readFileSync(qrPath));
+                    } else {
+                        res.writeHead(404);
+                        return res.end('QR Code not generated yet');
+                    }
+                }
+
+                if (req.url.startsWith('/qr.svg')) {
+                    if (currentRawQr) {
+                        try {
+                            const svgStr = await QRCode.toString(currentRawQr, { type: 'svg', margin: 2, width: 300 });
+                            res.writeHead(200, { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'no-cache, no-store, must-revalidate' });
+                            return res.end(svgStr);
+                        } catch (_) {}
+                    }
+                }
+
+                let svgContent = '';
+                if (currentRawQr) {
+                    try {
+                        svgContent = await QRCode.toString(currentRawQr, { type: 'svg', margin: 2, width: 300 });
+                    } catch (_) {}
+                }
+                
+                res.writeHead(200, { 'Content-Type': 'text/html' });
+                res.end(`<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📷 WhatsApp QR Pairing</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            background: #090d16;
+            color: #f8fafc;
+            font-family: 'Outfit', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        .card {
+            background: rgba(30, 41, 59, 0.85);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 24px;
+            padding: 36px 28px;
+            text-align: center;
+            max-width: 440px;
+            width: 100%;
+            box-shadow: 0 25px 50px rgba(0,0,0,0.6);
+        }
+        h1 { margin-top: 0; font-size: 24px; color: #38bdf8; margin-bottom: 8px; }
+        p { color: #94a3b8; font-size: 14px; margin-bottom: 24px; }
+        .qr-container {
+            background: #ffffff;
+            padding: 20px;
+            border-radius: 20px;
+            display: inline-block;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+            line-height: 0;
+        }
+        .qr-container svg, .qr-container img {
+            width: 280px;
+            height: 280px;
+            display: block;
+        }
+        .steps {
+            text-align: left;
+            margin-top: 24px;
+            font-size: 13px;
+            color: #cbd5e1;
+            line-height: 1.6;
+            background: rgba(0,0,0,0.3);
+            padding: 18px;
+            border-radius: 14px;
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+        .steps ol { margin: 0; padding-left: 20px; }
+        .status {
+            margin-top: 20px;
+            font-size: 14px;
+            color: #10b981;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>📷 WhatsApp QR Pairing</h1>
+        <p>Scan this high-resolution QR code with your phone camera in WhatsApp</p>
+        <div class="qr-container" id="qrBox">
+            ${svgContent ? svgContent : `<img src="/qr.svg?t=${Date.now()}" alt="WhatsApp Vector QR" />`}
+        </div>
+        <div class="status" id="statusMsg">⏳ Waiting for scan...</div>
+        <div class="steps">
+            <strong>How to pair:</strong>
+            <ol>
+                <li>Open <strong>WhatsApp</strong> on your mobile phone</li>
+                <li>Go to <strong>Settings</strong> &rarr; <strong>Linked Devices</strong></li>
+                <li>Tap <strong>Link a Device</strong></li>
+                <li>Point your camera directly at the QR code above</li>
+            </ol>
+        </div>
+    </div>
+    <script>
+        setInterval(async () => {
+            try {
+                const res = await fetch('/qr.svg?t=' + Date.now());
+                if (res.ok) {
+                    const svgText = await res.text();
+                    if (svgText && svgText.includes('<svg')) {
+                        document.getElementById('qrBox').innerHTML = svgText;
+                    }
+                }
+            } catch(e) {}
+        }, 3000);
+    </script>
+</body>
+</html>`);
+            });
+            qrServer.listen(PORT, () => {
+                console.log(`\n=======================================================`);
+                console.log(`🌐 Scannable Vector Web QR Page running at: http://localhost:${PORT}`);
+                console.log(`=======================================================\n`);
+            });
+        } catch (_) {}
+    }
 
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
 
         if (qr && selectedPairingMode === 'qr' && qr !== lastPrintedQr) {
             lastPrintedQr = qr;
+            currentRawQr = qr;
             try {
+                const qrFilePath = path.join(__dirname, 'qr.png');
+                await QRCode.toFile(qrFilePath, qr, { width: 600, margin: 4 });
+                
+                const svgStr = await QRCode.toString(qr, { type: 'svg', margin: 2, width: 400 });
+                const svgPath = path.join(__dirname, 'qr.svg');
+                fs.writeFileSync(svgPath, svgStr, 'utf-8');
+
+                const htmlContent = `<!DOCTYPE html>
+<html>
+<head><title>WhatsApp QR Pairing</title></head>
+<body style="background:#0f172a;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;">
+    <div style="background:#fff;padding:24px;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,0.5);">
+        ${svgStr}
+    </div>
+</body>
+</html>`;
+                fs.writeFileSync(path.join(__dirname, 'qr.html'), htmlContent, 'utf-8');
+
+                console.log(`🖼️  Scannable Vector QR saved to: ${svgPath} and ${qrFilePath}`);
+                startQrWebServer();
+
                 QRCode.toString(qr, { type: 'terminal', small: true }, (err, miniQr) => {
                     if (!err && miniQr) {
                         console.log('\n=======================================================');
-                        console.log('📷 Scan the Mini QR Code below with your phone camera:');
-                        console.log('   (WhatsApp → Settings → Linked Devices → Link a Device)');
+                        console.log('📷 Terminal QR Code (or open http://localhost:3000):');
                         console.log('=======================================================\n');
                         console.log(miniQr);
                         console.log('\n⏳ Waiting for scan...');
                     }
                 });
-            } catch (_) {}
+            } catch (err) {
+                console.error('Error generating QR code:', err);
+            }
         }
 
         if (connection === 'open') {

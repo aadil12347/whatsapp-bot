@@ -2912,6 +2912,32 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
         const { activeTargets, primaryJid, destLabel } = getActiveTargetsAndPrimary(settings, senderJid);
         const destJid = primaryJid;
 
+        // Auto-register to Daily Releases Tracker (1 AM reset)
+        try {
+            const { addDailyRelease } = require('../Utils/daily_releases');
+            let sLabel = null;
+            if (mediaType === 'tv') {
+                if (specifiedSeason !== null) {
+                    sLabel = `S${String(specifiedSeason).padStart(2, '0')}`;
+                } else if (tmdb.seasons && tmdb.seasons.length > 0) {
+                    const validS = tmdb.seasons.filter(s => s.season_number > 0);
+                    if (validS.length > 0) {
+                        const minS = Math.min(...validS.map(s => s.season_number));
+                        sLabel = `S${String(minS).padStart(2, '0')}`;
+                    }
+                }
+            }
+            addDailyRelease({
+                title: tmdb.title,
+                year: tmdb.year,
+                season: sLabel,
+                isSeries: mediaType === 'tv',
+                groupJid: destJid
+            });
+        } catch (releaseErr) {
+            console.warn('[DanieDownload] Daily releases auto-track error:', releaseErr.message);
+        }
+
         // 1. Format details message
         let seasonText = '';
         let episodeText = '';
@@ -3336,6 +3362,99 @@ DANIE_COMMANDS['jid'] = async (conn, mek, from, senderJid, args, reply) => {
     const targetJid = cleanJid(from);
     const sender = cleanJid(senderJid || from);
     await reply(`💬 *Current Chat JID:* \`${targetJid}\`\n👤 *Your JID:* \`${sender}\``);
+};
+
+const { formatDailyReleaseList, getLastSentMessage, setLastSentMessage, clearLastSentMessage } = require('../Utils/daily_releases');
+
+DANIE_COMMANDS['createlist'] = async (conn, mek, from, senderJid, args, reply) => {
+    const settings = loadSettings();
+    const groupName = settings.groupName || (settings.targets && settings.targets[0] ? settings.targets[0].name : '');
+    const groupJid = settings.groupJid || (settings.targets && settings.targets[0] ? settings.targets[0].jid : '');
+
+    // Must have a configured group target
+    if (!groupJid || !groupJid.endsWith('@g.us')) {
+        return reply('❌ *No group configured!*\n\nPlease set a target group first with `.config` or `.setgroup`.');
+    }
+
+    const listMsg = formatDailyReleaseList(groupName);
+
+    // 1. Delete previous same-day message (if any)
+    const lastSent = getLastSentMessage();
+    if (lastSent && lastSent.key) {
+        try {
+            await conn.sendMessage(lastSent.key.remoteJid, { delete: lastSent.key });
+            console.log(`[DailyReleases] Deleted previous same-day message: ${lastSent.key.id}`);
+        } catch (delErr) {
+            console.warn(`[DailyReleases] Could not delete previous message: ${delErr.message}`);
+        }
+    }
+
+    // 2. Fetch all group participants for @all mention
+    let allJids = [];
+    try {
+        const metadata = await conn.groupMetadata(groupJid);
+        if (metadata && metadata.participants) {
+            allJids = metadata.participants.map(p => p.id);
+        }
+    } catch (metaErr) {
+        console.warn(`[DailyReleases] Could not fetch group metadata: ${metaErr.message}`);
+    }
+
+    // 3. Send to the group with @all mentions
+    let sentMsg;
+    try {
+        sentMsg = await conn.sendMessage(groupJid, {
+            text: listMsg,
+            mentions: allJids
+        });
+        console.log(`[DailyReleases] Sent daily release list to group ${groupJid} (mentions: ${allJids.length})`);
+    } catch (sendErr) {
+        console.error(`[DailyReleases] Failed to send list to group: ${sendErr.message}`);
+        return reply('❌ Failed to send the daily list to the group. Please try again.');
+    }
+
+    // 4. Pin the message in the group
+    if (sentMsg && sentMsg.key) {
+        try {
+            await conn.chatModify(
+                { pin: true },
+                groupJid,
+                [sentMsg.key]
+            );
+            console.log(`[DailyReleases] Pinned daily release message in group ${groupJid}`);
+        } catch (pinErr) {
+            console.warn(`[DailyReleases] Could not pin message (bot may not be admin): ${pinErr.message}`);
+            // Try alternative pinning method
+            try {
+                await conn.sendMessage(groupJid, {
+                    pin: {
+                        type: 1, // PIN
+                        time: 604800 // 7 days
+                    }
+                }, { quoted: sentMsg });
+            } catch (_) {}
+        }
+    }
+
+    // 5. Save the sent message key for future same-day deletion
+    if (sentMsg && sentMsg.key) {
+        setLastSentMessage(sentMsg.key);
+    }
+
+    // 6. Confirm in private chat
+    await reply(`✅ *Daily release list sent to group!*\n📌 Message pinned.\n👥 *${allJids.length}* members mentioned.`);
+};
+
+DANIE_COMMANDS['list'] = DANIE_COMMANDS['createlist'];
+DANIE_COMMANDS['todaylist'] = DANIE_COMMANDS['createlist'];
+DANIE_COMMANDS['todayrelease'] = DANIE_COMMANDS['createlist'];
+DANIE_COMMANDS['daily'] = DANIE_COMMANDS['createlist'];
+
+DANIE_COMMANDS['create'] = async (conn, mek, from, senderJid, args, reply) => {
+    if (args && args.trim().toLowerCase().startsWith('list')) {
+        return DANIE_COMMANDS['createlist'](conn, mek, from, senderJid, '', reply);
+    }
+    await reply('💡 *Usage:* `.create list` to show today\'s releases list.');
 };
 
 DANIE_COMMANDS['dlstatus'] = async (conn, mek, from, senderJid, args, reply) => {
