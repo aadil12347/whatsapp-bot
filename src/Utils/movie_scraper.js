@@ -2098,15 +2098,15 @@ async function extractSeriesVcloudLinks(nextdriveUrl, options = {}) {
 
 /**
  * Smart movie and TV series search function with origin-based site routing
- * (Indian content -> Rogmovies, Non-Indian content -> Vegamovies, Fallback -> HDHub4u)
+ * (Indian content -> Rogmovies, Non-Indian content -> Vegamovies)
  */
 async function searchMoviesAndSeries(query, origin = 'non-indian') {
     const cleanQuery = query.replace(/1080p|720p|480p|4k|season\s*\d+|episode\s*\d+/gi, '').trim();
-    console.log(`🔍 [UnifiedSearch] Searching movies & series (Origin: ${origin}) for: "${cleanQuery}"`);
+    console.log(`🔍 [UnifiedSearch] Searching Vegamovies & Rogmovies (Origin: ${origin}) for: "${cleanQuery}"`);
 
     const candidatePosts = [];
 
-    // Define target search URLs based on content origin
+    // Define target search URLs strictly for Rogmovies and Vegamovies based on content origin
     const primarySites = origin === 'indian' 
         ? [
             { site: 'Rogmovies', url: `https://rogmovies.pages.dev/?s=${encodeURIComponent(cleanQuery)}` },
@@ -2119,10 +2119,12 @@ async function searchMoviesAndSeries(query, origin = 'non-indian') {
 
     const fallbackSites = origin === 'indian'
         ? [
-            { site: 'Vegamovies', url: `https://vegamovies.pages.dev/?s=${encodeURIComponent(cleanQuery)}` }
+            { site: 'Vegamovies', url: `https://vegamovies.pages.dev/?s=${encodeURIComponent(cleanQuery)}` },
+            { site: 'Vegamovies', url: `https://vegamovies.mex.com/?s=${encodeURIComponent(cleanQuery)}` }
           ]
         : [
-            { site: 'Rogmovies', url: `https://rogmovies.pages.dev/?s=${encodeURIComponent(cleanQuery)}` }
+            { site: 'Rogmovies', url: `https://rogmovies.pages.dev/?s=${encodeURIComponent(cleanQuery)}` },
+            { site: 'Rogmovies', url: `https://rogmovies.in/?s=${encodeURIComponent(cleanQuery)}` }
           ];
 
     // 1. Search Primary Target Sites first
@@ -2144,27 +2146,7 @@ async function searchMoviesAndSeries(query, origin = 'non-indian') {
         } catch (_) {}
     }
 
-    // 2. Search HDHub4u
-    try {
-        const hdhubResults = await searchHdhub4u(cleanQuery);
-        if (hdhubResults && hdhubResults.length > 0) {
-            hdhubResults.slice(0, 5).forEach(r => {
-                let rawLink = r.permalink || r.link || r.postUrl || r.url || (r.slug ? `https://hdhub4u.tv/${r.slug}/` : null);
-                if (rawLink && rawLink.includes('hdhub4u.')) {
-                    rawLink = rawLink.replace(/https?:\/\/[^\/]*hdhub4u\.[a-z0-9]+/i, 'https://hdhub4u.tv');
-                }
-                const title = r.title || r.postTitle || r.name;
-                const thumbnail = r.thumbnail || r.poster || null;
-                if (rawLink && title && !candidatePosts.some(p => p.link === rawLink)) {
-                    candidatePosts.push({ site: 'HDHub4u', title, link: rawLink, thumbnail });
-                }
-            });
-        }
-    } catch (err) {
-        console.warn('[UnifiedSearch] HDHub4u search error:', err.message);
-    }
-
-    // 3. Fallback to secondary sites if candidate list is small
+    // 2. Fallback to secondary site (Vegamovies or Rogmovies) if candidate list is small
     if (candidatePosts.length === 0) {
         for (const item of fallbackSites) {
             try {

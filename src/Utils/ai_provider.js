@@ -62,19 +62,23 @@ async function transcribeAudio(audioBuffer, mimeType = 'audio/mp3') {
 }
 
 /**
- * Parses user text or transcribed speech into structured movie/series search intent
+ * Parses user text or transcribed speech into structured movie/series search intent,
+ * correcting mispronunciations, spoken accents, and phonetic errors (e.g. "streetoo" -> "Stree 2").
  */
 async function extractSearchIntent(inputPrompt) {
     if (!GROQ_KEY) {
         throw new Error("GROQ_API_KEY is not configured in config.env");
     }
 
-    const systemPrompt = `You are a movie and TV series search assistant. Analyze the user prompt and extract search metadata into strict JSON format with keys:
-- "query": clean English title of movie or TV show without resolution, year, or search words
-- "year": 4-digit release year if mentioned, else null
+    const systemPrompt = `You are an expert movie and TV series title normalization assistant.
+The user input may come from spoken voice notes or mispronounced phonetically spoken text in English, Hindi, Urdu, or regional languages (e.g. "streetoo" -> "Stree 2", "pushpa tu" -> "Pushpa 2", "avengers end game" -> "Avengers: Endgame", "spiderman no way home" -> "Spider-Man: No Way Home").
+
+Analyze the input and output strict JSON with keys:
+- "query": OFFICIAL CANONICAL TITLE of the movie or TV show (corrected for phonetic mispronunciations, Urdu/Hindi spoken accents, and phonetic speech errors like "streetoo" -> "Stree 2").
+- "year": 4-digit release year if mentioned or strongly associated, else null
 - "resolution": requested quality ("480p", "720p", "1080p", "4k"). DEFAULT to "720p" if unspecified.
 - "type": "movie" or "series" (detect based on words like "season", "episode", "s01", "series", "tv" vs "movie")
-- "origin": "indian" (if Bollywood, Hindi, South Indian, Tamil, Telugu, Punjabi, Malayalam) OR "non-indian" (if Hollywood, English, Korean, Anime, Foreign)
+- "origin": "indian" (if Bollywood, Hindi, Urdu, South Indian, Tamil, Telugu, Punjabi, Malayalam) OR "non-indian" (if Hollywood, English, Korean, Anime, Foreign)
 
 Respond ONLY with valid JSON, no markdown wrappers, no prose.`;
 
@@ -102,13 +106,17 @@ Respond ONLY with valid JSON, no markdown wrappers, no prose.`;
         return parsed;
     } catch (err) {
         console.error("❌ Extract search intent error:", err.response?.data || err.message);
-        // Fallback simple parsing
-        const isSeries = /season|episode|s\d+/i.test(inputPrompt);
-        const resMatch = inputPrompt.match(/1080p|720p|480p|4k/i);
-        const yearMatch = inputPrompt.match(/\b(19\d\d|20\d\d)\b/);
-        const isIndian = /hindi|bollywood|punjabi|tamil|telugu|malayalam|stree|pushpa|jawan|pathaan|rrx|kgf/i.test(inputPrompt);
+        // Fallback simple parsing with phonetic map
+        let cleanText = inputPrompt;
+        if (/streetoo|stree\s*two|stree2/i.test(cleanText)) cleanText = "Stree 2";
+        if (/pushpa\s*two|pushpatwo/i.test(cleanText)) cleanText = "Pushpa 2";
+
+        const isSeries = /season|episode|s\d+/i.test(cleanText);
+        const resMatch = cleanText.match(/1080p|720p|480p|4k/i);
+        const yearMatch = cleanText.match(/\b(19\d\d|20\d\d)\b/);
+        const isIndian = /hindi|bollywood|punjabi|tamil|telugu|malayalam|stree|pushpa|jawan|pathaan|rrx|kgf/i.test(cleanText);
         return {
-            query: inputPrompt.replace(/1080p|720p|480p|4k|movie|series|\b(19\d\d|20\d\d)\b/gi, '').trim(),
+            query: cleanText.replace(/1080p|720p|480p|4k|movie|series|\b(19\d\d|20\d\d)\b/gi, '').trim(),
             year: yearMatch ? yearMatch[1] : null,
             resolution: resMatch ? resMatch[0].toLowerCase() : '720p',
             type: isSeries ? 'series' : 'movie',
