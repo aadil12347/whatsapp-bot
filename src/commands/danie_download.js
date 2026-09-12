@@ -7,6 +7,7 @@ const os = require('os');
 const fileType = require('file-type');
 const { browserHttpsAgent, applyPixeldrainWorkerProxy, isAdLink, fetchHtmlWithRetry, fetchTmdbMetadata, fetchTmdbById, downloadYoutubeVideoUrl, scrapePostPage, resolveLandingLink, resolveVcloudLink, resolveFinalUrl, scrapeAllPostLinks, extractDirectDownloadLinks, extractSubOptions, searchHdhub4u, extractSeriesVcloudLinks } = require('../Utils/movie_scraper');
 const { searchStreamImdb, getMediaDetails, getEpisodeEmbedUrl, resolveStreamOptions, downloadStreamWithFFmpeg, verifyMediaFile } = require('../Utils/streamimdb_scraper');
+const { getDomain, getDomains, setDomain } = require('../Utils/domain_manager');
 
 // Global handlers to prevent background network disconnect errors from crashing the Node process
 process.on('unhandledRejection', (reason, promise) => {
@@ -1049,9 +1050,10 @@ async function checkIsGroupAdmin(conn, groupJid, senderJid) {
     }
 }
 
-const VEGAMOVIES_DOMAIN = process.env.VEGAMOVIES_DOMAIN || 'https://new2.vegamovies.futbol';
-const ROGMOVIES_DOMAIN = process.env.ROGMOVIES_DOMAIN || 'https://new2.rogmovies.click';
+const VEGAMOVIES_DOMAIN = getDomain('vegamovies');
+const ROGMOVIES_DOMAIN = getDomain('rogmovies');
 const HDHUB4U_DOMAIN = process.env.HDHUB4U_DOMAIN || 'https://new3.hdhub4u.cl';
+const pendingDomainSelection = {};
 
 // =========================================================================
 //  TASK QUEUE MANAGER  Sequential FIFO execution for .p, .d, and searches
@@ -1683,7 +1685,7 @@ function initUpsertListener(conn) {
                 const cmdArgs = spaceIdx !== -1 ? cmdPart.substring(spaceIdx + 1).trim() : '';
 
                 const ALLOWED_COMMANDS = [
-                    'search', 'aisearch', 'confirm',
+                    'search', 'aisearch', 'confirm', 'domain', 'domains',
                     'sv', 'sr', 'sh', 'si', 'se', 'seextract', 'serieslinks', 'nexdrive', 'vcloudlinks',
                     'alive', 'allow', 'disallow', 'addowner', 'delowner', 'addsudo', 'delsudo', 'owners', 'allowed', 'sudolist', 'config', 'setgroup', 'dlstatus', 'dlconfig', 'downloadstatus',
                     'c', 'cancel', 'clearqueue', 'cancelall', 'que', 'queue', 'q', 'qstatus',
@@ -1733,6 +1735,27 @@ function initUpsertListener(conn) {
                     }
                 }
                 return;
+            }
+
+            // ---- Check if it's a reply for pending domain update ----
+            if (pendingDomainSelection[cleanSender]) {
+                const parts = trimmedText.trim().split(/\s+/);
+                const choice = parts[0];
+                const newUrl = parts.slice(1).join(' ');
+                if (['1', '2', 'rog', 'rogmovies', 'vega', 'vegamovies'].includes(choice.toLowerCase())) {
+                    if (!newUrl) {
+                        await reply(`ℹ️ Please send the choice number (1 or 2) followed by the new URL.\n\n*Example:* \`1 https://new2.rogmovies.click/\` or \`2 https://new2.vegamovies.futbol/\``);
+                        return;
+                    }
+                    const res = setDomain(choice, newUrl);
+                    delete pendingDomainSelection[cleanSender];
+                    if (res.success) {
+                        await reply(`✅ *Domain Updated Successfully!*\n\n• *Site:* ${res.site}\n• *New URL:* \`${res.url}\` \n\n*Saved permanently to bot storage.*`);
+                    } else {
+                        await reply(`❌ ${res.error}`);
+                    }
+                    return;
+                }
             }
 
             // ---- Check if it's a plain-number reply for pending config ----
@@ -3402,6 +3425,46 @@ DANIE_COMMANDS['confirm'] = async (conn, mek, from, senderJid, args, reply) => {
     await reply(`🚀 *Starting download & delivery for:* *${targetConf.title}*...`);
     await downloadCommandHandler(conn, mek, from, senderJid, `${targetConf.title} = ${targetConf.downloadUrl}`, reply);
 };
+
+DANIE_COMMANDS['domain'] = async (conn, mek, from, senderJid, args, reply) => {
+    initUpsertListener(conn);
+    const cleanSender = cleanJid(senderJid);
+    const argText = typeof args === 'string' ? args.trim() : '';
+
+    if (argText) {
+        const parts = argText.split(/\s+/);
+        const choice = parts[0];
+        const newUrl = parts.slice(1).join(' ');
+
+        if (!newUrl) {
+            return reply(`❌ *Usage:* \`.domain <1|2> <new_url>\`\n\n*Example:* \`.domain 1 https://new2.rogmovies.click/\``);
+        }
+
+        const res = setDomain(choice, newUrl);
+        if (!res.success) {
+            return reply(`❌ ${res.error}`);
+        }
+
+        delete pendingDomainSelection[cleanSender];
+        return reply(`✅ *Domain Updated Successfully!*\n\n• *Site:* ${res.site}\n• *New URL:* \`${res.url}\` \n\n*Saved permanently to bot storage.*`);
+    }
+
+    const domains = getDomains();
+    pendingDomainSelection[cleanSender] = { timestamp: Date.now() };
+
+    const statusMsg = `🌐 *Current Search Domains:*
+
+1️⃣ *Rogmovies:* \`${domains.rogmovies}\`
+2️⃣ *Vegamovies:* \`${domains.vegamovies}\`
+
+💡 *To update a domain:*
+• Reply with \`1 <new_url>\` for Rogmovies
+• Reply with \`2 <new_url>\` for Vegamovies
+• Or run: \`.domain 1 <new_url>\` / \`.domain 2 <new_url>\``;
+
+    return reply(statusMsg);
+};
+DANIE_COMMANDS['domains'] = DANIE_COMMANDS['domain'];
 
 DANIE_COMMANDS['config'] = async (conn, mek, from, senderJid, args, reply) => {
     if (!isOwner(senderJid)) return reply('❌ Only the bot owner can use this command.');
@@ -5096,6 +5159,24 @@ async function handleSearchReply(conn, mek, senderJid, text, reply) {
         }
     }
 }
+
+cmd({
+    pattern: 'domain',
+    alias: ['domains'],
+    react: '🌐',
+    desc: 'Displays and allows interactive update of Rogmovies and Vegamovies search domains stored permanently in bot files.',
+    category: 'download',
+    use: '.domain [1|2] [new_url]',
+    filename: __filename
+}, async (conn, mek, m, { from, quoted, q }) => {
+    const reply = async (textMsg) => {
+        return conn.sendMessage(from, { text: textMsg }, { quoted: mek });
+    };
+    const senderJid = m.sender || mek.sender || from;
+    if (typeof DANIE_COMMANDS['domain'] === 'function') {
+        await DANIE_COMMANDS['domain'](conn, mek, from, senderJid, q, reply);
+    }
+});
 
 cmd({
     pattern: 'sv',

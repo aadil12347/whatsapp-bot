@@ -2,6 +2,7 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 const https = require('https');
 const yts = require('yt-search');
+const { getDomain } = require('./domain_manager');
 
 const TMDB_API_KEY = process.env.TMDB_API_KEY || 'fc6d85b3839330e3458701b975195487';
 
@@ -2097,6 +2098,52 @@ async function extractSeriesVcloudLinks(nextdriveUrl, options = {}) {
 }
 
 /**
+ * Helper to query search.php / ts-search.php JSON search endpoints for Vegamovies & Rogmovies
+ */
+async function searchSiteApi(siteName, domain, query) {
+    const results = [];
+    const cleanDomain = domain.endsWith('/') ? domain : domain + '/';
+    const apiPaths = siteName.toLowerCase().includes('rog') 
+        ? ['search.php', 'ts-search.php'] 
+        : ['search.php'];
+
+    for (const path of apiPaths) {
+        try {
+            const url = `${cleanDomain}${path}?q=${encodeURIComponent(query)}&page=1`;
+            console.log(`[SearchAPI] Querying ${siteName} API: ${url}`);
+            const res = await axios.get(url, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+                    'Accept': 'application/json, text/plain, */*',
+                    'Referer': cleanDomain
+                },
+                timeout: 10000
+            });
+            if (res.data && Array.isArray(res.data.hits) && res.data.hits.length > 0) {
+                for (const h of res.data.hits) {
+                    let permalink = h.document?.permalink || '';
+                    if (permalink && !permalink.startsWith('http')) {
+                        permalink = `${cleanDomain}${permalink.startsWith('/') ? permalink.slice(1) : permalink}`;
+                    }
+                    let thumbnail = h.document?.post_thumbnail || null;
+                    if (thumbnail && !thumbnail.startsWith('http')) {
+                        thumbnail = `${cleanDomain}${thumbnail.startsWith('/') ? thumbnail.slice(1) : thumbnail}`;
+                    }
+                    let title = h.document?.post_title || h.document?.title || '';
+                    if (permalink && title && !results.some(p => p.link === permalink)) {
+                        results.push({ site: siteName, title, link: permalink, thumbnail });
+                    }
+                }
+                if (results.length > 0) break;
+            }
+        } catch (e) {
+            console.log(`[SearchAPI] ${siteName} ${path} error: ${e.message}`);
+        }
+    }
+    return results;
+}
+
+/**
  * Smart movie and TV series search function with origin-based site routing
  * (Indian content -> Rogmovies, Non-Indian content -> Vegamovies)
  */
@@ -2105,32 +2152,28 @@ async function searchMoviesAndSeries(query, origin = 'non-indian') {
     console.log(`🔍 [UnifiedSearch] Searching Vegamovies & Rogmovies (Origin: ${origin}) for: "${cleanQuery}"`);
 
     const candidatePosts = [];
+    const rogDomain = getDomain('rogmovies');
+    const vegaDomain = getDomain('vegamovies');
 
-    // Define target search URLs strictly for Rogmovies and Vegamovies based on content origin
-    const primarySites = origin === 'indian' 
-        ? [
-            { site: 'Rogmovies', url: `https://rogmovies.pages.dev/?s=${encodeURIComponent(cleanQuery)}` },
-            { site: 'Rogmovies', url: `https://rogmovies.in/?s=${encodeURIComponent(cleanQuery)}` }
-          ]
-        : [
-            { site: 'Vegamovies', url: `https://vegamovies.mex.com/?s=${encodeURIComponent(cleanQuery)}` },
-            { site: 'Vegamovies', url: `https://vegamovies.pages.dev/?s=${encodeURIComponent(cleanQuery)}` }
-          ];
+    // Define target sites based on content origin
+    const primarySite = origin === 'indian'
+        ? { site: 'Rogmovies', domain: rogDomain }
+        : { site: 'Vegamovies', domain: vegaDomain };
 
-    const fallbackSites = origin === 'indian'
-        ? [
-            { site: 'Vegamovies', url: `https://vegamovies.pages.dev/?s=${encodeURIComponent(cleanQuery)}` },
-            { site: 'Vegamovies', url: `https://vegamovies.mex.com/?s=${encodeURIComponent(cleanQuery)}` }
-          ]
-        : [
-            { site: 'Rogmovies', url: `https://rogmovies.pages.dev/?s=${encodeURIComponent(cleanQuery)}` },
-            { site: 'Rogmovies', url: `https://rogmovies.in/?s=${encodeURIComponent(cleanQuery)}` }
-          ];
+    const fallbackSite = origin === 'indian'
+        ? { site: 'Vegamovies', domain: vegaDomain }
+        : { site: 'Rogmovies', domain: rogDomain };
 
-    // 1. Search Primary Target Sites first
-    for (const item of primarySites) {
+    // 1. Try Primary Target Site Search API first
+    const primaryApiHits = await searchSiteApi(primarySite.site, primarySite.domain, cleanQuery);
+    candidatePosts.push(...primaryApiHits);
+
+    // 1b. HTML Fallback if API returned 0 hits
+    if (candidatePosts.length === 0) {
         try {
-            const html = await fetchHtmlWithRetry(item.url);
+            const htmlUrl = `${primarySite.domain}?s=${encodeURIComponent(cleanQuery)}`;
+            console.log(`[UnifiedSearch] Querying ${primarySite.site} HTML fallback: ${htmlUrl}`);
+            const html = await fetchHtmlWithRetry(htmlUrl);
             const $ = cheerio.load(html);
             $('article, .post-item, h2.entry-title, .entry-title').each((_, el) => {
                 const a = $(el).is('a') ? $(el) : $(el).find('a[href]').first();
@@ -2139,18 +2182,26 @@ async function searchMoviesAndSeries(query, origin = 'non-indian') {
                     const href = a.attr('href');
                     const title = a.text().trim() || $(el).text().trim();
                     if (href && title && !href.includes('/category/') && !href.includes('/tag/') && !candidatePosts.some(p => p.link === href)) {
-                        candidatePosts.push({ site: item.site, title, link: href, thumbnail: img || null });
+                        candidatePosts.push({ site: primarySite.site, title, link: href, thumbnail: img || null });
                     }
                 }
             });
-        } catch (_) {}
+        } catch (err) {
+            console.log(`[UnifiedSearch] ${primarySite.site} HTML fallback error: ${err.message}`);
+        }
     }
 
-    // 2. Fallback to secondary site (Vegamovies or Rogmovies) if candidate list is small
+    // 2. Fallback to secondary site if candidate list is still 0
     if (candidatePosts.length === 0) {
-        for (const item of fallbackSites) {
+        console.log(`[UnifiedSearch] 0 hits on primary site (${primarySite.site}). Trying fallback site (${fallbackSite.site})...`);
+        const fallbackApiHits = await searchSiteApi(fallbackSite.site, fallbackSite.domain, cleanQuery);
+        candidatePosts.push(...fallbackApiHits);
+
+        if (candidatePosts.length === 0) {
             try {
-                const html = await fetchHtmlWithRetry(item.url);
+                const htmlUrl = `${fallbackSite.domain}?s=${encodeURIComponent(cleanQuery)}`;
+                console.log(`[UnifiedSearch] Querying ${fallbackSite.site} HTML fallback: ${htmlUrl}`);
+                const html = await fetchHtmlWithRetry(htmlUrl);
                 const $ = cheerio.load(html);
                 $('article, .post-item, h2.entry-title, .entry-title').each((_, el) => {
                     const a = $(el).is('a') ? $(el) : $(el).find('a[href]').first();
@@ -2159,15 +2210,17 @@ async function searchMoviesAndSeries(query, origin = 'non-indian') {
                         const href = a.attr('href');
                         const title = a.text().trim() || $(el).text().trim();
                         if (href && title && !href.includes('/category/') && !href.includes('/tag/') && !candidatePosts.some(p => p.link === href)) {
-                            candidatePosts.push({ site: item.site, title, link: href, thumbnail: img || null });
+                            candidatePosts.push({ site: fallbackSite.site, title, link: href, thumbnail: img || null });
                         }
                     }
                 });
-            } catch (_) {}
+            } catch (err) {
+                console.log(`[UnifiedSearch] ${fallbackSite.site} HTML fallback error: ${err.message}`);
+            }
         }
     }
 
-    console.log(`✅ [UnifiedSearch] Collected ${candidatePosts.length} candidate post(s) (Origin: ${origin}) for "${query}".`);
+    console.log(`✅ [UnifiedSearch] Collected ${candidatePosts.length} candidate post(s) (Origin: ${origin}) for "${cleanQuery}".`);
     return candidatePosts;
 }
 
