@@ -1,6 +1,5 @@
 const { translateAudio, extractSearchIntent, selectBestMatch } = require('../Utils/ai_provider');
-const { fetchTmdbMetadata, downloadYoutubeVideoUrl, searchMoviesAndSeries, scrapePostPage, resolveLandingLink, resolveVcloudLink, extractSeriesVcloudLinks } = require('../Utils/movie_scraper');
-const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
+const { searchMoviesAndSeries, scrapePostPage, resolveLandingLink, resolveVcloudLink, extractSeriesVcloudLinks } = require('../Utils/movie_scraper');
 
 // In-memory state tracking
 const pendingPreConfirmations = new Map();
@@ -30,8 +29,7 @@ async function handleAiSearchCommand(sock, msg, args, userTextInput = null, isVo
         return sock.sendMessage(chatId, { text: '⚠️ Please provide a movie/series name or send a voice note.\nExample: `.search Superman 2025 in 720p`' }, { quoted: msg });
     }
 
-    // 2. Extract Intent using AI (Title, Year, Quality, Type, Origin)
-    await sock.sendMessage(chatId, { text: '⏳ *[1/3] Analyzing search intent & content origin...*' }, { quoted: msg });
+    // 2. Extract Intent using AI (Title, Year, Quality, Type, Origin) - Done silently without status spam
     let intent;
     try {
         intent = await extractSearchIntent(userPrompt);
@@ -43,21 +41,20 @@ async function handleAiSearchCommand(sock, msg, args, userTextInput = null, isVo
     // Default resolution fallback
     if (!intent.resolution) intent.resolution = '720p';
 
-    // 3. Search target sites (Rogmovies for Indian, Vegamovies for Non-Indian, HDHub4u fallback)
-    await sock.sendMessage(chatId, { text: `⏳ *[2/3] Searching ${intent.origin === 'indian' ? 'Rogmovies' : 'Vegamovies'} (${intent.resolution})...*` }, { quoted: msg });
+    // 3. Search target sites (Rogmovies for Indian, Vegamovies for Non-Indian) - Done silently
     const candidates = await searchMoviesAndSeries(intent.query, intent.origin);
 
     if (!candidates || candidates.length === 0) {
         return sock.sendMessage(chatId, { text: `❌ No download posts found for "*${intent.query}*".` }, { quoted: msg });
     }
 
-    // If multiple candidates exist, ask user to select option or pick best match
+    // Select candidate post
     let chosenPost = candidates[0];
     if (candidates.length > 1) {
         chosenPost = await selectBestMatch({ title: intent.query, year: intent.year }, candidates, intent.resolution);
     }
 
-    // 4. Pre-Confirmation Gate BEFORE fetching TMDB asset & media extraction
+    // 4. Pre-Confirmation Gate
     const confirmKey = `${chatId}_${Date.now().toString().slice(-4)}`;
     pendingPreConfirmations.set(confirmKey, {
         chatId,
@@ -72,7 +69,9 @@ async function handleAiSearchCommand(sock, msg, args, userTextInput = null, isVo
                            `📺 *Requested Quality:* *${intent.resolution}*\n` +
                            `⭐ *Type:* *${intent.type.toUpperCase()}*\n` +
                            `🌐 *Source Site:* ${chosenPost.site}\n\n` +
-                           `👉 *Reply "*yes*" or "*1*" to proceed with TMDB poster, trailer & media download, or "*no*" to cancel.*`;
+                           `👉 *Reply "*yes*" or "*1*" to confirm & download.*\n` +
+                           `👉 *Or reply with a corrected name (text/voice) to change search.*\n` +
+                           `👉 *Reply "*no*" to cancel.*`;
 
     if (chosenPost.thumbnail) {
         await sock.sendMessage(chatId, { image: { url: chosenPost.thumbnail }, caption: preConfirmText }, { quoted: msg });
@@ -82,14 +81,21 @@ async function handleAiSearchCommand(sock, msg, args, userTextInput = null, isVo
 }
 
 /**
- * Pre-Confirmation Gate Response Handler (User replies Yes/1 or No)
+ * Pre-Confirmation Gate Response Handler (User replies Yes/1, No/0, or a corrected search query/voice note)
  */
-async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved) {
+async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, updatedInput = null, isVoice = false, audioBuffer = null) {
     const chatId = msg.key.remoteJid;
     const session = pendingPreConfirmations.get(confirmKey);
 
     if (!session) {
         return sock.sendMessage(chatId, { text: '⚠️ Confirmation session expired or not found.' }, { quoted: msg });
+    }
+
+    // If user provided a correction (text or voice note), re-trigger AI search with updated input
+    if (isApproved === null && (updatedInput || (isVoice && audioBuffer))) {
+        pendingPreConfirmations.delete(confirmKey);
+        await sock.sendMessage(chatId, { text: '🔄 *Updating search query...*' }, { quoted: msg });
+        return handleAiSearchCommand(sock, msg, [], updatedInput, isVoice, audioBuffer);
     }
 
     pendingPreConfirmations.delete(confirmKey);
@@ -99,48 +105,23 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved) {
     }
 
     const { post, intent } = session;
+    const { downloadCommandHandler } = require('./danie_download');
+
     await sock.sendMessage(chatId, { text: `🚀 *Confirmed! Processing TMDB poster, trailer & download link for:* *${post.title}*...` }, { quoted: msg });
 
-    // Step A: Scrape detail page for IMDb ID (tt...) to convert to TMDB metadata
-    let imdbId = null;
+    // 1. Trigger .p command functionality for fetching & sending TMDB poster + caption + trailer
     try {
-        const scrapeInfo = await scrapePostPage(post.link);
-        if (scrapeInfo && scrapeInfo.imdbId) {
-            imdbId = scrapeInfo.imdbId;
-            console.log(`[AISearch] Extracted IMDb ID from post page: ${imdbId}`);
-        }
-    } catch (_) {}
-
-    // Step B: Fetch TMDB Metadata & send Poster + Trailer
-    const tmdb = await fetchTmdbMetadata(intent.query, intent.type, imdbId);
-
-    if (tmdb) {
-        const caption = `🎬 *Title:* *${tmdb.title}*\n` +
-                        `📅 *Year:* *${tmdb.year}*\n` +
-                        `🎭 *Genre:* *${tmdb.genres}*\n` +
-                        `⭐ *Type:* *${tmdb.type.toUpperCase()}*\n\n` +
-                        `📝 *Overview:* ${tmdb.overview ? tmdb.overview.substring(0, 300) + '...' : 'N/A'}`;
-
-        if (tmdb.posterUrl) {
-            await sock.sendMessage(chatId, { image: { url: tmdb.posterUrl }, caption }, { quoted: msg });
-        } else {
-            await sock.sendMessage(chatId, { text: caption }, { quoted: msg });
-        }
-
-        // Send Trailer Video
-        if (tmdb.trailerUrl) {
-            try {
-                const directTrailerUrl = await downloadYoutubeVideoUrl(tmdb.trailerUrl);
-                if (directTrailerUrl) {
-                    await sock.sendMessage(chatId, { video: { url: directTrailerUrl }, caption: `🎥 *Official Trailer:* *${tmdb.title}*` }, { quoted: msg });
-                }
-            } catch (err) {
-                console.warn('[AISearch] Trailer delivery skipped:', err.message);
+        await downloadCommandHandler(sock, msg, chatId, msg.key.participant || chatId, post.link, async (t) => {
+            // Filter progress text so only poster/trailer/link updates are sent
+            if (t && (t.includes('Poster') || t.includes('Trailer') || t.includes('TMDB') || t.includes('Downloading'))) {
+                await sock.sendMessage(chatId, { text: t });
             }
-        }
+        });
+    } catch (err) {
+        console.warn('[AISearch] .p command handler processing notice:', err.message);
     }
 
-    // Step C: Resolution Delivery Branch
+    // 2. Resolution Delivery Branch
     const isHigherResolution = ['1080p', '4k', '2160p'].includes(intent.resolution.toLowerCase());
 
     try {
@@ -165,16 +146,17 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved) {
         if (isHigherResolution) {
             // Send direct external browser download link
             const browserMsg = `🌐 *Direct Browser Download Link (External Download)*\n\n` +
-                               `🎬 *Title:* *${tmdb?.title || post.title}*\n` +
+                               `🎬 *Title:* *${post.title}*\n` +
                                `📺 *Quality:* *${intent.resolution}*\n` +
                                `🔗 *Direct Download Link:* \`${finalUrl}\` \n\n` +
                                `_Note: Direct WhatsApp file delivery is supported for 480p and 720p files (< 2GB)._`;
             await sock.sendMessage(chatId, { text: browserMsg }, { quoted: msg });
         } else {
-            // Trigger in-chat file delivery (480p or 720p)
-            const { downloadCommandHandler } = require('./danie_download');
-            await sock.sendMessage(chatId, { text: `📥 *Downloading & delivering ${intent.resolution} file to chat...*` }, { quoted: msg });
-            await downloadCommandHandler(sock, msg, chatId, msg.key.participant || chatId, `${tmdb?.title || post.title} = ${finalUrl}`, async (t) => sock.sendMessage(chatId, { text: t }));
+            // Trigger .d command handler for media file download & delivery
+            await sock.sendMessage(chatId, { text: `📥 *Downloading & delivering ${intent.resolution} file via .d command...*` }, { quoted: msg });
+            await downloadCommandHandler(sock, msg, chatId, msg.key.participant || chatId, `${post.title} = ${finalUrl}`, async (t) => {
+                await sock.sendMessage(chatId, { text: t });
+            });
         }
 
     } catch (err) {

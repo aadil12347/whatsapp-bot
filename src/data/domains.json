@@ -1,4 +1,12 @@
 {
   "rogmovies": "https://new2.rogmovies.click/",
-  "vegamovies": "https://new2.vegamovies.futbol/"
+  "vegamovies": "https://new2.vegamovies.futbol/",
+  "hostPriority": [
+    "10gbps",
+    "fslv2",
+    "fsl",
+    "vcloud",
+    "gofile",
+    "pixeldrain"
+  ]
 }

@@ -5,7 +5,8 @@ const DOMAINS_FILE = path.join(__dirname, '../data/domains.json');
 
 const DEFAULT_DOMAINS = {
     rogmovies: 'https://new2.rogmovies.click/',
-    vegamovies: 'https://new2.vegamovies.futbol/'
+    vegamovies: 'https://new2.vegamovies.futbol/',
+    hostPriority: ['10gbps', 'fslv2', 'fsl', 'vcloud', 'gofile', 'pixeldrain']
 };
 
 function ensureDomainsFile() {
@@ -34,19 +35,26 @@ function normalizeUrl(urlStr) {
     return clean;
 }
 
-function getDomains() {
+function getRawData() {
     ensureDomainsFile();
     try {
         const raw = fs.readFileSync(DOMAINS_FILE, 'utf8');
-        const data = JSON.parse(raw);
-        return {
-            rogmovies: normalizeUrl(data.rogmovies || DEFAULT_DOMAINS.rogmovies),
-            vegamovies: normalizeUrl(data.vegamovies || DEFAULT_DOMAINS.vegamovies)
-        };
+        return JSON.parse(raw);
     } catch (err) {
         console.error('[DomainManager] Read error:', err.message);
         return { ...DEFAULT_DOMAINS };
     }
+}
+
+function getDomains() {
+    const data = getRawData();
+    return {
+        rogmovies: normalizeUrl(data.rogmovies || DEFAULT_DOMAINS.rogmovies),
+        vegamovies: normalizeUrl(data.vegamovies || DEFAULT_DOMAINS.vegamovies),
+        hostPriority: Array.isArray(data.hostPriority) && data.hostPriority.length > 0
+            ? data.hostPriority
+            : DEFAULT_DOMAINS.hostPriority
+    };
 }
 
 function getDomain(siteName) {
@@ -57,37 +65,84 @@ function getDomain(siteName) {
     return domains[key] || DEFAULT_DOMAINS.vegamovies;
 }
 
-function setDomain(siteChoice, newUrl) {
+function getHostPriority() {
+    const domains = getDomains();
+    return domains.hostPriority || DEFAULT_DOMAINS.hostPriority;
+}
+
+function setHostPriority(priorityInput) {
     ensureDomainsFile();
-    if (!newUrl) {
-        return { success: false, error: 'No URL provided' };
+    let newList = [];
+    if (Array.isArray(priorityInput)) {
+        newList = priorityInput;
+    } else if (typeof priorityInput === 'string') {
+        newList = priorityInput.split(/[\s,>]+/).map(s => s.trim().toLowerCase()).filter(Boolean);
     }
 
-    let siteKey = null;
-    const choice = String(siteChoice).trim().toLowerCase();
-    if (choice === '1' || choice === 'rog' || choice === 'rogmovies') {
-        siteKey = 'rogmovies';
-    } else if (choice === '2' || choice === 'vega' || choice === 'vegamovies') {
-        siteKey = 'vegamovies';
-    } else {
-        return { success: false, error: 'Invalid site selection. Use 1 for Rogmovies or 2 for Vegamovies.' };
+    const VALID_HOSTS = ['10gbps', 'fslv2', 'fsl', 'vcloud', 'gofile', 'pixeldrain'];
+    const sanitized = [];
+    for (const item of newList) {
+        const matched = VALID_HOSTS.find(vh => vh === item || item.includes(vh));
+        if (matched && !sanitized.includes(matched)) {
+            sanitized.push(matched);
+        }
+    }
+    // Append any unmentioned valid hosts at the end
+    for (const vh of VALID_HOSTS) {
+        if (!sanitized.includes(vh)) {
+            sanitized.push(vh);
+        }
     }
 
-    const cleanUrl = normalizeUrl(newUrl);
     try {
-        const current = getDomains();
-        current[siteKey] = cleanUrl;
+        const current = getRawData();
+        current.hostPriority = sanitized;
         fs.writeFileSync(DOMAINS_FILE, JSON.stringify(current, null, 2), 'utf8');
-        console.log(`[DomainManager] Updated ${siteKey} domain to ${cleanUrl}`);
+        console.log(`[DomainManager] Updated Host Priority order to:`, sanitized);
         return {
             success: true,
-            site: siteKey === 'rogmovies' ? 'Rogmovies' : 'Vegamovies',
-            siteKey,
-            url: cleanUrl
+            site: 'Host Priority',
+            hostPriority: sanitized
         };
     } catch (err) {
-        console.error('[DomainManager] Save error:', err.message);
+        console.error('[DomainManager] Save host priority error:', err.message);
         return { success: false, error: err.message };
+    }
+}
+
+function setDomain(siteChoice, value) {
+    ensureDomainsFile();
+    if (!value) {
+        return { success: false, error: 'No value provided' };
+    }
+
+    const choice = String(siteChoice).trim().toLowerCase();
+    if (choice === '1' || choice === 'rog' || choice === 'rogmovies') {
+        const cleanUrl = normalizeUrl(value);
+        try {
+            const current = getRawData();
+            current.rogmovies = cleanUrl;
+            fs.writeFileSync(DOMAINS_FILE, JSON.stringify(current, null, 2), 'utf8');
+            console.log(`[DomainManager] Updated rogmovies domain to ${cleanUrl}`);
+            return { success: true, site: 'Rogmovies', url: cleanUrl };
+        } catch (err) {
+            return { success: false, error: err.message };
+        }
+    } else if (choice === '2' || choice === 'vega' || choice === 'vegamovies') {
+        const cleanUrl = normalizeUrl(value);
+        try {
+            const current = getRawData();
+            current.vegamovies = cleanUrl;
+            fs.writeFileSync(DOMAINS_FILE, JSON.stringify(current, null, 2), 'utf8');
+            console.log(`[DomainManager] Updated vegamovies domain to ${cleanUrl}`);
+            return { success: true, site: 'Vegamovies', url: cleanUrl };
+        } catch (err) {
+            return { success: false, error: err.message };
+        }
+    } else if (choice === '3' || choice === 'host' || choice === 'priority' || choice === 'hosts') {
+        return setHostPriority(value);
+    } else {
+        return { success: false, error: 'Invalid choice selection. Use 1 for Rogmovies, 2 for Vegamovies, or 3 for Host Priority.' };
     }
 }
 
@@ -95,5 +150,7 @@ module.exports = {
     getDomains,
     getDomain,
     setDomain,
+    getHostPriority,
+    setHostPriority,
     DEFAULT_DOMAINS
 };

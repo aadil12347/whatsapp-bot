@@ -2,7 +2,7 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 const https = require('https');
 const yts = require('yt-search');
-const { getDomain } = require('./domain_manager');
+const { getDomain, getHostPriority } = require('./domain_manager');
 
 const TMDB_API_KEY = process.env.TMDB_API_KEY || 'fc6d85b3839330e3458701b975195487';
 
@@ -896,13 +896,22 @@ async function resolveVcloudLink(url, preferredServer = null, parentUrl = null) 
                 return txt.includes('10gbps') || txt.includes('10 gbps') || txt.includes('g-direct') || txt.includes('gdirect') || txt.includes('gpdl');
             });
 
-            // Priority Sequence: FSL (1st) -> FSLv2 (2nd) -> Pixeldrain (3rd) -> 10Gbps (4th)
+            // Dynamically sort candidates based on user-configured hostPriority from domain_manager
+            const hostPriority = getHostPriority();
             const candidateOrder = [
-                { type: 'FSL', item: fslCandidate },
-                { type: 'FSLv2', item: fslv2Candidate },
-                { type: 'Pixeldrain', item: pixeldrainCandidate },
-                { type: '10Gbps', item: g10gbpsCandidate }
+                { type: 'FSL', key: 'fsl', item: fslCandidate },
+                { type: 'FSLv2', key: 'fslv2', item: fslv2Candidate },
+                { type: 'Pixeldrain', key: 'pixeldrain', item: pixeldrainCandidate },
+                { type: '10Gbps', key: '10gbps', item: g10gbpsCandidate }
             ].filter(c => c.item !== undefined);
+
+            candidateOrder.sort((a, b) => {
+                const idxA = hostPriority.indexOf(a.key);
+                const idxB = hostPriority.indexOf(b.key);
+                const rankA = idxA !== -1 ? idxA : 999;
+                const rankB = idxB !== -1 ? idxB : 999;
+                return rankA - rankB;
+            });
 
             if (candidateOrder.length === 0) {
                 throw new Error('No compatible V-Cloud download server found. Only FSL, FSLv2, Pixeldrain, and 10Gbps servers are supported.');
@@ -1950,28 +1959,30 @@ async function resolveSingleVcloudEpisode(vUrl, referer = null, timeoutMs = 2000
             return t.includes('10gbps') || t.includes('10 gbps') || t.includes('g-direct') || t.includes('gdirect') || t.includes('gpdl');
         });
 
-        let selected = null;
-        let serverType = '';
+        // Step 3: Server selection based on user-configured hostPriority from domain_manager
+        const hostPriority = getHostPriority();
+        const availableOptions = [
+            { type: 'FSL', key: 'fsl', item: matchFsl },
+            { type: 'FSLv2', key: 'fslv2', item: matchFslv2 },
+            { type: 'Pixeldrain', key: 'pixeldrain', item: matchPixeldrain },
+            { type: '10Gbps', key: '10gbps', item: match10g }
+        ].filter(c => c.item !== undefined);
 
-        if (matchFsl) {
-            selected = matchFsl;
-            serverType = 'FSL';
-        } else if (matchFslv2) {
-            selected = matchFslv2;
-            serverType = 'FSLv2';
-        } else if (matchPixeldrain) {
-            selected = matchPixeldrain;
-            serverType = 'Pixeldrain';
-        } else if (match10g) {
-            selected = match10g;
-            serverType = '10Gbps';
-        }
+        availableOptions.sort((a, b) => {
+            const idxA = hostPriority.indexOf(a.key);
+            const idxB = hostPriority.indexOf(b.key);
+            const rankA = idxA !== -1 ? idxA : 999;
+            const rankB = idxB !== -1 ? idxB : 999;
+            return rankA - rankB;
+        });
 
-        // Reject if none of FSL, FSLv2, Pixeldrain, or 10Gbps exist
-        if (!selected) {
-            console.log(`[SeriesVcloudExtractor] No FSL, FSLv2, Pixeldrain, or 10Gbps server found for: ${vUrl}`);
+        if (availableOptions.length === 0) {
+            console.log(`[SeriesVcloudExtractor] No compatible server found for: ${vUrl}`);
             return null;
         }
+
+        const selected = availableOptions[0].item;
+        const serverType = availableOptions[0].type;
 
         let directUrl = selected.href;
         if (serverType === 'Pixeldrain' || directUrl.includes('pixeldrain') || directUrl.includes('sriflix')) {

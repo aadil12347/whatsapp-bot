@@ -1632,6 +1632,20 @@ function initUpsertListener(conn) {
                         buffer = Buffer.concat([buffer, chunk]);
                     }
                     if (buffer.length > 0) {
+                        const { pendingPreConfirmations, handlePreConfirmationReply } = require('./ai_search');
+                        let matchedConfirmKey = null;
+                        for (const [key, session] of pendingPreConfirmations.entries()) {
+                            if (session.chatId === targetJid || session.chatId === from) {
+                                matchedConfirmKey = key;
+                                break;
+                            }
+                        }
+                        if (matchedConfirmKey) {
+                            console.log(`[DanieWatch] Voice note correction received for confirmation key ${matchedConfirmKey}.`);
+                            await handlePreConfirmationReply(conn, mek, matchedConfirmKey, null, null, true, buffer);
+                            return;
+                        }
+
                         await handleAiSearchCommand(conn, mek, [], null, true, buffer);
                         return;
                     }
@@ -1737,20 +1751,24 @@ function initUpsertListener(conn) {
                 return;
             }
 
-            // ---- Check if it's a reply for pending domain update ----
+            // ---- Check if it's a reply for pending domain/host priority update ----
             if (pendingDomainSelection[cleanSender]) {
                 const parts = trimmedText.trim().split(/\s+/);
                 const choice = parts[0];
-                const newUrl = parts.slice(1).join(' ');
-                if (['1', '2', 'rog', 'rogmovies', 'vega', 'vegamovies'].includes(choice.toLowerCase())) {
-                    if (!newUrl) {
-                        await reply(`ℹ️ Please send the choice number (1 or 2) followed by the new URL.\n\n*Example:* \`1 https://new2.rogmovies.click/\` or \`2 https://new2.vegamovies.futbol/\``);
+                const val = parts.slice(1).join(' ');
+                if (['1', '2', '3', 'rog', 'rogmovies', 'vega', 'vegamovies', 'host', 'priority'].includes(choice.toLowerCase())) {
+                    if (!val) {
+                        await reply(`ℹ️ Please send the choice number (1, 2, or 3) followed by the new value.\n\n*Examples:*\n\`1 https://new2.rogmovies.click/\`\n\`3 10gbps, fslv2, fsl\``);
                         return;
                     }
-                    const res = setDomain(choice, newUrl);
+                    const res = setDomain(choice, val);
                     delete pendingDomainSelection[cleanSender];
                     if (res.success) {
-                        await reply(`✅ *Domain Updated Successfully!*\n\n• *Site:* ${res.site}\n• *New URL:* \`${res.url}\` \n\n*Saved permanently to bot storage.*`);
+                        if (res.hostPriority) {
+                            await reply(`✅ *Host Link Priority Updated Successfully!*\n\n• *New Order:* ${res.hostPriority.join(' ➔ ')}\n\n*Saved permanently to bot storage.*`);
+                        } else {
+                            await reply(`✅ *Domain Updated Successfully!*\n\n• *Site:* ${res.site}\n• *New URL:* \`${res.url}\` \n\n*Saved permanently to bot storage.*`);
+                        }
                     } else {
                         await reply(`❌ ${res.error}`);
                     }
@@ -1790,6 +1808,10 @@ function initUpsertListener(conn) {
                 } else if (['no', 'n', 'cancel', '0'].includes(lower)) {
                     console.log(`[DanieWatch] Directing reply "${trimmedText}" to handlePreConfirmationReply (CANCELLED).`);
                     await handlePreConfirmationReply(conn, mek, matchedConfirmKey, false);
+                    return;
+                } else {
+                    console.log(`[DanieWatch] Directing reply "${trimmedText}" to handlePreConfirmationReply (TITLE CORRECTION).`);
+                    await handlePreConfirmationReply(conn, mek, matchedConfirmKey, null, trimmedText);
                     return;
                 }
             }
@@ -3426,6 +3448,16 @@ DANIE_COMMANDS['confirm'] = async (conn, mek, from, senderJid, args, reply) => {
     await downloadCommandHandler(conn, mek, from, senderJid, `${targetConf.title} = ${targetConf.downloadUrl}`, reply);
 };
 
+DANIE_COMMANDS['d'] = async (conn, mek, from, senderJid, args, reply) => {
+    const qText = typeof args === 'string' ? args : (Array.isArray(args) ? args.join(' ') : '');
+    await downloadCommandHandler(conn, mek, from, senderJid, qText, reply);
+};
+
+DANIE_COMMANDS['p'] = async (conn, mek, from, senderJid, args, reply) => {
+    const qText = typeof args === 'string' ? args : (Array.isArray(args) ? args.join(' ') : '');
+    await pCommandHandler(conn, mek, from, senderJid, qText, reply);
+};
+
 DANIE_COMMANDS['domain'] = async (conn, mek, from, senderJid, args, reply) => {
     initUpsertListener(conn);
     const cleanSender = cleanJid(senderJid);
@@ -3434,33 +3466,38 @@ DANIE_COMMANDS['domain'] = async (conn, mek, from, senderJid, args, reply) => {
     if (argText) {
         const parts = argText.split(/\s+/);
         const choice = parts[0];
-        const newUrl = parts.slice(1).join(' ');
+        const val = parts.slice(1).join(' ');
 
-        if (!newUrl) {
-            return reply(`❌ *Usage:* \`.domain <1|2> <new_url>\`\n\n*Example:* \`.domain 1 https://new2.rogmovies.click/\``);
+        if (!val) {
+            return reply(`❌ *Usage:* \`.domain <1|2|3> <value>\`\n\n*Examples:*\n• \`.domain 1 https://new2.rogmovies.click/\`\n• \`.domain 2 https://new2.vegamovies.futbol/\`\n• \`.domain 3 10gbps, fslv2, fsl, vcloud\``);
         }
 
-        const res = setDomain(choice, newUrl);
+        const res = setDomain(choice, val);
         if (!res.success) {
             return reply(`❌ ${res.error}`);
         }
 
         delete pendingDomainSelection[cleanSender];
+        if (res.hostPriority) {
+            return reply(`✅ *Host Link Priority Updated Successfully!*\n\n• *New Order:* ${res.hostPriority.join(' ➔ ')}\n\n*Saved permanently to bot storage.*`);
+        }
         return reply(`✅ *Domain Updated Successfully!*\n\n• *Site:* ${res.site}\n• *New URL:* \`${res.url}\` \n\n*Saved permanently to bot storage.*`);
     }
 
     const domains = getDomains();
     pendingDomainSelection[cleanSender] = { timestamp: Date.now() };
 
-    const statusMsg = `🌐 *Current Search Domains:*
+    const statusMsg = `🌐 *Current Search & Host Configuration:*
 
-1️⃣ *Rogmovies:* \`${domains.rogmovies}\`
-2️⃣ *Vegamovies:* \`${domains.vegamovies}\`
+1️⃣ *Rogmovies Domain:* \`${domains.rogmovies}\`
+2️⃣ *Vegamovies Domain:* \`${domains.vegamovies}\`
+3️⃣ *Host Link Priority:* \`${(domains.hostPriority || []).join(' ➔ ')}\`
 
-💡 *To update a domain:*
-• Reply with \`1 <new_url>\` for Rogmovies
-• Reply with \`2 <new_url>\` for Vegamovies
-• Or run: \`.domain 1 <new_url>\` / \`.domain 2 <new_url>\``;
+💡 *To update settings:*
+• Reply \`1 <new_url>\` for Rogmovies Domain
+• Reply \`2 <new_url>\` for Vegamovies Domain
+• Reply \`3 <host1, host2, ...>\` to reorder Link Priority
+  _(Available hosts: 10gbps, fslv2, fsl, vcloud, gofile, pixeldrain)_`;
 
     return reply(statusMsg);
 };
@@ -6648,5 +6685,6 @@ module.exports.initUpsertListener = initUpsertListener;
 module.exports.globalTaskQueue = globalTaskQueue;
 module.exports.isTaskRunning = isTaskRunning;
 module.exports.downloadCommandHandler = downloadCommandHandler;
+module.exports.pCommandHandler = pCommandHandler;
 module.exports.DANIE_COMMANDS = DANIE_COMMANDS;
 
