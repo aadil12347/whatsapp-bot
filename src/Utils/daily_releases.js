@@ -195,12 +195,19 @@ function saveDailyReleases(items) {
  * @param {number} [params.timestamp] - Custom timestamp (default: now)
  */
 function addDailyRelease({ title, year, season, isSeries, groupJid, source, timestamp }) {
-    if (!title) return;
+    if (!title) return null;
+
+    const cleanTitle = title.replace(/[*_`]/g, '').trim();
+
+    // Skip trailers, teasers, previews
+    if (/\b(trailer|teaser|preview|promo|taser|trailor)\b/i.test(cleanTitle)) {
+        console.log(`[DailyReleases] Skipped trailer item: "${cleanTitle}"`);
+        return null;
+    }
 
     const items = loadAllReleases();
     const now = timestamp || Date.now();
 
-    const cleanTitle = title.replace(/[*_`]/g, '').trim();
     const cleanYear = year ? String(year).replace(/[*_`]/g, '').trim() : '';
     const cleanSeason = season ? String(season).replace(/[*_`]/g, '').toUpperCase().trim() : (isSeries ? 'S01' : null);
 
@@ -253,6 +260,12 @@ function parseMediaCaption(text) {
     if (!text || typeof text !== 'string') return null;
 
     let cleanText = text.trim();
+
+    // Skip trailer / teaser posts
+    if (/\b(trailer|teaser|preview|promo|taser|trailor)\b/i.test(cleanText)) {
+        return null;
+    }
+
     const lines = cleanText.split('\n').map(l => l.trim()).filter(Boolean);
 
     let title = '';
@@ -310,8 +323,9 @@ function parseMediaCaption(text) {
 
     if (!title) return null;
 
-    // Skip if title is just branding/footer/noise
+    // Skip if title is just branding/footer/noise or contains trailer
     if (/^(DanieWatch|『.*𝑫𝑨𝑵𝑰𝑬𝑾𝑨𝑻𝑪𝑯.*』|Enjoy watching|Total|───)/i.test(title)) return null;
+    if (/\b(trailer|teaser|preview|promo|taser|trailor)\b/i.test(title)) return null;
 
     return {
         title,
@@ -405,17 +419,17 @@ function formatDailyReleaseList(groupName = '') {
         text += `🎬 *MOVIES TODAY* (${movies.length}):\n`;
         movies.forEach((m, idx) => {
             const yrStr = m.year && m.year !== 'N/A' ? ` (${m.year})` : '';
-            text += `  \`${idx + 1}.\` 🎬 *${m.title}*${yrStr}\n`;
+            text += `${idx + 1}. *${m.title}*${yrStr}\n`;
         });
         text += `\n`;
     }
 
     if (series.length > 0) {
-        text += `📺 *SERIES TODAY* (${series.length}):\n`;
+        text += `🎬 *SERIES TODAY* (${series.length}):\n`;
         series.forEach((s, idx) => {
             const yrStr = s.year && s.year !== 'N/A' ? ` (${s.year})` : '';
-            const sLabel = s.season ? ` — *${s.season}*` : '';
-            text += `  \`${idx + 1}.\` 📺 *${s.title}*${yrStr}${sLabel}\n`;
+            const sLabel = s.season ? ` - *${s.season}*` : '';
+            text += `${idx + 1}. *${s.title}*${yrStr}${sLabel}\n`;
         });
         text += `\n`;
     }
@@ -426,7 +440,7 @@ function formatDailyReleaseList(groupName = '') {
 
     text += `─────────────────────\n` +
             `🔥 *Total Today:* *${totalCount}*\n` +
-            `🍿 *Enjoy watching @all*\n` +
+            `🍿 *Enjoy watching @all*\n\n` +
             `👑 *『 𝑫𝑨𝑵𝑰𝑬𝑾𝑨𝑻𝑪𝑯 』* 👑`;
 
     return text;
@@ -473,17 +487,17 @@ function formatDailyReleaseListForDate(dateKey, groupName = '') {
         text += `🎬 *MOVIES* (${movies.length}):\n`;
         movies.forEach((m, idx) => {
             const yrStr = m.year && m.year !== 'N/A' ? ` (${m.year})` : '';
-            text += `  \`${idx + 1}.\` 🎬 *${m.title}*${yrStr}\n`;
+            text += `${idx + 1}. *${m.title}*${yrStr}\n`;
         });
         text += `\n`;
     }
 
     if (series.length > 0) {
-        text += `📺 *SERIES* (${series.length}):\n`;
+        text += `🎬 *SERIES* (${series.length}):\n`;
         series.forEach((s, idx) => {
             const yrStr = s.year && s.year !== 'N/A' ? ` (${s.year})` : '';
-            const sLabel = s.season ? ` — *${s.season}*` : '';
-            text += `  \`${idx + 1}.\` 📺 *${s.title}*${yrStr}${sLabel}\n`;
+            const sLabel = s.season ? ` - *${s.season}*` : '';
+            text += `${idx + 1}. *${s.title}*${yrStr}${sLabel}\n`;
         });
         text += `\n`;
     }
@@ -494,7 +508,7 @@ function formatDailyReleaseListForDate(dateKey, groupName = '') {
 
     text += `─────────────────────\n` +
             `🔥 *Total:* *${totalCount}*\n` +
-            `🍿 *Enjoy watching @all*\n` +
+            `🍿 *Enjoy watching @all*\n\n` +
             `👑 *『 𝑫𝑨𝑵𝑰𝑬𝑾𝑨𝑻𝑪𝑯 』* 👑`;
 
     return text;

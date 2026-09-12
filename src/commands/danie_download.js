@@ -1655,15 +1655,17 @@ function initUpsertListener(conn) {
                     'c', 'cancel', 'clearqueue', 'cancelall', 'que', 'queue', 'q', 'qstatus',
                     'd', 'p', 's', 'status', 'progress',
                     'jid', 'groupid',
+                    'createlist', 'list', 'todaylist', 'todayrelease', 'daily', 'create',
+                    'history', 'weeklist', '7days', 'archive',
                     'qdel', 'qremove', 'qedit', 'qupdate',
                     'help',
                     'song', 'songdl', 'yt1s', 'yts', 'yts1', 'video', 'yt2s', 'yt3s', 'csong', 'csongdl',
-                    'ig', 'fb', 'tiktok', 'twitter', 'ytv', 'yt', 'tk', 'insta', 'instagram', 'ytm', 'music', 'yta',
+                    'ig', 'fb', 'fbdl', 'tiktok', 'twitter', 'insta', 'instagram', 'igdl', 'x', 'xdl', 'ytv', 'yt', 'tk', 'ytm', 'music', 'yta',
                     'mvdl', 'mv', 'movie', 'mvdlinfo', 'mvdlseason', 'mvdlshowep', 'mvdlget', 'mvdlsub',
                     'antilink', 'al', 'linkprotect', 'antispam', 'aspam', 'spamprotect'
                 ];
 
-                if (!ALLOWED_COMMANDS.includes(cmdName)) {
+                if (!ALLOWED_COMMANDS.includes(cmdName) && !DANIE_COMMANDS[cmdName]) {
                     console.log(`[DanieWatch] Blocked command not in ALLOWED_COMMANDS: ".${cmdName}" from ${cleanSender}`);
                     if (mek.message.conversation) mek.message.conversation = '';
                     if (mek.message.extendedTextMessage?.text) mek.message.extendedTextMessage.text = '';
