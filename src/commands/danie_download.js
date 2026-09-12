@@ -3050,30 +3050,34 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
 
         const items = q.split(',').map(item => item.trim()).filter(Boolean);
         
-        // Find TMDB URL in the first item
         let { customFilename: firstCustomName, url: firstUrl } = parseDownloadItem(items[0]);
-        let tmdbUrl = '';
-        if (firstCustomName && /themoviedb\.org\/(movie|tv)\/(\d+)/i.test(firstCustomName)) {
-            tmdbUrl = firstCustomName;
-        } else if (/themoviedb\.org\/(movie|tv)\/(\d+)/i.test(firstUrl)) {
-            tmdbUrl = firstUrl;
+        let tmdb = null;
+        let mediaType = 'movie';
+        let specifiedSeason = null;
+
+        const targetUrlStr = firstCustomName || firstUrl || '';
+        if (/themoviedb\.org\/(movie|tv)\/(\d+)/i.test(targetUrlStr)) {
+            const match = targetUrlStr.match(/themoviedb\.org\/(movie|tv)\/(\d+)/i);
+            mediaType = match[1];
+            const tmdbId = match[2];
+            const seasonMatch = targetUrlStr.match(/\/season\/(\d+)/i);
+            specifiedSeason = seasonMatch ? parseInt(seasonMatch[1], 10) : null;
+            tmdb = await fetchTmdbById(tmdbId, mediaType, specifiedSeason);
+        } else if (firstUrl && firstUrl.startsWith('http')) {
+            let imdbId = null;
+            let title = firstCustomName || '';
+            try {
+                const scrapeInfo = await scrapePostPage(firstUrl);
+                if (scrapeInfo) {
+                    if (scrapeInfo.imdbId) imdbId = scrapeInfo.imdbId;
+                    if (scrapeInfo.title) title = scrapeInfo.title;
+                }
+            } catch (_) {}
+            tmdb = await fetchTmdbMetadata(title || firstUrl, 'movie', imdbId);
         }
-
-        if (!tmdbUrl) {
-            return updatePStatus('R Error: First item must specify a valid TMDB URL (e.g. `.p https://www.themoviedb.org/movie/550 = ...`)');
-        }
-
-        const match = tmdbUrl.match(/themoviedb\.org\/(movie|tv)\/(\d+)/i);
-        const mediaType = match[1];
-        const tmdbId = match[2];
-
-        const seasonMatch = tmdbUrl.match(/\/season\/(\d+)/i);
-        const specifiedSeason = seasonMatch ? parseInt(seasonMatch[1], 10) : null;
-
-        const tmdb = await fetchTmdbById(tmdbId, mediaType, specifiedSeason);
 
         if (!tmdb) {
-            return updatePStatus('❌ Error: Could not fetch metadata for that TMDB URL.');
+            return updatePStatus('❌ Error: Could not fetch TMDB metadata for that URL.');
         }
 
         const settings = loadSettings();

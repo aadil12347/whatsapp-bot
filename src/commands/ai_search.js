@@ -1,5 +1,5 @@
 const { translateAudio, extractSearchIntent, selectBestMatch } = require('../Utils/ai_provider');
-const { searchMoviesAndSeries, scrapePostPage, resolveLandingLink, resolveVcloudLink, extractSeriesVcloudLinks } = require('../Utils/movie_scraper');
+const { searchMoviesAndSeries, scrapePostPage, scrapeAllPostLinks, resolveLandingLink, resolveVcloudLink, extractSeriesVcloudLinks } = require('../Utils/movie_scraper');
 
 // In-memory state tracking
 const pendingPreConfirmations = new Map();
@@ -103,50 +103,68 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
     }
 
     const { post, intent } = session;
-    const { downloadCommandHandler } = require('./danie_download');
+    const { pCommandHandler, downloadCommandHandler } = require('./danie_download');
+    const replyFn = async (t) => {
+        if (typeof t === 'string' && t.trim()) {
+            try {
+                await sock.sendMessage(chatId, { text: t }, { quoted: msg });
+            } catch (_) {}
+        }
+    };
 
-    // Resolution Delivery Branch
-    const isHigherResolution = ['1080p', '4k', '2160p'].includes(intent.resolution.toLowerCase());
-
+    // 1. Run .p command for TMDB poster, caption, and YouTube trailer delivery
     try {
-        let finalUrl = post.link;
-        try {
-            if (intent.type === 'series') {
+        console.log(`[AISearch] Triggering .p command for post link: ${post.link}`);
+        await pCommandHandler(sock, msg, chatId, msg.key.participant || chatId, post.link, replyFn);
+    } catch (pErr) {
+        console.warn('[AISearch] .p command execution notice:', pErr.message);
+    }
+
+    // 2. Extract media download link (Batch Zip for series, default resolution for movies)
+    let mediaUrl = post.link;
+    try {
+        const allLinks = await scrapeAllPostLinks(post.link);
+        if (intent.type === 'series') {
+            // Check for Batch Zip / Season Zip link first
+            const batchZipLink = allLinks.find(l => l.isPack || /batch|zip|pack|all\s*episodes/i.test(l.text || '') || /batch|zip|pack/i.test(l.parentText || ''));
+            if (batchZipLink && batchZipLink.href) {
+                const landing = await resolveLandingLink(batchZipLink.href);
+                mediaUrl = await resolveVcloudLink(landing);
+                console.log(`[AISearch] Extracted Batch Zip link for series: ${mediaUrl}`);
+            } else {
                 const seriesResult = await extractSeriesVcloudLinks(post.link);
                 if (seriesResult && seriesResult.episodes && seriesResult.episodes.length > 0) {
-                    finalUrl = seriesResult.episodes[0].directUrl;
-                }
-            } else {
-                const postDetails = await scrapePostPage(post.link);
-                if (postDetails && postDetails.chosenUrl) {
-                    const landing = await resolveLandingLink(postDetails.chosenUrl);
-                    finalUrl = await resolveVcloudLink(landing);
+                    mediaUrl = seriesResult.episodes[0].directUrl;
                 }
             }
-        } catch (scrapeErr) {
-            console.warn('[AISearch] Page link extraction fallback to post URL:', scrapeErr.message);
-        }
-
-        if (isHigherResolution) {
-            // Send direct external browser download link
-            const browserMsg = `🌐 *Direct Browser Download Link (External Download)*\n\n` +
-                               `🎬 *Title:* *${post.title}*\n` +
-                               `📺 *Quality:* *${intent.resolution}*\n` +
-                               `🔗 *Direct Download Link:* \`${finalUrl}\` \n\n` +
-                               `_Note: Direct WhatsApp file delivery is supported for 480p and 720p files (< 2GB)._`;
-            await sock.sendMessage(chatId, { text: browserMsg }, { quoted: msg });
         } else {
-            // Trigger .d command handler for queueing & media file delivery
-            const downloadQuery = `${post.title} = ${finalUrl}`;
-            console.log(`[AISearch] Passing search result to .d command handler: ${downloadQuery}`);
-            await downloadCommandHandler(sock, msg, chatId, msg.key.participant || chatId, downloadQuery, async (t) => {
-                await sock.sendMessage(chatId, { text: t });
-            });
+            // Movie: match requested resolution (480p, 720p, 1080p) or fallback to first link
+            const targetRes = (intent.resolution || '720p').toLowerCase();
+            const matchedResLink = allLinks.find(l => l.resolution && l.resolution.toLowerCase() === targetRes) || allLinks[0];
+            if (matchedResLink && matchedResLink.href) {
+                const landing = await resolveLandingLink(matchedResLink.href);
+                mediaUrl = await resolveVcloudLink(landing);
+                console.log(`[AISearch] Extracted Movie ${intent.resolution} link: ${mediaUrl}`);
+            }
         }
+    } catch (scrapeErr) {
+        console.warn('[AISearch] Link extraction fallback to post URL:', scrapeErr.message);
+    }
 
-    } catch (err) {
-        console.error('[AISearch] Media delivery error:', err);
-        return sock.sendMessage(chatId, { text: `❌ Failed to extract media link: ${err.message}` }, { quoted: msg });
+    // 3. Trigger .d command handler for queuing and media delivery
+    const isHigherResolution = ['1080p', '4k', '2160p'].includes(intent.resolution.toLowerCase());
+
+    if (isHigherResolution) {
+        const browserMsg = `🌐 *Direct Browser Download Link (External Download)*\n\n` +
+                           `🎬 *Title:* *${post.title}*\n` +
+                           `📺 *Quality:* *${intent.resolution}*\n` +
+                           `🔗 *Direct Download Link:* \`${mediaUrl}\` \n\n` +
+                           `_Note: Direct WhatsApp file delivery is supported for 480p and 720p files (< 2GB)._`;
+        await sock.sendMessage(chatId, { text: browserMsg }, { quoted: msg });
+    } else {
+        const downloadQuery = mediaUrl;
+        console.log(`[AISearch] Triggering .d command handler with direct link: ${downloadQuery}`);
+        await downloadCommandHandler(sock, msg, chatId, msg.key.participant || chatId, downloadQuery, replyFn);
     }
 }
 
