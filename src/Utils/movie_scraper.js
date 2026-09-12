@@ -434,12 +434,43 @@ async function fetchTmdbById(tmdbId, mediaType = 'movie', seasonNumber = null) {
 
         const details = res.data;
         const title = details.title || details.name || '';
-        const overview = details.overview || '';
-        const posterUrl = details.poster_path ? `https://image.tmdb.org/t/p/w500${details.poster_path}` : null;
-        const backdropUrl = details.backdrop_path ? `https://image.tmdb.org/t/p/w500${details.backdrop_path}` : null;
-        const releaseDate = details.release_date || details.first_air_date || '';
-        const year = releaseDate ? releaseDate.split('-')[0] : 'N/A';
+        let overview = details.overview || '';
+        let posterUrl = details.poster_path ? `https://image.tmdb.org/t/p/w500${details.poster_path}` : null;
+        let backdropUrl = details.backdrop_path ? `https://image.tmdb.org/t/p/w500${details.backdrop_path}` : null;
+        let releaseDate = details.release_date || details.first_air_date || '';
+        let year = releaseDate ? releaseDate.split('-')[0] : 'N/A';
         const genres = details.genres ? details.genres.map(g => g.name).join(', ') : 'Unknown';
+
+        // Override poster, air_date/year, and overview with season-specific data if seasonNumber is specified
+        if (mediaType === 'tv' && seasonNumber !== null && seasonNumber !== undefined) {
+            let seasonData = null;
+            if (details.seasons && Array.isArray(details.seasons)) {
+                seasonData = details.seasons.find(s => s.season_number === seasonNumber);
+            }
+            if (!seasonData) {
+                try {
+                    const sUrl = `https://api.themoviedb.org/3/tv/${tmdbId}/season/${seasonNumber}?api_key=${TMDB_API_KEY}`;
+                    const sRes = await axios.get(sUrl, { headers: HEADERS, timeout: 5000 });
+                    if (sRes.data) seasonData = sRes.data;
+                } catch (_) {}
+            }
+
+            if (seasonData) {
+                if (seasonData.poster_path) {
+                    posterUrl = `https://image.tmdb.org/t/p/w500${seasonData.poster_path}`;
+                    console.log(`[MovieScraper] Using Season ${seasonNumber} poster path: ${seasonData.poster_path}`);
+                }
+                if (seasonData.air_date) {
+                    releaseDate = seasonData.air_date;
+                    year = seasonData.air_date.split('-')[0];
+                    console.log(`[MovieScraper] Using Season ${seasonNumber} air year: ${year}`);
+                }
+                if (seasonData.overview) {
+                    overview = seasonData.overview;
+                }
+            }
+        }
+
         const trailerUrl = await fetchTmdbTrailerUrl(tmdbId, mediaType, title, seasonNumber);
 
         return {
