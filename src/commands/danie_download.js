@@ -1,4 +1,5 @@
 const { cmd } = require('../Utils/command');
+const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
