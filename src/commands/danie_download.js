@@ -2543,7 +2543,13 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
                 }
             }
 
-            let tempFilePath = path.join(__dirname, 'tmp_' + Date.now() + '_' + tempFilename);
+            const safeTempFilename = (tempFilename || 'download_file')
+                .replace(/[:*?"<>|\\/]/g, '_')
+                .replace(/[\{\}\[\]]/g, '')
+                .replace(/\s+/g, '_')
+                .replace(/_+/g, '_')
+                .slice(0, 80);
+            let tempFilePath = path.join(__dirname, 'tmp_' + Date.now() + '_' + safeTempFilename);
 
             // If the URL points to a redirector/landing page, resolve it first
             if (isLandingUrl(url)) {

@@ -14,14 +14,13 @@ async function handleAiSearchCommand(sock, msg, args, userTextInput = null, isVo
 
     let userPrompt = userTextInput || (Array.isArray(args) ? args.join(' ').trim() : args || '');
 
-    // 1. If Voice Note, translate speech to English via Groq Whisper Translation
+    // 1. If Voice Note, translate speech to English silently without status message spam
     if (isVoice && audioBuffer) {
-        await sock.sendMessage(chatId, { text: '🎙️ *Translating voice note to English...*' }, { quoted: msg });
         try {
             userPrompt = await translateAudio(audioBuffer, 'audio/ogg');
-            await sock.sendMessage(chatId, { text: `🎙️ *Translated Speech:* "${userPrompt}"` }, { quoted: msg });
+            console.log(`[AISearch] Voice Translated Speech: "${userPrompt}"`);
         } catch (err) {
-            return sock.sendMessage(chatId, { text: `❌ *Voice translation failed:* ${err.message}` }, { quoted: msg });
+            return sock.sendMessage(chatId, { text: `❌ Voice translation failed: ${err.message}` }, { quoted: msg });
         }
     }
 
@@ -29,7 +28,7 @@ async function handleAiSearchCommand(sock, msg, args, userTextInput = null, isVo
         return sock.sendMessage(chatId, { text: '⚠️ Please provide a movie/series name or send a voice note.\nExample: `.search Superman 2025 in 720p`' }, { quoted: msg });
     }
 
-    // 2. Extract Intent using AI (Title, Year, Quality, Type, Origin) - Done silently without status spam
+    // 2. Extract Intent using AI (Title, Year, Quality, Type, Origin) - Done silently
     let intent;
     try {
         intent = await extractSearchIntent(userPrompt);
@@ -64,14 +63,14 @@ async function handleAiSearchCommand(sock, msg, args, userTextInput = null, isVo
         timestamp: Date.now()
     });
 
-    const preConfirmText = `❓ *Confirm Movie/Series Search Result*\n\n` +
+    const preConfirmText = `❓ *Confirm Search Result*\n\n` +
                            `🎬 *Title:* *${chosenPost.title}*\n` +
-                           `📺 *Requested Quality:* *${intent.resolution}*\n` +
-                           `⭐ *Type:* *${intent.type.toUpperCase()}*\n` +
-                           `🌐 *Source Site:* ${chosenPost.site}\n\n` +
-                           `👉 *Reply "*yes*" or "*1*" to confirm & download.*\n` +
-                           `👉 *Or reply with a corrected name (text/voice) to change search.*\n` +
-                           `👉 *Reply "*no*" to cancel.*`;
+                           `📺 *Quality:* ${intent.resolution}\n` +
+                           `⭐ *Type:* ${intent.type.toUpperCase()}\n` +
+                           `🌐 *Source:* ${chosenPost.site}\n\n` +
+                           `1️⃣ Reply *yes* or *1* to confirm and start download.\n` +
+                           `2️⃣ Reply *no* or *0* to cancel.\n` +
+                           `3️⃣ Or reply with a corrected name (text or voice) to search again.`;
 
     if (chosenPost.thumbnail) {
         await sock.sendMessage(chatId, { image: { url: chosenPost.thumbnail }, caption: preConfirmText }, { quoted: msg });
@@ -94,7 +93,6 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
     // If user provided a correction (text or voice note), re-trigger AI search with updated input
     if (isApproved === null && (updatedInput || (isVoice && audioBuffer))) {
         pendingPreConfirmations.delete(confirmKey);
-        await sock.sendMessage(chatId, { text: '🔄 *Updating search query...*' }, { quoted: msg });
         return handleAiSearchCommand(sock, msg, [], updatedInput, isVoice, audioBuffer);
     }
 
@@ -107,21 +105,7 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
     const { post, intent } = session;
     const { downloadCommandHandler } = require('./danie_download');
 
-    await sock.sendMessage(chatId, { text: `🚀 *Confirmed! Processing TMDB poster, trailer & download link for:* *${post.title}*...` }, { quoted: msg });
-
-    // 1. Trigger .p command functionality for fetching & sending TMDB poster + caption + trailer
-    try {
-        await downloadCommandHandler(sock, msg, chatId, msg.key.participant || chatId, post.link, async (t) => {
-            // Filter progress text so only poster/trailer/link updates are sent
-            if (t && (t.includes('Poster') || t.includes('Trailer') || t.includes('TMDB') || t.includes('Downloading'))) {
-                await sock.sendMessage(chatId, { text: t });
-            }
-        });
-    } catch (err) {
-        console.warn('[AISearch] .p command handler processing notice:', err.message);
-    }
-
-    // 2. Resolution Delivery Branch
+    // Resolution Delivery Branch
     const isHigherResolution = ['1080p', '4k', '2160p'].includes(intent.resolution.toLowerCase());
 
     try {
@@ -152,9 +136,10 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
                                `_Note: Direct WhatsApp file delivery is supported for 480p and 720p files (< 2GB)._`;
             await sock.sendMessage(chatId, { text: browserMsg }, { quoted: msg });
         } else {
-            // Trigger .d command handler for media file download & delivery
-            await sock.sendMessage(chatId, { text: `📥 *Downloading & delivering ${intent.resolution} file via .d command...*` }, { quoted: msg });
-            await downloadCommandHandler(sock, msg, chatId, msg.key.participant || chatId, `${post.title} = ${finalUrl}`, async (t) => {
+            // Trigger .d command handler for queueing & media file delivery
+            const downloadQuery = `${post.title} = ${finalUrl}`;
+            console.log(`[AISearch] Passing search result to .d command handler: ${downloadQuery}`);
+            await downloadCommandHandler(sock, msg, chatId, msg.key.participant || chatId, downloadQuery, async (t) => {
                 await sock.sendMessage(chatId, { text: t });
             });
         }
