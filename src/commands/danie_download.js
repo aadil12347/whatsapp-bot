@@ -1747,10 +1747,25 @@ function initUpsertListener(conn) {
                 }
             }
 
-            // ---- Check if it's a reply "1" or "confirm" for pending AI search confirmation ----
-            if (trimmedText === '1' || trimmedText.toLowerCase() === 'confirm') {
-                if (typeof DANIE_COMMANDS['confirm'] === 'function') {
-                    await DANIE_COMMANDS['confirm'](conn, mek, targetJid, senderJid, '', reply);
+            // ---- Check if it's a reply for pending AI search pre-confirmation ----
+            const { pendingPreConfirmations, handlePreConfirmationReply } = require('./ai_search');
+            let matchedConfirmKey = null;
+            for (const [key, session] of pendingPreConfirmations.entries()) {
+                if (session.chatId === targetJid || session.chatId === from) {
+                    matchedConfirmKey = key;
+                    break;
+                }
+            }
+
+            if (matchedConfirmKey) {
+                const lower = trimmedText.toLowerCase();
+                if (['yes', 'y', '1', 'confirm', 'ok'].includes(lower)) {
+                    console.log(`[DanieWatch] Directing reply "${trimmedText}" to handlePreConfirmationReply (APPROVED).`);
+                    await handlePreConfirmationReply(conn, mek, matchedConfirmKey, true);
+                    return;
+                } else if (['no', 'n', 'cancel', '0'].includes(lower)) {
+                    console.log(`[DanieWatch] Directing reply "${trimmedText}" to handlePreConfirmationReply (CANCELLED).`);
+                    await handlePreConfirmationReply(conn, mek, matchedConfirmKey, false);
                     return;
                 }
             }
@@ -6546,9 +6561,10 @@ DANIE_COMMANDS['antispam'] = async (conn, mek, from, senderJid, args, reply) => 
 DANIE_COMMANDS['aspam'] = DANIE_COMMANDS['antispam'];
 DANIE_COMMANDS['spamprotect'] = DANIE_COMMANDS['antispam'];
 
-// Export initUpsertListener, globalTaskQueue, and isTaskRunning
+// Export initUpsertListener, globalTaskQueue, isTaskRunning, and downloadCommandHandler
 module.exports.initUpsertListener = initUpsertListener;
 module.exports.globalTaskQueue = globalTaskQueue;
 module.exports.isTaskRunning = isTaskRunning;
+module.exports.downloadCommandHandler = downloadCommandHandler;
 module.exports.DANIE_COMMANDS = DANIE_COMMANDS;
 

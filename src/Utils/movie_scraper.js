@@ -2097,23 +2097,66 @@ async function extractSeriesVcloudLinks(nextdriveUrl, options = {}) {
 }
 
 /**
- * Unified movie and TV series search function across HDHub4u, Vegamovies, and Rogmovies
+ * Smart movie and TV series search function with origin-based site routing
+ * (Indian content -> Rogmovies, Non-Indian content -> Vegamovies, Fallback -> HDHub4u)
  */
-async function searchMoviesAndSeries(query) {
+async function searchMoviesAndSeries(query, origin = 'non-indian') {
     const cleanQuery = query.replace(/1080p|720p|480p|4k|season\s*\d+|episode\s*\d+/gi, '').trim();
-    console.log(`🔍 [UnifiedSearch] Searching movies & series for: "${cleanQuery}"`);
+    console.log(`🔍 [UnifiedSearch] Searching movies & series (Origin: ${origin}) for: "${cleanQuery}"`);
 
     const candidatePosts = [];
 
-    // 1. Search HDHub4u via Typesense API & Sitemap
+    // Define target search URLs based on content origin
+    const primarySites = origin === 'indian' 
+        ? [
+            { site: 'Rogmovies', url: `https://rogmovies.pages.dev/?s=${encodeURIComponent(cleanQuery)}` },
+            { site: 'Rogmovies', url: `https://rogmovies.in/?s=${encodeURIComponent(cleanQuery)}` }
+          ]
+        : [
+            { site: 'Vegamovies', url: `https://vegamovies.mex.com/?s=${encodeURIComponent(cleanQuery)}` },
+            { site: 'Vegamovies', url: `https://vegamovies.pages.dev/?s=${encodeURIComponent(cleanQuery)}` }
+          ];
+
+    const fallbackSites = origin === 'indian'
+        ? [
+            { site: 'Vegamovies', url: `https://vegamovies.pages.dev/?s=${encodeURIComponent(cleanQuery)}` }
+          ]
+        : [
+            { site: 'Rogmovies', url: `https://rogmovies.pages.dev/?s=${encodeURIComponent(cleanQuery)}` }
+          ];
+
+    // 1. Search Primary Target Sites first
+    for (const item of primarySites) {
+        try {
+            const html = await fetchHtmlWithRetry(item.url);
+            const $ = cheerio.load(html);
+            $('article, .post-item, h2.entry-title, .entry-title').each((_, el) => {
+                const a = $(el).is('a') ? $(el) : $(el).find('a[href]').first();
+                const img = $(el).find('img').first().attr('src') || $(el).find('img').first().attr('data-src');
+                if (a.length) {
+                    const href = a.attr('href');
+                    const title = a.text().trim() || $(el).text().trim();
+                    if (href && title && !href.includes('/category/') && !href.includes('/tag/') && !candidatePosts.some(p => p.link === href)) {
+                        candidatePosts.push({ site: item.site, title, link: href, thumbnail: img || null });
+                    }
+                }
+            });
+        } catch (_) {}
+    }
+
+    // 2. Search HDHub4u
     try {
         const hdhubResults = await searchHdhub4u(cleanQuery);
         if (hdhubResults && hdhubResults.length > 0) {
             hdhubResults.slice(0, 5).forEach(r => {
-                const link = r.permalink || r.link || r.postUrl || r.url || (r.slug ? `https://hdhub4u.tv/${r.slug}/` : null);
+                let rawLink = r.permalink || r.link || r.postUrl || r.url || (r.slug ? `https://hdhub4u.tv/${r.slug}/` : null);
+                if (rawLink && rawLink.includes('hdhub4u.')) {
+                    rawLink = rawLink.replace(/https?:\/\/[^\/]*hdhub4u\.[a-z0-9]+/i, 'https://hdhub4u.tv');
+                }
                 const title = r.title || r.postTitle || r.name;
-                if (link && title) {
-                    candidatePosts.push({ site: 'HDHub4u', title, link });
+                const thumbnail = r.thumbnail || r.poster || null;
+                if (rawLink && title && !candidatePosts.some(p => p.link === rawLink)) {
+                    candidatePosts.push({ site: 'HDHub4u', title, link: rawLink, thumbnail });
                 }
             });
         }
@@ -2121,31 +2164,28 @@ async function searchMoviesAndSeries(query) {
         console.warn('[UnifiedSearch] HDHub4u search error:', err.message);
     }
 
-    // 2. Search Vegamovies and Rogmovies
-    const searchUrls = [
-        { site: 'Vegamovies', url: `https://vegamovies.mex.com/?s=${encodeURIComponent(cleanQuery)}` },
-        { site: 'Vegamovies', url: `https://vegamovies.pages.dev/?s=${encodeURIComponent(cleanQuery)}` },
-        { site: 'Rogmovies', url: `https://rogmovies.pages.dev/?s=${encodeURIComponent(cleanQuery)}` }
-    ];
-
-    for (const item of searchUrls) {
-        try {
-            const html = await fetchHtmlWithRetry(item.url);
-            const $ = cheerio.load(html);
-            $('article, .post-item, h2.entry-title, .entry-title').each((_, el) => {
-                const a = $(el).is('a') ? $(el) : $(el).find('a[href]').first();
-                if (a.length) {
-                    const href = a.attr('href');
-                    const title = a.text().trim() || $(el).text().trim();
-                    if (href && title && !href.includes('/category/') && !href.includes('/tag/') && !candidatePosts.some(p => p.link === href)) {
-                        candidatePosts.push({ site: item.site, title, link: href });
+    // 3. Fallback to secondary sites if candidate list is small
+    if (candidatePosts.length === 0) {
+        for (const item of fallbackSites) {
+            try {
+                const html = await fetchHtmlWithRetry(item.url);
+                const $ = cheerio.load(html);
+                $('article, .post-item, h2.entry-title, .entry-title').each((_, el) => {
+                    const a = $(el).is('a') ? $(el) : $(el).find('a[href]').first();
+                    const img = $(el).find('img').first().attr('src') || $(el).find('img').first().attr('data-src');
+                    if (a.length) {
+                        const href = a.attr('href');
+                        const title = a.text().trim() || $(el).text().trim();
+                        if (href && title && !href.includes('/category/') && !href.includes('/tag/') && !candidatePosts.some(p => p.link === href)) {
+                            candidatePosts.push({ site: item.site, title, link: href, thumbnail: img || null });
+                        }
                     }
-                }
-            });
-        } catch (_) {}
+                });
+            } catch (_) {}
+        }
     }
 
-    console.log(`✅ [UnifiedSearch] Collected ${candidatePosts.length} candidate post(s) for "${query}".`);
+    console.log(`✅ [UnifiedSearch] Collected ${candidatePosts.length} candidate post(s) (Origin: ${origin}) for "${query}".`);
     return candidatePosts;
 }
 
