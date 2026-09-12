@@ -997,6 +997,7 @@ function getQuotedMessageId(mek) {
 const pendingConfig = {};
 const pendingSearch = {};
 const pendingGroupSelection = {};
+const pendingHistory = {};
 const groupAdminCache = new Map();
 
 // ── Anti-Link/Anti-Spam Kick Cooldown ──
@@ -1552,6 +1553,48 @@ function initUpsertListener(conn) {
                     }
                 }
 
+            // ══════════════════════════════════════════════════════════════════
+            //  PASSIVE GROUP SCANNER — Records bot's own posts to target groups
+            //  This runs for ALL fromMe group messages BEFORE the owner check.
+            // ══════════════════════════════════════════════════════════════════
+            if (mek.key.fromMe && from && from.endsWith('@g.us')) {
+                try {
+                    const { parseMediaCaption, addDailyRelease } = require('../Utils/daily_releases');
+                    const settings = loadSettings();
+                    // Check if this group is one of the configured target groups
+                    const targetJids = [];
+                    if (settings.targets && settings.targets.length > 0) {
+                        settings.targets.forEach(t => { if (t.jid && t.jid.endsWith('@g.us')) targetJids.push(cleanJid(t.jid)); });
+                    } else if (settings.groupJid) {
+                        targetJids.push(cleanJid(settings.groupJid));
+                    }
+                    const cleanFrom = cleanJid(from);
+                    if (targetJids.includes(cleanFrom)) {
+                        // Extract caption from image/video/document messages
+                        const caption = mek.message?.imageMessage?.caption ||
+                                        mek.message?.videoMessage?.caption ||
+                                        mek.message?.documentMessage?.caption || '';
+                        if (caption && caption.length > 5) {
+                            const parsed = parseMediaCaption(caption);
+                            if (parsed && parsed.title) {
+                                addDailyRelease({
+                                    title: parsed.title,
+                                    year: parsed.year,
+                                    season: parsed.season,
+                                    isSeries: parsed.isSeries,
+                                    groupJid: cleanFrom,
+                                    source: 'group_scan'
+                                });
+                                console.log(`[GroupScan] 📝 Auto-recorded release from group post: "${parsed.title}" (${parsed.year}) ${parsed.season || ''}`);
+                            }
+                        }
+                    }
+                } catch (scanErr) {
+                    // Silent — don't break message processing for scan errors
+                    console.warn('[GroupScan] Error in passive scanner:', scanErr.message);
+                }
+            }
+
             // OWNER-ONLY ACCESS CHECK: Block all non-owners from messaging/sending commands to the bot
             if (!mek.key.fromMe && !isOwner(senderJid, mek)) {
                 console.log(`[DanieWatch] 🔒 Access denied: Message from non-owner sender ${cleanSender} (JID: ${senderJid}) ignored.`);
@@ -1634,6 +1677,7 @@ function initUpsertListener(conn) {
                     delete pendingSearch[cleanSender];
                 }
                 delete pendingConfig[cleanSender];
+                delete pendingHistory[cleanSender];
 
                 if (DANIE_COMMANDS[cmdName]) {
                     console.log(`[DanieWatch] Executing command: "${cmdName}"`);
@@ -1691,6 +1735,19 @@ function initUpsertListener(conn) {
                 if (isMatch) {
                     console.log(`[DanieWatch] Directing reply "${trimmedText}" to handleGroupSelectionReply for ${cleanSender}.`);
                     await handleGroupSelectionReply(conn, mek, senderJid, trimmedText, reply);
+                    return;
+                }
+            }
+
+            // ---- Check if it's a reply for pending history day selection ----
+            if (pendingHistory[cleanSender]) {
+                const quotedId = getQuotedMessageId(mek);
+                const isValidNumber = /^\d+$/.test(trimmedText);
+                const isMatch = (quotedId && quotedId === pendingHistory[cleanSender].messageId) || 
+                                (!quotedId && isValidNumber);
+                if (isMatch) {
+                    console.log(`[DanieWatch] Directing reply "${trimmedText}" to handleHistoryReply for ${cleanSender}.`);
+                    await handleHistoryReply(conn, mek, from, senderJid, trimmedText, reply);
                     return;
                 }
             }
@@ -2932,7 +2989,8 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
                 year: tmdb.year,
                 season: sLabel,
                 isSeries: mediaType === 'tv',
-                groupJid: destJid
+                groupJid: destJid,
+                source: 'p_command'
             });
         } catch (releaseErr) {
             console.warn('[DanieDownload] Daily releases auto-track error:', releaseErr.message);
@@ -3364,7 +3422,7 @@ DANIE_COMMANDS['jid'] = async (conn, mek, from, senderJid, args, reply) => {
     await reply(`💬 *Current Chat JID:* \`${targetJid}\`\n👤 *Your JID:* \`${sender}\``);
 };
 
-const { formatDailyReleaseList, getLastSentMessage, setLastSentMessage, clearLastSentMessage } = require('../Utils/daily_releases');
+const { formatDailyReleaseList, formatDailyReleaseListForDate, formatHistoryMenu, getAvailableDays, getLastSentMessage, setLastSentMessage, clearLastSentMessage } = require('../Utils/daily_releases');
 
 DANIE_COMMANDS['createlist'] = async (conn, mek, from, senderJid, args, reply) => {
     const settings = loadSettings();
@@ -3456,6 +3514,133 @@ DANIE_COMMANDS['create'] = async (conn, mek, from, senderJid, args, reply) => {
     }
     await reply('💡 *Usage:* `.create list` to show today\'s releases list.');
 };
+
+// =========================================================================
+//  .history — 7-Day Release Archive Day Picker
+// =========================================================================
+DANIE_COMMANDS['history'] = async (conn, mek, from, senderJid, args, reply) => {
+    const cleanSender = cleanJid(senderJid);
+    const days = getAvailableDays();
+
+    if (days.length === 0) {
+        return reply('📜 *No release history found in the last 7 days.*\n\nUse `.p` to post releases first.');
+    }
+
+    // If user provided a number directly (e.g. `.history 1`), handle it immediately
+    if (args && /^\d+$/.test(args.trim())) {
+        const idx = parseInt(args.trim(), 10) - 1;
+        if (idx >= 0 && idx < days.length) {
+            return sendHistoryDayList(conn, mek, from, senderJid, days[idx].dateKey, reply);
+        }
+    }
+
+    // Show interactive day picker menu
+    const menuText = formatHistoryMenu();
+    const sent = await reply(menuText);
+
+    // Store pending state for reply handling
+    pendingHistory[cleanSender] = {
+        step: 'day_selection',
+        days: days,
+        messageId: sent && sent.key ? sent.key.id : null
+    };
+};
+DANIE_COMMANDS['weeklist'] = DANIE_COMMANDS['history'];
+DANIE_COMMANDS['7days'] = DANIE_COMMANDS['history'];
+DANIE_COMMANDS['archive'] = DANIE_COMMANDS['history'];
+
+/**
+ * Handles user's reply to the .history day picker menu.
+ * When a day number is selected, formats that day's list and sends to group.
+ */
+async function handleHistoryReply(conn, mek, from, senderJid, text, reply) {
+    const cleanSender = cleanJid(senderJid);
+    const state = pendingHistory[cleanSender];
+    if (!state || !state.days) {
+        delete pendingHistory[cleanSender];
+        return;
+    }
+
+    const trimmed = text.trim();
+    const idx = parseInt(trimmed, 10) - 1;
+
+    if (isNaN(idx) || idx < 0 || idx >= state.days.length) {
+        return reply(`❌ Invalid selection. Please reply with a number between 1 and ${state.days.length}.`);
+    }
+
+    const selectedDateKey = state.days[idx].dateKey;
+    delete pendingHistory[cleanSender];
+
+    await sendHistoryDayList(conn, mek, from, senderJid, selectedDateKey, reply);
+}
+
+/**
+ * Sends a specific day's release list to the configured group with @all mention + pin.
+ * Same behavior as .createlist but for a specific past date.
+ */
+async function sendHistoryDayList(conn, mek, from, senderJid, dateKey, reply) {
+    const settings = loadSettings();
+    const groupName = settings.groupName || (settings.targets && settings.targets[0] ? settings.targets[0].name : '');
+    const groupJid = settings.groupJid || (settings.targets && settings.targets[0] ? settings.targets[0].jid : '');
+
+    // Must have a configured group target
+    if (!groupJid || !groupJid.endsWith('@g.us')) {
+        return reply('❌ *No group configured!*\n\nPlease set a target group first with `.config` or `.setgroup`.');
+    }
+
+    const listMsg = formatDailyReleaseListForDate(dateKey, groupName);
+    const { dateKeyToDisplayString } = require('../Utils/daily_releases');
+    const displayDate = dateKeyToDisplayString(dateKey);
+
+    // 1. Fetch all group participants for @all mention
+    let allJids = [];
+    try {
+        const metadata = await conn.groupMetadata(groupJid);
+        if (metadata && metadata.participants) {
+            allJids = metadata.participants.map(p => p.id);
+        }
+    } catch (metaErr) {
+        console.warn(`[History] Could not fetch group metadata: ${metaErr.message}`);
+    }
+
+    // 2. Send to the group with @all mentions
+    let sentMsg;
+    try {
+        sentMsg = await conn.sendMessage(groupJid, {
+            text: listMsg,
+            mentions: allJids
+        });
+        console.log(`[History] Sent release list for ${dateKey} to group ${groupJid} (mentions: ${allJids.length})`);
+    } catch (sendErr) {
+        console.error(`[History] Failed to send list to group: ${sendErr.message}`);
+        return reply('❌ Failed to send the release list to the group. Please try again.');
+    }
+
+    // 3. Pin the message in the group
+    if (sentMsg && sentMsg.key) {
+        try {
+            await conn.chatModify(
+                { pin: true },
+                groupJid,
+                [sentMsg.key]
+            );
+            console.log(`[History] Pinned release list message in group ${groupJid}`);
+        } catch (pinErr) {
+            console.warn(`[History] Could not pin message (bot may not be admin): ${pinErr.message}`);
+            try {
+                await conn.sendMessage(groupJid, {
+                    pin: {
+                        type: 1, // PIN
+                        time: 604800 // 7 days
+                    }
+                }, { quoted: sentMsg });
+            } catch (_) {}
+        }
+    }
+
+    // 4. Confirm in private chat
+    await reply(`✅ *Release list for ${displayDate} sent to group!*\n📌 Message pinned.\n👥 *${allJids.length}* members mentioned.`);
+}
 
 DANIE_COMMANDS['dlstatus'] = async (conn, mek, from, senderJid, args, reply) => {
     const settings = loadSettings();
