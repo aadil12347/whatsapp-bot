@@ -1619,6 +1619,24 @@ function initUpsertListener(conn) {
             if (from) saveActiveChat(from, null, mek.pushName);
             if (senderJid) saveActiveChat(senderJid, null, mek.pushName);
 
+            // Handle Incoming Voice Notes (audioMessage) for AI Voice Search
+            if (mek.message?.audioMessage) {
+                console.log(`[DanieWatch] 🎙️ Audio Message received from ${cleanSender}. Downloading stream for AI processing...`);
+                try {
+                    const stream = await downloadContentFromMessage(mek.message.audioMessage, 'audio');
+                    let buffer = Buffer.from([]);
+                    for await (const chunk of stream) {
+                        buffer = Buffer.concat([buffer, chunk]);
+                    }
+                    if (buffer.length > 0) {
+                        await handleAiSearchCommand(conn, mek, [], null, true, buffer);
+                        return;
+                    }
+                } catch (audioErr) {
+                    console.error('[DanieWatch] Voice note download/process error:', audioErr.message);
+                }
+            }
+
             let body = mek.message.conversation ||
                          mek.message.extendedTextMessage?.text ||
                          mek.message.buttonsResponseMessage?.selectedButtonId ||
@@ -1664,6 +1682,7 @@ function initUpsertListener(conn) {
                 const cmdArgs = spaceIdx !== -1 ? cmdPart.substring(spaceIdx + 1).trim() : '';
 
                 const ALLOWED_COMMANDS = [
+                    'search', 'aisearch', 'confirm',
                     'sv', 'sr', 'sh', 'si', 'se', 'seextract', 'serieslinks', 'nexdrive', 'vcloudlinks',
                     'alive', 'allow', 'disallow', 'addowner', 'delowner', 'addsudo', 'delsudo', 'owners', 'allowed', 'sudolist', 'config', 'setgroup', 'dlstatus', 'dlconfig', 'downloadstatus',
                     'c', 'cancel', 'clearqueue', 'cancelall', 'que', 'queue', 'q', 'qstatus',
@@ -1724,6 +1743,14 @@ function initUpsertListener(conn) {
                 if (isMatch) {
                     console.log(`[DanieWatch] Directing reply "${trimmedText}" to handleConfigReply for ${cleanSender}.`);
                     await handleConfigReply(conn, mek, null, senderJid, trimmedText, reply);
+                    return;
+                }
+            }
+
+            // ---- Check if it's a reply "1" or "confirm" for pending AI search confirmation ----
+            if (trimmedText === '1' || trimmedText.toLowerCase() === 'confirm') {
+                if (typeof DANIE_COMMANDS['confirm'] === 'function') {
+                    await DANIE_COMMANDS['confirm'](conn, mek, targetJid, senderJid, '', reply);
                     return;
                 }
             }
@@ -3331,6 +3358,34 @@ DANIE_COMMANDS['s'] = async (conn, mek, from, senderJid, args, reply) => {
 };
 DANIE_COMMANDS['status'] = DANIE_COMMANDS['s'];
 DANIE_COMMANDS['progress'] = DANIE_COMMANDS['s'];
+
+const { handleAiSearchCommand, pendingConfirmations } = require('./ai_search');
+
+DANIE_COMMANDS['search'] = async (conn, mek, from, senderJid, args, reply) => {
+    const qText = typeof args === 'string' ? args : (Array.isArray(args) ? args.join(' ') : '');
+    await handleAiSearchCommand(conn, mek, [qText], qText);
+};
+DANIE_COMMANDS['aisearch'] = DANIE_COMMANDS['search'];
+
+DANIE_COMMANDS['confirm'] = async (conn, mek, from, senderJid, args, reply) => {
+    let targetConf = null;
+    let targetKey = null;
+    for (const [key, conf] of pendingConfirmations.entries()) {
+        if (conf.chatId === from) {
+            targetConf = conf;
+            targetKey = key;
+            break;
+        }
+    }
+
+    if (!targetConf) {
+        return reply('❌ No pending download confirmation found for this chat.');
+    }
+
+    pendingConfirmations.delete(targetKey);
+    await reply(`🚀 *Starting download & delivery for:* *${targetConf.title}*...`);
+    await downloadCommandHandler(conn, mek, from, senderJid, `${targetConf.title} = ${targetConf.downloadUrl}`, reply);
+};
 
 DANIE_COMMANDS['config'] = async (conn, mek, from, senderJid, args, reply) => {
     if (!isOwner(senderJid)) return reply('❌ Only the bot owner can use this command.');
