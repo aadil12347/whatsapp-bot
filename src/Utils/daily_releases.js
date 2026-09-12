@@ -1,77 +1,107 @@
 const fs = require('fs');
 const path = require('path');
+const { createClient } = require('@supabase/supabase-js');
 
 const RELEASES_FILE = path.join(__dirname, '..', '..', 'session', 'daily_releases.json');
 const STATE_FILE = path.join(__dirname, '..', '..', 'session', 'daily_releases_state.json');
 
 // ─── Constants ──────────────────────────────────────────────────
 const ARCHIVE_DAYS = 7; // Keep releases for 7 days
+const SYNC_INTERVAL_MS = 5 * 60 * 1000; // Flush to Supabase every 5 minutes
+
+// ─── Supabase Client ────────────────────────────────────────────
+const SUPABASE_URL = process.env.URL || process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.KEY || process.env.SUPABASE_KEY;
+let _supabase = null;
+
+function getSupabase() {
+    if (_supabase) return _supabase;
+    if (!SUPABASE_URL || !SUPABASE_KEY) return null;
+    _supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+    return _supabase;
+}
+
+// ─── In-Memory Cache & Dirty Flag ───────────────────────────────
+let _releasesDirty = false;
+let _syncIntervalHandle = null;
+let _supabaseInitialized = false;
 
 /**
- * Returns a Date object representing the 01:00 AM cutoff for the current 24-hour cycle.
- * If current time is e.g. 7:30 PM on Sept 11, cutoff is Sept 11 01:00:00 AM.
- * If current time is 00:30 AM on Sept 11, cutoff is Sept 10 01:00:00 AM.
+ * Pakistan Standard Time offset: UTC+5 (5 hours in milliseconds).
+ * All daily cycle boundaries are based on midnight PKT.
+ */
+const PKT_OFFSET_MS = 5 * 60 * 60 * 1000;
+
+/**
+ * Converts a Date or timestamp to a Date whose UTC fields represent PKT time.
+ * e.g. if it's 19:00 UTC (= 00:00 PKT next day), the returned Date's
+ * getUTCHours() will be 0, getUTCDate() will be the next day.
+ */
+function toPKT(date) {
+    const ms = date instanceof Date ? date.getTime() : date;
+    return new Date(ms + PKT_OFFSET_MS);
+}
+
+/**
+ * Returns a Date object representing midnight PKT (00:00 UTC+5) for the current day.
+ * This is the cutoff that separates one day's releases from the next.
  */
 function getDailyCutoffTime(now = new Date()) {
-    const cutoff = new Date(now);
-    if (now.getHours() < 1) {
-        cutoff.setDate(cutoff.getDate() - 1);
-    }
-    cutoff.setHours(1, 0, 0, 0); // 01:00:00.000 AM
-    return cutoff;
+    const pkt = toPKT(now);
+    // Midnight PKT of today (as UTC timestamp) = Date.UTC of the PKT date minus offset
+    const midnightPktUtc = Date.UTC(pkt.getUTCFullYear(), pkt.getUTCMonth(), pkt.getUTCDate());
+    return new Date(midnightPktUtc - PKT_OFFSET_MS);
 }
 
 /**
- * Returns a formatted date string like "11 Sept 2026" for the current cycle.
+ * Returns a formatted date string like "12 Sept 2026" for the current cycle in PKT.
  */
 function getCycleDateString(now = new Date()) {
-    const cutoff = getDailyCutoffTime(now);
-    const options = { day: 'numeric', month: 'short', year: 'numeric' };
-    return cutoff.toLocaleDateString('en-GB', options);
+    const pkt = toPKT(now);
+    const options = { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' };
+    return pkt.toLocaleDateString('en-GB', options);
 }
 
 /**
- * Returns the 1:00 AM cutoff for a given date's cycle.
- * @param {Date} date - Any date; the cutoff is the 1:00 AM of that date's day
+ * Returns the midnight PKT cutoff for a given date's cycle.
+ * @param {Date} date - Any date; returns midnight PKT of that PKT day
  */
 function getCutoffForDate(date) {
-    const cutoff = new Date(date);
-    cutoff.setHours(1, 0, 0, 0);
-    return cutoff;
+    const pkt = toPKT(date);
+    const midnightPktUtc = Date.UTC(pkt.getUTCFullYear(), pkt.getUTCMonth(), pkt.getUTCDate());
+    return new Date(midnightPktUtc - PKT_OFFSET_MS);
 }
 
 /**
- * Returns the cycle date key (e.g. "2026-09-11") for a given timestamp.
- * A timestamp at 00:30 AM Sept 11 belongs to the Sept 10 cycle.
+ * Returns the cycle date key (e.g. "2026-09-12") for a given timestamp in PKT.
+ * Uses midnight PKT as the day boundary.
  */
 function getCycleDateKey(timestampMs) {
-    const d = new Date(timestampMs);
-    if (d.getHours() < 1) {
-        d.setDate(d.getDate() - 1);
-    }
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
+    const pkt = toPKT(new Date(timestampMs));
+    const yyyy = pkt.getUTCFullYear();
+    const mm = String(pkt.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(pkt.getUTCDate()).padStart(2, '0');
     return `${yyyy}-${mm}-${dd}`;
 }
 
 /**
- * Converts a cycle date key back to a display string like "11 Sept 2026"
+ * Converts a cycle date key back to a display string like "12 Sept 2026"
  */
 function dateKeyToDisplayString(dateKey) {
     const [yyyy, mm, dd] = dateKey.split('-').map(Number);
-    const d = new Date(yyyy, mm - 1, dd);
-    const options = { day: 'numeric', month: 'short', year: 'numeric' };
+    // Create a UTC date so formatting is consistent across timezones
+    const d = new Date(Date.UTC(yyyy, mm - 1, dd));
+    const options = { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' };
     return d.toLocaleDateString('en-GB', options);
 }
 
 /**
- * Returns the day-of-week name for a date key like "2026-09-11"
+ * Returns the day-of-week name for a date key like "2026-09-12"
  */
 function dateKeyToDayName(dateKey) {
     const [yyyy, mm, dd] = dateKey.split('-').map(Number);
-    const d = new Date(yyyy, mm - 1, dd);
-    return d.toLocaleDateString('en-GB', { weekday: 'long' });
+    const d = new Date(Date.UTC(yyyy, mm - 1, dd));
+    return d.toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'UTC' });
 }
 
 // ─── Load / Save ────────────────────────────────────────────────
@@ -80,7 +110,7 @@ function dateKeyToDayName(dateKey) {
  * Loads ALL releases from session/daily_releases.json, purging entries older than 7 days.
  */
 function loadAllReleases() {
-    // 7-day purge cutoff: 1:00 AM, (ARCHIVE_DAYS) days ago
+    // 7-day purge cutoff: midnight PKT, (ARCHIVE_DAYS) days ago
     const now = new Date();
     const purgeCutoff = getDailyCutoffTime(now);
     purgeCutoff.setDate(purgeCutoff.getDate() - (ARCHIVE_DAYS - 1));
@@ -111,8 +141,7 @@ function loadAllReleases() {
 }
 
 /**
- * Loads daily releases for TODAY's cycle only (1:00 AM cutoff).
- * This maintains backward compatibility with existing code.
+ * Loads daily releases for TODAY's cycle only (midnight PKT cutoff).
  */
 function loadDailyReleases() {
     const allItems = loadAllReleases();
@@ -122,18 +151,15 @@ function loadDailyReleases() {
 
 /**
  * Loads releases for a specific date cycle.
- * @param {string} dateKey - Date key like "2026-09-11"
- * @returns {Array} releases for that day's cycle (1 AM to next day 1 AM)
+ * @param {string} dateKey - Date key like "2026-09-12"
+ * @returns {Array} releases for that day's cycle (midnight PKT to next midnight PKT)
  */
 function loadReleasesForDate(dateKey) {
     const allItems = loadAllReleases();
     const [yyyy, mm, dd] = dateKey.split('-').map(Number);
-    const cycleStart = new Date(yyyy, mm - 1, dd, 1, 0, 0, 0); // 1:00 AM of dateKey
-    const cycleEnd = new Date(cycleStart);
-    cycleEnd.setDate(cycleEnd.getDate() + 1); // 1:00 AM next day
-
-    const startMs = cycleStart.getTime();
-    const endMs = cycleEnd.getTime();
+    // Midnight PKT of dateKey in UTC
+    const startMs = Date.UTC(yyyy, mm - 1, dd) - PKT_OFFSET_MS;
+    const endMs = startMs + 24 * 60 * 60 * 1000; // Next midnight PKT
 
     return allItems.filter(item => item.timestamp >= startMs && item.timestamp < endMs);
 }
@@ -169,7 +195,7 @@ function getAvailableDays() {
 }
 
 /**
- * Saves daily releases to session/daily_releases.json
+ * Saves daily releases to session/daily_releases.json and marks dirty for Supabase sync.
  */
 function saveDailyReleases(items) {
     try {
@@ -179,6 +205,7 @@ function saveDailyReleases(items) {
     } catch (e) {
         console.error('[DailyReleases] Error writing releases cache:', e.message);
     }
+    _releasesDirty = true;
 }
 
 // ─── Add Release ────────────────────────────────────────────────
@@ -356,6 +383,7 @@ function saveState(state) {
     } catch (e) {
         console.error('[DailyReleases] Error writing state:', e.message);
     }
+    _releasesDirty = true;
 }
 
 /**
@@ -540,6 +568,192 @@ function formatHistoryMenu() {
     return text;
 }
 
+// ─── Supabase Sync Functions ────────────────────────────────────
+
+/**
+ * Fetches releases + state from Supabase and writes them to local JSON files.
+ * Called once on bot startup to restore data from the cloud.
+ * Returns true if data was restored, false otherwise.
+ */
+async function initReleasesFromSupabase() {
+    if (_supabaseInitialized) return true;
+    const supabase = getSupabase();
+    if (!supabase) {
+        console.log('[DailyReleases] Supabase not configured — using local files only.');
+        return false;
+    }
+
+    try {
+        const { data, error } = await supabase
+            .from('daily_releases')
+            .select('releases_data, state_data, updated_at')
+            .eq('id', 1)
+            .maybeSingle();
+
+        if (error) {
+            console.warn('[DailyReleases] Supabase fetch error:', error.message);
+            return false;
+        }
+
+        if (!data) {
+            console.log('[DailyReleases] No release data found in Supabase (first run).');
+            // If we have local data, push it up to Supabase now
+            const localItems = loadAllReleases();
+            const localState = loadState();
+            if (localItems.length > 0) {
+                console.log(`[DailyReleases] Seeding ${localItems.length} local release(s) to Supabase...`);
+                await _upsertToSupabase(localItems, localState);
+            }
+            _supabaseInitialized = true;
+            return true;
+        }
+
+        const remoteReleases = Array.isArray(data.releases_data) ? data.releases_data : [];
+        const remoteState = (data.state_data && typeof data.state_data === 'object') ? data.state_data : {};
+
+        // Merge: use Supabase data as primary, but also merge any local items not in Supabase
+        // (covers edge case where bot crashed before flushing)
+        const localItems = loadAllReleases();
+        const merged = _mergeReleases(remoteReleases, localItems);
+
+        // Write merged data to local files
+        try {
+            const dir = path.dirname(RELEASES_FILE);
+            if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+            fs.writeFileSync(RELEASES_FILE, JSON.stringify(merged, null, 2), 'utf-8');
+        } catch (_) {}
+
+        try {
+            const dir = path.dirname(STATE_FILE);
+            if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+            fs.writeFileSync(STATE_FILE, JSON.stringify(remoteState, null, 2), 'utf-8');
+        } catch (_) {}
+
+        // If we merged new local items, mark dirty so they get pushed up
+        if (merged.length > remoteReleases.length) {
+            _releasesDirty = true;
+        }
+
+        console.log(`[DailyReleases] ✅ Restored ${merged.length} release(s) from Supabase (remote: ${remoteReleases.length}, local-extra: ${merged.length - remoteReleases.length}). Last updated: ${data.updated_at || 'unknown'}`);
+        _supabaseInitialized = true;
+        return true;
+    } catch (err) {
+        console.warn('[DailyReleases] Exception during Supabase init:', err.message);
+        return false;
+    }
+}
+
+/**
+ * Merges two release arrays, deduplicating by title+season+cycleDate.
+ * Remote items take priority (they're the source of truth).
+ */
+function _mergeReleases(remote, local) {
+    const seen = new Set();
+    const merged = [];
+
+    // Add all remote items first
+    for (const item of remote) {
+        const key = `${(item.title || '').toLowerCase()}_${(item.season || '').toLowerCase()}_${getCycleDateKey(item.timestamp)}`;
+        if (!seen.has(key)) {
+            seen.add(key);
+            merged.push(item);
+        }
+    }
+
+    // Add local items only if not already present
+    for (const item of local) {
+        const key = `${(item.title || '').toLowerCase()}_${(item.season || '').toLowerCase()}_${getCycleDateKey(item.timestamp)}`;
+        if (!seen.has(key)) {
+            seen.add(key);
+            merged.push(item);
+        }
+    }
+
+    return merged;
+}
+
+/**
+ * Flushes in-memory releases + state to Supabase if the dirty flag is set.
+ * Called periodically (every 5 min) and on graceful shutdown.
+ */
+async function flushReleasesToSupabase() {
+    if (!_releasesDirty) return false;
+    const supabase = getSupabase();
+    if (!supabase) return false;
+
+    try {
+        const items = loadAllReleases();
+        const state = loadState();
+        await _upsertToSupabase(items, state);
+        _releasesDirty = false;
+        console.log(`[DailyReleases] ☁️ Flushed ${items.length} release(s) to Supabase.`);
+        return true;
+    } catch (err) {
+        console.warn('[DailyReleases] Supabase flush error:', err.message);
+        return false;
+    }
+}
+
+/**
+ * Internal: upserts releases + state to Supabase daily_releases table (id=1).
+ */
+async function _upsertToSupabase(releases, state) {
+    const supabase = getSupabase();
+    if (!supabase) return;
+
+    const { error } = await supabase
+        .from('daily_releases')
+        .update({
+            releases_data: releases,
+            state_data: state,
+            updated_at: new Date().toISOString()
+        })
+        .eq('id', 1);
+
+    if (error) {
+        throw new Error(`Supabase upsert failed: ${error.message}`);
+    }
+}
+
+/**
+ * Starts periodic sync timer (every 5 minutes).
+ * Safe to call multiple times — only one timer runs.
+ */
+function startPeriodicSync() {
+    if (_syncIntervalHandle) return; // Already running
+    _syncIntervalHandle = setInterval(async () => {
+        try {
+            await flushReleasesToSupabase();
+        } catch (_) {}
+    }, SYNC_INTERVAL_MS);
+    console.log(`[DailyReleases] ⏱️ Periodic Supabase sync started (every ${SYNC_INTERVAL_MS / 60000} min).`);
+}
+
+/**
+ * Stops the periodic sync timer.
+ */
+function stopPeriodicSync() {
+    if (_syncIntervalHandle) {
+        clearInterval(_syncIntervalHandle);
+        _syncIntervalHandle = null;
+    }
+}
+
+/**
+ * Final flush for graceful shutdown. Stops the timer and does one last sync.
+ */
+async function shutdownSync() {
+    stopPeriodicSync();
+    try {
+        // Force dirty so we always save on shutdown
+        _releasesDirty = true;
+        await flushReleasesToSupabase();
+        console.log('[DailyReleases] ✅ Shutdown sync complete.');
+    } catch (err) {
+        console.warn('[DailyReleases] Shutdown sync failed:', err.message);
+    }
+}
+
 module.exports = {
     getDailyCutoffTime,
     getCycleDateString,
@@ -558,5 +772,11 @@ module.exports = {
     formatHistoryMenu,
     getLastSentMessage,
     setLastSentMessage,
-    clearLastSentMessage
+    clearLastSentMessage,
+    // Supabase sync
+    initReleasesFromSupabase,
+    flushReleasesToSupabase,
+    startPeriodicSync,
+    stopPeriodicSync,
+    shutdownSync
 };

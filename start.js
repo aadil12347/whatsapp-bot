@@ -11,6 +11,7 @@ const { killPreviousInstances } = require('./src/Utils/singleInstance');
 killPreviousInstances();
 
 const { uploadSessionToSupabase, downloadSessionFromSupabase, acquireBotLock, releaseBotLock, heartbeatBotLock } = require('./src/Utils/supabaseSession');
+const { initReleasesFromSupabase, startPeriodicSync, shutdownSync: shutdownReleasesSync } = require('./src/Utils/daily_releases');
 
 /**
  * Auto-patch libsignal's session_record.js to silence verbose session logging.
@@ -263,6 +264,13 @@ async function startBot() {
         console.warn('⚠️ Note: Supabase session sync skipped or failed:', e.message || e);
     }
 
+    // Auto-restore daily release data from Supabase (separate table, survives re-pairing)
+    try {
+        await initReleasesFromSupabase();
+    } catch (e) {
+        console.warn('⚠️ Note: Daily releases Supabase restore skipped or failed:', e.message || e);
+    }
+
     // ── Acquire Supabase bot lock (wait for old instance to release) ──
     const MAX_LOCK_RETRIES = 10;
     const LOCK_RETRY_DELAY = 30000; // 30 seconds
@@ -327,6 +335,9 @@ async function startBot() {
         } catch (_) {}
     }, 15 * 60 * 1000);
 
+    // Start periodic daily releases sync to Supabase (every 5 min, only when dirty)
+    startPeriodicSync();
+
     // Bot lock heartbeat every 60 seconds — tells other instances we're alive
     const lockHeartbeatInterval = setInterval(async () => {
         try {
@@ -342,6 +353,7 @@ async function startBot() {
             clearInterval(syncInterval);
             clearInterval(lockHeartbeatInterval);
             try { await uploadSessionToSupabase(sessionDir); } catch (_) {}
+            try { await shutdownReleasesSync(); } catch (_) {}
             try { await releaseBotLock(); } catch (_) {}
             child.kill('SIGTERM');
             setTimeout(() => {
@@ -360,6 +372,7 @@ async function startBot() {
         clearInterval(lockHeartbeatInterval);
         console.log(`🤖 Bot process exited with code ${code}`);
         try { await uploadSessionToSupabase(sessionDir); } catch (_) {}
+        try { await shutdownReleasesSync(); } catch (_) {}
         try { await releaseBotLock(); } catch (_) {}
         process.exit(code || 0);
     });
