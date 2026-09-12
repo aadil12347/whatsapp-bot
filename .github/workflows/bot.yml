@@ -61,6 +61,8 @@ jobs:
           SUPABASE_KEY: '${{ secrets.KEY }}'
           BOT_NUMBER: '${{ secrets.NUMBER }}'
           SUDO: '${{ secrets.NUMBER }}'
+          GROQ_API_KEY: '${{ secrets.GROQ_API_KEY }}'
+          GROK_API_KEY: '${{ secrets.GROK_API_KEY }}'
           FLARESOLVERR_URL: 'http://localhost:8191/v1'
           MAX_RUN_TIME_MINUTES: '240'
         run: |
