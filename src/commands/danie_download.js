@@ -1065,7 +1065,21 @@ class TaskQueueManager {
     add(task) {
         task.id = Date.now() + '_' + Math.random().toString(36).substring(2, 7);
         task.addedAt = Date.now();
-        this.queue.push(task);
+
+        if (task.isListQue) {
+            // Remove any existing pending listque task so only 1 remains at the tail end
+            this.queue = this.queue.filter(t => !t.isListQue);
+            this.queue.push(task);
+        } else {
+            // Normal task (.p, .d, etc.): insert BEFORE any pending listque task so listque stays last
+            const listQueIdx = this.queue.findIndex(t => t.isListQue);
+            if (listQueIdx !== -1) {
+                this.queue.splice(listQueIdx, 0, task);
+            } else {
+                this.queue.push(task);
+            }
+        }
+
         console.log(`[QueueManager] Added task "${task.description}" (ID: ${task.id}). Pending count: ${this.queue.length}`);
         
         this.processNext();
@@ -1657,6 +1671,7 @@ function initUpsertListener(conn) {
                     'jid', 'groupid',
                     'createlist', 'list', 'todaylist', 'todayrelease', 'daily', 'create',
                     'history', 'weeklist', '7days', 'archive',
+                    'listque', 'quelist', 'qlist',
                     'qdel', 'qremove', 'qedit', 'qupdate',
                     'help',
                     'song', 'songdl', 'yt1s', 'yts', 'yts1', 'video', 'yt2s', 'yt3s', 'csong', 'csongdl',
@@ -3550,6 +3565,27 @@ DANIE_COMMANDS['history'] = async (conn, mek, from, senderJid, args, reply) => {
 DANIE_COMMANDS['weeklist'] = DANIE_COMMANDS['history'];
 DANIE_COMMANDS['7days'] = DANIE_COMMANDS['history'];
 DANIE_COMMANDS['archive'] = DANIE_COMMANDS['history'];
+
+DANIE_COMMANDS['listque'] = async (conn, mek, from, senderJid, args, reply) => {
+    const task = {
+        description: `📋 Send Release List (End of Queue)`,
+        commandText: '.listque',
+        isListQue: true,
+        conn,
+        executeFn: async (signal, ref) => {
+            if (typeof DANIE_COMMANDS['createlist'] === 'function') {
+                await DANIE_COMMANDS['createlist'](conn, mek, from, senderJid, '', reply);
+            }
+        }
+    };
+
+    const queuedTask = globalTaskQueue.add(task);
+    if (globalTaskQueue.activeTask && globalTaskQueue.activeTask.id !== queuedTask.id) {
+        await reply(`📋 *Release List Queued at End of Queue* (Position #${globalTaskQueue.queue.length}):\n_Will send list automatically after all pending downloads/posts finish._`);
+    }
+};
+DANIE_COMMANDS['quelist'] = DANIE_COMMANDS['listque'];
+DANIE_COMMANDS['qlist'] = DANIE_COMMANDS['listque'];
 
 /**
  * Handles user's reply to the .history day picker menu.
