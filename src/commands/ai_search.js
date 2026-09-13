@@ -1,5 +1,5 @@
 const { translateAudio, extractSearchIntent, selectBestMatch } = require('../Utils/ai_provider');
-const { searchMoviesAndSeries, scrapePostPage, scrapeAllPostLinks, resolveLandingLink, resolveVcloudLink, extractSeriesVcloudLinks } = require('../Utils/movie_scraper');
+const { searchMoviesAndSeries, scrapePostPage, scrapeAllPostLinks, resolveLandingLink, resolveVcloudLink } = require('../Utils/movie_scraper');
 
 // In-memory state tracking
 const pendingPreConfirmations = new Map();
@@ -7,41 +7,29 @@ const pendingPostSelections = new Map();
 
 /**
  * Helper to resolve media URL for TV Series seasons:
- * 1. Checks individual season post dedicated to targetSeason first.
- * 2. If individual post extraction fails or doesn't exist, falls back to combined multi-season post.
+ * - If NO episode is specified (intent.episode is null): Target and download the Season Batch Zip (pack).
+ * - If an episode IS specified (intent.episode is set e.g. 5): Target Episode 5 VCloud direct link.
+ *   - If VCloud direct link is not explicitly on the button, check other single episode links for Episode 5 (which resolve landing pages to VCloud).
+ *   - If Episode 5 single link is unavailable, check if Season Batch Zip is available.
+ *   - If Batch Zip is available, return fallback state to ask user via Yes/No confirmation prompt.
  */
 async function getSeriesSeasonMediaUrl(post, intent, candidates = []) {
     const targetSeason = intent.season || 1;
-    console.log(`[AISearch] Resolving TV Series media URL for Season ${targetSeason}...`);
+    const targetEpisode = intent.episode || null;
+    const targetRes = (intent.resolution || '720p').toLowerCase();
 
-    // Step 1: Look for individual season post matching targetSeason among candidate posts
+    console.log(`[AISearch] Resolving TV Series media URL for Season ${targetSeason}${targetEpisode ? `, Episode ${targetEpisode}` : ' (Full Season Batch Zip preferred)'}...`);
+
+    // Helper: Find dedicated or candidate posts for targetSeason
+    const targetPosts = [];
     const individualPost = candidates.find(c => {
         const t = (c.title || '').toLowerCase();
         const isIndividual = !/season[s]?\s*\d+\s*[-–]\s*\d+|\ball\s*season[s]?\b|\bcomplete\b/i.test(t);
         const seasonMatch = t.match(/season\s*(\d+)|\bs(\d+)\b/i);
         return isIndividual && seasonMatch && parseInt(seasonMatch[1] || seasonMatch[2], 10) === targetSeason;
     });
+    if (individualPost) targetPosts.push(individualPost);
 
-    if (individualPost && individualPost.link) {
-        console.log(`[AISearch] 🎯 Step 1: Trying dedicated individual Season ${targetSeason} post: "${individualPost.title}" (${individualPost.link})`);
-        try {
-            const allLinks = await scrapeAllPostLinks(individualPost.link);
-            const batchZipLink = allLinks.find(l => l.isPack || /batch|zip|pack|all\s*episodes/i.test(l.text || '') || /batch|zip|pack/i.test(l.parentText || ''));
-            if (batchZipLink && batchZipLink.href) {
-                const landing = await resolveLandingLink(batchZipLink.href);
-                const mediaUrl = await resolveVcloudLink(landing);
-                if (mediaUrl) return { mediaUrl, postTitle: individualPost.title };
-            }
-            const seriesResult = await extractSeriesVcloudLinks(individualPost.link);
-            if (seriesResult && seriesResult.episodes && seriesResult.episodes.length > 0) {
-                return { mediaUrl: seriesResult.episodes[0].directUrl, postTitle: individualPost.title };
-            }
-        } catch (indErr) {
-            console.warn(`[AISearch] Individual Season ${targetSeason} post extraction failed: ${indErr.message}. Trying combined post fallback...`);
-        }
-    }
-
-    // Step 2: Fallback to combined multi-season post if individual post failed or was not found
     const combinedPost = candidates.find(c => {
         const t = (c.title || '').toLowerCase();
         const rangeMatch = t.match(/season[s]?\s*(\d+)\s*[-–]\s*(\d+)/i);
@@ -51,33 +39,128 @@ async function getSeriesSeasonMediaUrl(post, intent, candidates = []) {
             return targetSeason >= startS && targetSeason <= endS;
         }
         return /all\s*season[s]?|complete\s*series|seasons/i.test(t);
-    }) || post;
+    });
+    if (combinedPost && !targetPosts.some(p => p.link === combinedPost.link)) {
+        targetPosts.push(combinedPost);
+    }
+    if (!targetPosts.some(p => p.link === post.link)) {
+        targetPosts.push(post);
+    }
 
-    if (combinedPost && combinedPost.link) {
-        console.log(`[AISearch] 🔄 Step 2: Fallback to combined multi-season post: "${combinedPost.title}" (${combinedPost.link})`);
+    // Helper to find links across target posts
+    let allLinksScraped = [];
+    for (const p of targetPosts) {
         try {
-            const allLinks = await scrapeAllPostLinks(combinedPost.link);
-            const seasonLink = allLinks.find(l => {
-                const combined = `${l.text} ${l.parentText || ''} ${l.heading || ''}`.toLowerCase();
-                const sMatch = combined.match(/season\s*(\d+)|\bs(\d+)\b/i);
-                return sMatch && parseInt(sMatch[1] || sMatch[2], 10) === targetSeason;
-            }) || allLinks.find(l => l.isPack || /batch|zip|pack/i.test(l.text || '')) || allLinks[0];
-
-            if (seasonLink && seasonLink.href) {
-                const landing = await resolveLandingLink(seasonLink.href);
-                const mediaUrl = await resolveVcloudLink(landing);
-                if (mediaUrl) return { mediaUrl, postTitle: combinedPost.title };
-            }
-            const seriesResult = await extractSeriesVcloudLinks(combinedPost.link);
-            if (seriesResult && seriesResult.episodes && seriesResult.episodes.length > 0) {
-                const matchedEp = seriesResult.episodes.find(e => e.epLabel && e.epLabel.includes(`S${String(targetSeason).padStart(2, '0')}`)) || seriesResult.episodes[0];
-                return { mediaUrl: matchedEp.directUrl, postTitle: combinedPost.title };
-            }
-        } catch (combErr) {
-            console.warn(`[AISearch] Combined multi-season post extraction failed: ${combErr.message}`);
+            const links = await scrapeAllPostLinks(p.link);
+            links.forEach(l => { l._postTitle = p.title; l._postLink = p.link; });
+            allLinksScraped.push(...links);
+        } catch (e) {
+            console.warn(`[AISearch] Error scraping links for ${p.title}:`, e.message);
         }
     }
 
+    // Helper to filter links for targetSeason
+    const seasonLinks = allLinksScraped.filter(l => {
+        const text = `${l.text} ${l.parentText || ''} ${l.heading || ''}`.toLowerCase();
+        const sMatch = text.match(/season\s*(\d+)|\bs(\d+)\b/i);
+        if (sMatch) {
+            const sNum = parseInt(sMatch[1] || sMatch[2], 10);
+            return sNum === targetSeason;
+        }
+        return true;
+    });
+
+    const activeLinks = seasonLinks.length > 0 ? seasonLinks : allLinksScraped;
+
+    // --- CASE A: NO EPISODE SPECIFIED -> TARGET SEASON BATCH ZIP ---
+    if (!targetEpisode) {
+        console.log(`[AISearch] 📦 User did NOT specify an episode. Searching for Season ${targetSeason} Batch Zip / Pack link...`);
+        const batchLinks = activeLinks.filter(l => l.isPack || /batch|zip|pack|all\s*episodes|complete\s*season/i.test(`${l.text} ${l.parentText || ''} ${l.heading || ''}`));
+        
+        let chosenBatch = batchLinks.find(l => l.resolution && l.resolution.toLowerCase() === targetRes) || batchLinks[0];
+        
+        if (chosenBatch && chosenBatch.href) {
+            console.log(`[AISearch] ✅ Found Season ${targetSeason} Batch Zip link: "${chosenBatch.text}" (${chosenBatch.href})`);
+            const landing = await resolveLandingLink(chosenBatch.href);
+            const mediaUrl = await resolveVcloudLink(landing);
+            if (mediaUrl) return { mediaUrl, postTitle: chosenBatch._postTitle || post.title, isBatchZip: true };
+        }
+
+        // Fallback if no explicit batch zip link was found: try first link matching targetSeason
+        if (activeLinks.length > 0) {
+            const fallbackLink = activeLinks.find(l => l.resolution && l.resolution.toLowerCase() === targetRes) || activeLinks[0];
+            if (fallbackLink && fallbackLink.href) {
+                console.log(`[AISearch] ⚠️ Batch zip link keyword not explicit. Fallback to season link: "${fallbackLink.text}"`);
+                const landing = await resolveLandingLink(fallbackLink.href);
+                const mediaUrl = await resolveVcloudLink(landing);
+                if (mediaUrl) return { mediaUrl, postTitle: fallbackLink._postTitle || post.title, isBatchZip: false };
+            }
+        }
+    }
+
+    // --- CASE B: EPISODE SPECIFIED (e.g. Episode 5) -> TARGET EPISODE 5 VCLOUD ---
+    if (targetEpisode) {
+        console.log(`[AISearch] 🎯 User specified Episode ${targetEpisode}. Searching for Episode ${targetEpisode} single link (VCloud preferred)...`);
+
+        const isEpMatch = (l) => {
+            const text = `${l.text} ${l.parentText || ''} ${l.heading || ''}`.toLowerCase();
+            const epRegex = new RegExp(`\\b(?:e|ep|episode)\\s*[:\\-–—]?\\s*0?${targetEpisode}\\b|\\bs0?${targetSeason}e0?${targetEpisode}\\b|\\bep\\s*0?${targetEpisode}\\b|\\b${targetEpisode}(?:th|st|nd|rd)?\\s*episode\\b`, 'i');
+            return l.episode === `E${String(targetEpisode).padStart(2, '0')}` || epRegex.test(text);
+        };
+
+        const epCandidateLinks = activeLinks.filter(isEpMatch);
+
+        // Sort: Prioritize VCloud links first, then matching resolution, then others
+        epCandidateLinks.sort((a, b) => {
+            const aText = `${a.text} ${a.href}`.toLowerCase();
+            const bText = `${b.text} ${b.href}`.toLowerCase();
+            const aIsVcloud = aText.includes('vcloud') || aText.includes('v-cloud') || aText.includes('hubcloud');
+            const bIsVcloud = bText.includes('vcloud') || bText.includes('v-cloud') || bText.includes('hubcloud');
+            if (aIsVcloud && !bIsVcloud) return -1;
+            if (!aIsVcloud && bIsVcloud) return 1;
+            return 0;
+        });
+
+        for (const epLink of epCandidateLinks) {
+            if (epLink.href) {
+                console.log(`[AISearch] Trying Episode ${targetEpisode} link: "${epLink.text}" (${epLink.href})`);
+                try {
+                    const landing = await resolveLandingLink(epLink.href);
+                    const mediaUrl = await resolveVcloudLink(landing);
+                    if (mediaUrl) {
+                        console.log(`[AISearch] ✅ Resolved Episode ${targetEpisode} VCloud link: ${mediaUrl}`);
+                        return { mediaUrl, postTitle: epLink._postTitle || post.title, isEpisode: true };
+                    }
+                } catch (eErr) {
+                    console.warn(`[AISearch] Failed resolving Episode ${targetEpisode} link:`, eErr.message);
+                }
+            }
+        }
+
+        // Episode single link NOT found or failed resolution! Check if Season Batch Zip is available.
+        console.log(`[AISearch] ⚠️ Single link for Episode ${targetEpisode} not available/extractable. Checking if Batch Zip exists...`);
+        const batchLink = activeLinks.find(l => l.isPack || /batch|zip|pack|all\s*episodes|complete\s*season/i.test(`${l.text} ${l.parentText || ''} ${l.heading || ''}`));
+
+        if (batchLink && batchLink.href) {
+            return {
+                mediaUrl: null,
+                episodeUnavailable: true,
+                batchAvailable: true,
+                batchZipLink: batchLink.href,
+                batchZipPost: targetPosts.find(p => p.link === batchLink._postLink) || post,
+                postTitle: post.title
+            };
+        } else {
+            return {
+                mediaUrl: null,
+                episodeUnavailable: true,
+                batchAvailable: false,
+                postTitle: post.title
+            };
+        }
+    }
+
+    // Default fallback to post.link
     return { mediaUrl: post.link, postTitle: post.title };
 }
 
@@ -126,9 +209,16 @@ async function handleAiSearchCommand(sock, msg, args, userTextInput = null, isVo
             if (tmdbInfo.year && tmdbInfo.year !== 'N/A') {
                 intent.year = tmdbInfo.year;
             }
+            if (tmdbInfo.type === 'tv') {
+                intent.type = 'series';
+            }
         }
     } catch (tmdbErr) {
         console.warn(`[AISearch] TMDB official title resolution warning:`, tmdbErr.message);
+    }
+
+    if (!intent.type) {
+        intent.type = (tmdbInfo && tmdbInfo.type === 'tv') ? 'series' : 'movie';
     }
 
     // Default resolution fallback
@@ -186,7 +276,7 @@ async function handleAiSearchCommand(sock, msg, args, userTextInput = null, isVo
     const preConfirmText = `❓ *Confirm Search Result*\n\n` +
                            `🎬 *Title:* *${chosenPost.title}*\n` +
                            `📺 *Quality:* ${intent.resolution}\n` +
-                           `⭐ *Type:* ${intent.type.toUpperCase()}\n` +
+                           `⭐ *Type:* ${(intent.type || 'movie').toUpperCase()}\n` +
                            `${seasonInfoText}` +
                            `🌐 *Source:* ${chosenPost.site}\n\n` +
                            `1️⃣ *Quote/Reply* with *yes* or *1* to confirm and start download.\n` +
@@ -257,6 +347,21 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
         }
     };
 
+    // If session has batchZipLink from fallback confirmation approval:
+    if (session.batchZipLink) {
+        console.log(`[AISearch] User confirmed downloading fallback Season Batch Zip: ${session.batchZipLink}`);
+        try {
+            const landing = await resolveLandingLink(session.batchZipLink);
+            const mediaUrl = await resolveVcloudLink(landing);
+            if (mediaUrl) {
+                console.log(`[AISearch] Triggering .d command handler with fallback Batch Zip direct link: ${mediaUrl}`);
+                return await downloadCommandHandler(sock, msg, chatId, msg.key.participant || chatId, mediaUrl, replyFn);
+            }
+        } catch (bErr) {
+            console.warn('[AISearch] Fallback batch zip resolution error:', bErr.message);
+        }
+    }
+
     // 1. Run .p command for TMDB poster, caption, and YouTube trailer delivery
     try {
         console.log(`[AISearch] Triggering .p command for post link: ${post.link}`);
@@ -271,6 +376,36 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
     try {
         if (intent.type === 'series') {
             const seasonResult = await getSeriesSeasonMediaUrl(post, intent, candidates);
+            
+            if (seasonResult.episodeUnavailable) {
+                if (seasonResult.batchAvailable && seasonResult.batchZipLink) {
+                    // Single episode requested is unavailable, but full Season Batch Zip is available!
+                    // Prompt user with Yes/No confirmation
+                    const fallbackConfirmKey = `epfallback_${chatId}_${Date.now()}`;
+                    const promptText = `⚠️ *Episode ${intent.episode} single download link is not available.*` +
+                                       `\n📦 *Full Season ${intent.season || 1} Batch Zip (All Episodes) is available!*` +
+                                       `\n\n1️⃣ *Quote/Reply* with *yes* or *1* to download the full Season Batch Zip.` +
+                                       `\n2️⃣ *Quote/Reply* with *no* or *0* to cancel.` +
+                                       `\n\n⚠️ *Note:* You MUST quote/reply to this message for your choice to take effect!`;
+
+                    const sentMsg = await sock.sendMessage(chatId, { text: promptText }, { quoted: msg });
+                    if (sentMsg && sentMsg.key && sentMsg.key.id) {
+                        pendingPreConfirmations.set(fallbackConfirmKey, {
+                            chatId,
+                            sender: msg.key.participant || chatId,
+                            post: seasonResult.batchZipPost || post,
+                            intent: { ...intent, episode: null }, // clear episode so it downloads batch zip
+                            candidates,
+                            batchZipLink: seasonResult.batchZipLink,
+                            messageId: sentMsg.key.id,
+                            timestamp: Date.now()
+                        });
+                    }
+                    return;
+                } else {
+                    return sock.sendMessage(chatId, { text: `❌ *Episode ${intent.episode} of Season ${intent.season || 1} is not available.*` }, { quoted: msg });
+                }
+            }
             mediaUrl = seasonResult.mediaUrl;
             if (seasonResult.postTitle) postTitle = seasonResult.postTitle;
         } else {
