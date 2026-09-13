@@ -37,11 +37,36 @@ async function handleAiSearchCommand(sock, msg, args, userTextInput = null, isVo
         intent = { query: userPrompt, year: null, resolution: '720p', type: 'movie', origin: 'non-indian' };
     }
 
+    // 2b. RESOLVE ACTUAL CANONICAL TITLE FROM GOOGLE / TMDB DATABASE
+    // Query TMDB/Google API using the AI-extracted title or raw keyword to copy the exact official spelling
+    const { fetchTmdbMetadata } = require('../Utils/movie_scraper');
+    let tmdbInfo = null;
+    try {
+        const searchQuery = intent.query || userPrompt;
+        console.log(`[AISearch] 🔍 Resolving official title from Google/TMDB for keyword: "${searchQuery}"`);
+        tmdbInfo = await fetchTmdbMetadata(searchQuery, intent.type === 'series' ? 'tv' : 'movie');
+        if (tmdbInfo && tmdbInfo.title) {
+            console.log(`[AISearch] ✅ Google/TMDB Official Title Resolved: "${tmdbInfo.title}" (${tmdbInfo.year || 'N/A'})`);
+            intent.query = tmdbInfo.title;
+            if (tmdbInfo.year && tmdbInfo.year !== 'N/A') {
+                intent.year = tmdbInfo.year;
+            }
+        }
+    } catch (tmdbErr) {
+        console.warn(`[AISearch] TMDB official title resolution warning:`, tmdbErr.message);
+    }
+
     // Default resolution fallback
     if (!intent.resolution) intent.resolution = '720p';
 
-    // 3. Search target sites (Rogmovies for Indian, Vegamovies for Non-Indian) - Done silently
-    const candidates = await searchMoviesAndSeries(intent.query, intent.origin);
+    // 3. Search target sites (Vegamovies / Rogmovies / HDHub4u) using the exact official canonical spelling
+    let candidates = await searchMoviesAndSeries(intent.query, intent.origin);
+
+    // Fallback: If 0 hits with official title, retry searching site with raw user keyword
+    if ((!candidates || candidates.length === 0) && intent.query !== userPrompt) {
+        console.log(`[AISearch] 🔄 0 hits for "${intent.query}". Retrying site search with raw keyword: "${userPrompt}"`);
+        candidates = await searchMoviesAndSeries(userPrompt, intent.origin);
+    }
 
     if (!candidates || candidates.length === 0) {
         return sock.sendMessage(chatId, { text: `❌ No download posts found for "*${intent.query}*".` }, { quoted: msg });
