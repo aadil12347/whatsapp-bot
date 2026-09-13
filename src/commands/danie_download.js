@@ -2494,19 +2494,40 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
             let tempFilename = targetFilename || ('file_' + Date.now());
             if (!targetFilename) {
                 try {
-                    const urlPath = new URL(url).pathname;
-                    const urlFile = urlPath.substring(urlPath.lastIndexOf('/') + 1);
-                    if (urlFile && urlFile.includes('.')) {
-                        tempFilename = decodeURIComponent(urlFile);
+                    const parsedUrlObj = new URL(url);
+                    
+                    // 1. Check response-content-disposition or filename query parameter (presigned S3 / R2 URLs)
+                    const rcdParam = parsedUrlObj.searchParams.get('response-content-disposition') || parsedUrlObj.searchParams.get('filename');
+                    if (rcdParam) {
+                        const cdMatch = rcdParam.match(/filename\*=(?:UTF-8''|utf-8'')([^;\n"']+)/i)
+                                     || rcdParam.match(/filename="([^"]+)"/i)
+                                     || rcdParam.match(/filename=([^;\n"'\s]+)/i)
+                                     || [null, rcdParam];
+                        if (cdMatch && cdMatch[1]) {
+                            const paramName = decodeURIComponent(cdMatch[1].trim());
+                            if (paramName && paramName.includes('.') && paramName.length > 3) {
+                                tempFilename = paramName;
+                                console.log('[DanieDownload] ✅ Filename extracted from URL query parameter:', tempFilename);
+                            }
+                        }
+                    }
+
+                    // 2. Check URL pathname for valid file extension
+                    if (tempFilename.startsWith('file_')) {
+                        const urlPath = parsedUrlObj.pathname;
+                        const urlFile = urlPath.substring(urlPath.lastIndexOf('/') + 1);
+                        if (urlFile && urlFile.includes('.') && urlFile.length > 3) {
+                            tempFilename = decodeURIComponent(urlFile);
+                            console.log('[DanieDownload] ✅ Filename extracted from URL pathname:', tempFilename);
+                        }
                     }
                 } catch (err) {}
             }
 
-            // ── HEAD request for filename pre-detection ──
-            // FSL/FSLv2 CDN links have hash-based URLs with no filename.
-            // The real filename is in the Content-Disposition header — the same
-            // name that appears when you download on phone/PC/any downloader.
-            if (!targetFilename) {
+            // ── HEAD request for filename pre-detection (only if filename is still unknown / file_) ──
+            // S3/R2 presigned URLs reject HEAD requests with 403 because AWS signatures are method-bound.
+            // If filename was already extracted from query/path, skip HEAD request entirely!
+            if (!targetFilename && tempFilename.startsWith('file_')) {
                 try {
                     const parsedHeadUrl = new URL(url);
                     const headResponse = await axios.head(url, {
