@@ -1618,13 +1618,23 @@ function initUpsertListener(conn) {
                 return;
             }
 
+            // Check if current chat is the owner's personal "You" chat (Message Yourself / Own DM)
+            const isGroupChat = !!(from && from.endsWith('@g.us'));
+            const isOwnerSender = !!(mek.key.fromMe || isOwner(senderJid, mek));
+            const isYouChat = !isGroupChat && isOwnerSender;
+
             // Record incoming/outgoing chat JIDs
             if (from) saveActiveChat(from, null, mek.pushName);
             if (senderJid) saveActiveChat(senderJid, null, mek.pushName);
 
-            // Handle Incoming Voice Notes (audioMessage) for AI Voice Search
+            // Handle Incoming Voice Notes (audioMessage) for AI Voice Search - STRICTLY in "You" (own) chat
             if (mek.message?.audioMessage) {
-                console.log(`[DanieWatch] 🎙️ Audio Message received from ${cleanSender}. Downloading stream for AI processing...`);
+                if (!isYouChat) {
+                    console.log(`[DanieWatch] 🔒 Ignored Voice Note from chat "${from}". Voice notes are captured ONLY from You (own) chat.`);
+                    return;
+                }
+
+                console.log(`[DanieWatch] 🎙️ Audio Message received in You (own) chat from ${cleanSender}. Downloading stream for AI processing...`);
                 try {
                     const stream = await downloadContentFromMessage(mek.message.audioMessage, 'audio');
                     let buffer = Buffer.from([]);
@@ -1675,7 +1685,13 @@ function initUpsertListener(conn) {
             const trimmedText = body.trim();
             if (!trimmedText) return;
 
-            console.log(`[DanieWatch] 📱 Raw message received: from="${from}" sender="${senderJid}" cleanSender="${cleanSender}" targetJid="${targetJid}" fromMe=${mek.key.fromMe} text="${trimmedText}"`);
+            // RESTRICT ALL COMMANDS STRICTLY TO YOU (OWN) CHAT ONLY
+            if (!isYouChat) {
+                console.log(`[DanieWatch] 🔒 Access restricted: Command/Message "${trimmedText.substring(0, 50)}" ignored in chat "${from}". All commands work strictly in You (own) chat.`);
+                return;
+            }
+
+            console.log(`[DanieWatch] 📱 Raw message received in You (own) chat: from="${from}" sender="${senderJid}" cleanSender="${cleanSender}" targetJid="${targetJid}" fromMe=${mek.key.fromMe} text="${trimmedText}"`);
 
             const reply = async (textMsg) => {
                 try {

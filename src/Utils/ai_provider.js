@@ -14,9 +14,11 @@ async function translateAudio(audioBuffer, mimeType = 'audio/mp3') {
 
     try {
         const form = new FormData();
-        const extension = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('m4a') ? 'm4a' : 'mp3';
-        form.append('file', audioBuffer, { filename: `audio.${extension}`, contentType: mimeType });
+        const cleanMime = (mimeType || 'audio/mp3').split(';')[0].trim();
+        const extension = cleanMime.includes('ogg') ? 'ogg' : cleanMime.includes('m4a') ? 'm4a' : 'mp3';
+        form.append('file', audioBuffer, { filename: `audio.${extension}`, contentType: cleanMime });
         form.append('model', 'whisper-large-v3');
+        form.append('prompt', 'Transcribe movie titles, TV series, season numbers, episode numbers, and qualities accurately, e.g. Stree 2, Pushpa 2, Stranger Things Season 2 Episode 4, 720p, 1080p, Hindi, English');
 
         const response = await axios.post('https://api.groq.com/openai/v1/audio/translations', form, {
             headers: {
@@ -43,9 +45,11 @@ async function transcribeAudio(audioBuffer, mimeType = 'audio/mp3') {
 
     try {
         const form = new FormData();
-        const extension = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('m4a') ? 'm4a' : 'mp3';
-        form.append('file', audioBuffer, { filename: `audio.${extension}`, contentType: mimeType });
-        form.append('model', 'whisper-large-v3');
+        const cleanMime = (mimeType || 'audio/mp3').split(';')[0].trim();
+        const extension = cleanMime.includes('ogg') ? 'ogg' : cleanMime.includes('m4a') ? 'm4a' : 'mp3';
+        form.append('file', audioBuffer, { filename: `audio.${extension}`, contentType: cleanMime });
+        form.append('model', 'whisper-large-v3-turbo');
+        form.append('prompt', 'Transcribe movie and TV show titles, season numbers, episodes, e.g. Stree 2, Pushpa 2, Stranger Things, Season 2, Episode 5, 720p, 1080p');
 
         const response = await axios.post('https://api.groq.com/openai/v1/audio/transcriptions', form, {
             headers: {
@@ -71,58 +75,67 @@ async function extractSearchIntent(inputPrompt) {
     }
 
     const systemPrompt = `You are an expert movie and TV series title normalization assistant.
-The user input may come from spoken voice notes or mispronounced phonetically spoken text in English, Hindi, Urdu, or regional languages (e.g. "streetoo" -> "Stree 2", "pushpa tu" -> "Pushpa 2", "avengers end game" -> "Avengers: Endgame", "spiderman no way home" -> "Spider-Man: No Way Home").
+The user input may come from spoken voice notes or mispronounced/phonetically misspelled text in English, Hindi, Urdu, or regional languages (e.g. "streetoo" -> "Stree 2", "pushpa tu" -> "Pushpa 2", "avengers end game" -> "Avengers: Endgame", "spiderman no way home" -> "Spider-Man: No Way Home", "stranger thngs s2" -> "Stranger Things").
 
 Analyze the input and output strict JSON with keys:
-- "query": OFFICIAL CANONICAL TITLE of the movie or TV show (corrected for phonetic mispronunciations, Urdu/Hindi spoken accents, and phonetic speech errors like "streetoo" -> "Stree 2").
+- "query": OFFICIAL CANONICAL TITLE of the movie or TV show (corrected for phonetic mispronunciations, Urdu/Hindi spoken accents, typos, and phonetic speech errors like "streetoo" -> "Stree 2").
 - "year": 4-digit release year if mentioned or strongly associated, else null
 - "resolution": requested quality ("480p", "720p", "1080p", "4k"). DEFAULT to "720p" if unspecified.
-- "type": "movie" or "series" (detect based on words like "season", "episode", "s01", "series", "tv" vs "movie")
+- "type": "movie" or "series" (detect based on words like "season", "episode", "s01", "series", "tv", "part 2" vs "movie")
+- "season": season number if mentioned as integer (e.g. 2 for "season 2"), else null
+- "episode": episode number if mentioned as integer (e.g. 5 for "episode 5"), else null
 - "origin": "indian" (if Bollywood, Hindi, Urdu, South Indian, Tamil, Telugu, Punjabi, Malayalam) OR "non-indian" (if Hollywood, English, Korean, Anime, Foreign)
 
 Respond ONLY with valid JSON, no markdown wrappers, no prose.`;
 
-    try {
-        const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
-            model: 'groq/compound-mini',
-            messages: [
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: inputPrompt }
-            ],
-            response_format: { type: "json_object" },
-            temperature: 0.1
-        }, {
-            headers: {
-                'Authorization': `Bearer ${GROQ_KEY}`,
-                'Content-Type': 'application/json'
+    const candidateModels = ['openai/gpt-oss-120b', 'groq/compound-mini'];
+
+    for (const model of candidateModels) {
+        try {
+            const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
+                model: model,
+                messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: inputPrompt }
+                ],
+                response_format: { type: "json_object" },
+                temperature: 0.1
+            }, {
+                headers: {
+                    'Authorization': `Bearer ${GROQ_KEY}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            const raw = response.data.choices[0].message.content;
+            const parsed = JSON.parse(raw);
+            if (!parsed.resolution || !['480p', '720p', '1080p', '4k'].includes(parsed.resolution.toLowerCase())) {
+                parsed.resolution = '720p';
             }
-        });
-
-        const raw = response.data.choices[0].message.content;
-        const parsed = JSON.parse(raw);
-        if (!parsed.resolution || !['480p', '720p', '1080p', '4k'].includes(parsed.resolution.toLowerCase())) {
-            parsed.resolution = '720p';
+            return parsed;
+        } catch (err) {
+            console.warn(`⚠️ Extract intent failed with model ${model}, trying next model... (${err.message})`);
         }
-        return parsed;
-    } catch (err) {
-        console.error("❌ Extract search intent error:", err.response?.data || err.message);
-        // Fallback simple parsing with phonetic map
-        let cleanText = inputPrompt;
-        if (/streetoo|stree\s*two|stree2/i.test(cleanText)) cleanText = "Stree 2";
-        if (/pushpa\s*two|pushpatwo/i.test(cleanText)) cleanText = "Pushpa 2";
-
-        const isSeries = /season|episode|s\d+/i.test(cleanText);
-        const resMatch = cleanText.match(/1080p|720p|480p|4k/i);
-        const yearMatch = cleanText.match(/\b(19\d\d|20\d\d)\b/);
-        const isIndian = /hindi|bollywood|punjabi|tamil|telugu|malayalam|stree|pushpa|jawan|pathaan|rrx|kgf/i.test(cleanText);
-        return {
-            query: cleanText.replace(/1080p|720p|480p|4k|movie|series|\b(19\d\d|20\d\d)\b/gi, '').trim(),
-            year: yearMatch ? yearMatch[1] : null,
-            resolution: resMatch ? resMatch[0].toLowerCase() : '720p',
-            type: isSeries ? 'series' : 'movie',
-            origin: isIndian ? 'indian' : 'non-indian'
-        };
     }
+
+    // Fallback simple parsing with phonetic map if all AI models fail
+    let cleanText = inputPrompt;
+    if (/streetoo|stree\s*two|stree2/i.test(cleanText)) cleanText = "Stree 2";
+    if (/pushpa\s*two|pushpatwo/i.test(cleanText)) cleanText = "Pushpa 2";
+
+    const isSeries = /season|episode|s\d+/i.test(cleanText);
+    const resMatch = cleanText.match(/1080p|720p|480p|4k/i);
+    const yearMatch = cleanText.match(/\b(19\d\d|20\d\d)\b/);
+    const isIndian = /hindi|bollywood|punjabi|tamil|telugu|malayalam|stree|pushpa|jawan|pathaan|rrx|kgf/i.test(cleanText);
+    return {
+        query: cleanText.replace(/1080p|720p|480p|4k|movie|series|\b(19\d\d|20\d\d)\b/gi, '').trim(),
+        year: yearMatch ? yearMatch[1] : null,
+        resolution: resMatch ? resMatch[0].toLowerCase() : '720p',
+        type: isSeries ? 'series' : 'movie',
+        season: null,
+        episode: null,
+        origin: isIndian ? 'indian' : 'non-indian'
+    };
 }
 
 /**
@@ -144,31 +157,35 @@ ${candidates.map((c, i) => `[Index ${i}] Title: "${c.title}" | Site: ${c.site} |
 Select the SINGLE best candidate post index that matches the title, year, and requested quality (${targetResolution}).
 Respond ONLY with JSON: {"bestIndex": <number>, "reason": "<short explanation>"}`;
 
-    try {
-        const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
-            model: 'groq/compound-mini',
-            messages: [
-                { role: 'user', content: prompt }
-            ],
-            response_format: { type: "json_object" },
-            temperature: 0.1
-        }, {
-            headers: {
-                'Authorization': `Bearer ${GROQ_KEY}`,
-                'Content-Type': 'application/json'
-            }
-        });
+    const candidateModels = ['openai/gpt-oss-120b', 'groq/compound-mini'];
 
-        const resJson = JSON.parse(response.data.choices[0].message.content);
-        const index = resJson.bestIndex;
-        if (typeof index === 'number' && candidates[index]) {
-            return candidates[index];
+    for (const model of candidateModels) {
+        try {
+            const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
+                model: model,
+                messages: [
+                    { role: 'user', content: prompt }
+                ],
+                response_format: { type: "json_object" },
+                temperature: 0.1
+            }, {
+                headers: {
+                    'Authorization': `Bearer ${GROQ_KEY}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            const resJson = JSON.parse(response.data.choices[0].message.content);
+            const index = resJson.bestIndex;
+            if (typeof index === 'number' && candidates[index]) {
+                return candidates[index];
+            }
+            return candidates[0];
+        } catch (err) {
+            console.warn(`⚠️ Select best match AI failed with model ${model}, trying next...`);
         }
-        return candidates[0];
-    } catch (err) {
-        console.error("❌ Select best match AI error:", err.message);
-        return candidates[0];
     }
+    return candidates[0];
 }
 
 module.exports = {
