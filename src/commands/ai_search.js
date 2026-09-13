@@ -1,5 +1,6 @@
 const { translateAudio, extractSearchIntent, selectBestMatch } = require('../Utils/ai_provider');
-const { searchMoviesAndSeries, scrapePostPage, scrapeAllPostLinks, resolveLandingLink, resolveVcloudLink, extractSubOptions } = require('../Utils/movie_scraper');
+const { searchMoviesAndSeries, scrapePostPage, scrapeAllPostLinks, resolveLandingLink, resolveVcloudLink, extractSubOptions, fetchHtmlWithRetry } = require('../Utils/movie_scraper');
+const cheerio = require('cheerio');
 
 // In-memory state tracking
 const pendingPreConfirmations = new Map();
@@ -10,12 +11,15 @@ const pendingPostSelections = new Map();
  * - Scrapes post page buttons
  * - Opens detail landing pages
  * - Filters strictly VCloud direct links
- * - Categorizes into Individual Episode options & All Available Batch Zip options (480p, 720p, 1080p)
+ * - Implements Resolution Fallback System for single episodes (720p -> 480p -> 1080p) if user didn't explicitly specify resolution
+ * - Categorizes into Individual Episode options (1..N) & All Available Batch Zip options named "All Episodes (RES)"
  */
 async function buildVcloudCatalog(post, intent, candidates = []) {
     const targetSeason = intent.season || 1;
+    const isExplicitRes = intent.resolutionExplicit || (intent.userPrompt && /\b(480p|720p|1080p|2160p|4k)\b/i.test(intent.userPrompt));
     const targetRes = (intent.resolution || '720p').toLowerCase();
-    console.log(`[AISearch] Building VCloud catalog for Season ${targetSeason}...`);
+    
+    console.log(`[AISearch] Building VCloud catalog for Season ${targetSeason} (Explicit Quality: ${isExplicitRes ? targetRes : 'No - Fallback 720p->480p->1080p'})...`);
 
     const targetPosts = [];
     const individualPost = candidates.find(c => {
@@ -65,68 +69,75 @@ async function buildVcloudCatalog(post, intent, candidates = []) {
 
     const activeLinks = seasonLinks.length > 0 ? seasonLinks : allLinks;
 
-    // 1. Locate ALL Available Batch Zip Links across resolutions (480p, 720p, 1080p, 4k)
-    const batchLinksRaw = activeLinks.filter(l => l.isPack || /batch|zip|pack|all\s*episodes|complete\s*season/i.test(`${l.text} ${l.parentText || ''} ${l.heading || ''}`));
-    
+    // 1. Deduplicate Batch Zip Links across all resolutions & name as "All Episodes (RES)"
+    const seenRes = new Set();
     const batchZips = [];
-    const seenBatchHref = new Set();
-    batchLinksRaw.forEach(bl => {
-        if (bl.href && !seenBatchHref.has(bl.href)) {
-            seenBatchHref.add(bl.href);
-            const resLabel = (bl.resolution || '720p').toUpperCase();
-            batchZips.push({
-                title: `Full Season ${targetSeason} Batch Zip (${resLabel})`,
-                href: bl.href,
-                resolution: (bl.resolution || '720p').toLowerCase(),
-                postTitle: bl._postTitle || post.title
-            });
+    
+    activeLinks.forEach(bl => {
+        const isExplicitBatch = bl.isPack || /\bbatch\b|\bzip\b|\bpack\b/i.test(bl.text);
+        if (isExplicitBatch && bl.href) {
+            const resStr = (bl.resolution || '720p').toLowerCase();
+            if (!seenRes.has(resStr)) {
+                seenRes.add(resStr);
+                batchZips.push({
+                    title: `All Episodes (${resStr.toUpperCase()})`,
+                    href: bl.href,
+                    resolution: resStr,
+                    postTitle: bl._postTitle || post.title
+                });
+            }
         }
     });
 
-    // Sort batch zips by resolution quality (480p, 720p, 1080p, 4k)
+    // Sort batch zips by quality (480p, 720p, 1080p, 4k)
     const resOrder = { '480p': 1, '720p': 2, '1080p': 3, '2160p': 4, '4k': 4 };
     batchZips.sort((a, b) => (resOrder[a.resolution] || 5) - (resOrder[b.resolution] || 5));
 
-    // 2. Locate Single Episode VCloud Links
+    // 2. Single Episode Quality Fallback System (720p -> 480p -> 1080p)
+    const resPriority = isExplicitRes ? [targetRes] : ['720p', '480p', '1080p', '2160p'];
     const episodes = [];
-    const epMap = new Map();
+    let chosenQuality = null;
 
-    for (const link of activeLinks) {
-        const linkText = `${link.text} ${link.parentText || ''}`.toLowerCase();
-        if ((linkText.includes('v-cloud') || linkText.includes('vcloud') || linkText.includes('resumable') || linkText.includes('g-direct')) && !link.isPack) {
+    for (const res of resPriority) {
+        const vcloudButton = activeLinks.find(l => !l.isPack && (l.resolution || '').toLowerCase() === res && (l.text.toLowerCase().includes('v-cloud') || l.text.toLowerCase().includes('resumable')));
+
+        if (vcloudButton && vcloudButton.href) {
             try {
-                const landing = await resolveLandingLink(link.href);
-                const subOpts = await extractSubOptions(landing);
-                if (subOpts && subOpts.length > 0) {
-                    subOpts.forEach((so, idx) => {
-                        const txt = (so.text || '').toLowerCase();
-                        const epMatch = txt.match(/ep\s*(\d+)|episode\s*(\d+)|\b(\d{1,2})\b/i);
-                        const epNum = epMatch ? parseInt(epMatch[1] || epMatch[2] || epMatch[3], 10) : idx + 1;
-                        if (!epMap.has(epNum) && so.href) {
-                            epMap.set(epNum, {
-                                epNum,
-                                label: `Episode ${epNum}`,
-                                href: so.href,
-                                postTitle: link._postTitle || post.title
-                            });
-                        }
+                console.log(`[AISearch] Trying single episode extraction for resolution ${res}: ${vcloudButton.href}`);
+                const html = await fetchHtmlWithRetry(vcloudButton.href);
+                const $ = cheerio.load(html);
+                const vcloudHrefs = [];
+                $('a[href*="vcloud"]').each((_, el) => {
+                    const href = $(el).attr('href');
+                    if (href && !vcloudHrefs.includes(href)) {
+                        vcloudHrefs.push(href);
+                    }
+                });
+
+                if (vcloudHrefs.length > 0) {
+                    chosenQuality = res;
+                    vcloudHrefs.forEach((href, idx) => {
+                        const epNum = idx + 1;
+                        episodes.push({
+                            epNum,
+                            label: `Episode ${epNum}`,
+                            href,
+                            postTitle: vcloudButton._postTitle || post.title
+                        });
                     });
+                    break; // Stop at first successful quality in fallback chain
                 }
-            } catch (e) {
-                console.warn(`[AISearch] Error extracting episode sub-options:`, e.message);
+            } catch (eErr) {
+                console.warn(`[AISearch] Failed extracting ${res} single episode list:`, eErr.message);
             }
         }
     }
-
-    // Sort episodes sequentially
-    const sortedEpNums = Array.from(epMap.keys()).sort((a, b) => a - b);
-    sortedEpNums.forEach(num => episodes.push(epMap.get(num)));
 
     return {
         batchZips,
         episodes,
         targetSeason,
-        targetRes,
+        targetRes: chosenQuality || targetRes,
         postTitle: post.title
     };
 }
@@ -162,6 +173,9 @@ async function handleAiSearchCommand(sock, msg, args, userTextInput = null, isVo
     } catch (e) {
         intent = { query: userPrompt, year: null, resolution: '720p', type: 'movie', origin: 'non-indian' };
     }
+
+    intent.userPrompt = userPrompt;
+    intent.resolutionExplicit = /\b(480p|720p|1080p|2160p|4k)\b/i.test(userPrompt);
 
     if (!intent.query || intent.query.trim() === '') {
         intent.query = userPrompt;
@@ -336,7 +350,6 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
 
         // B. Match by keyword (e.g. "batch", "all episodes", "full season", "720p batch")
         if (!selectedBatchObj && (lowerInput.includes('batch') || lowerInput.includes('all episode') || lowerInput.includes('full season'))) {
-            // Find batch matching resolution requested or default to targetRes / first
             const matchedResBatch = catalog.batchZips.find(b => lowerInput.includes(b.resolution)) || catalog.batchZips.find(b => b.resolution === catalog.targetRes) || catalog.batchZips[0];
             selectedBatchObj = matchedResBatch;
         }
@@ -416,8 +429,9 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
         }
 
         // If selection couldn't be understood, ask user to specify again
+        const firstBatchIdx = (catalog.episodes?.length || 0) + 1;
         return sock.sendMessage(chatId, { 
-            text: `⚠️ *Selection not recognized.* Please quote/reply with the option number (e.g. *1* for Episode 1, or *${(catalog.episodes?.length || 0) + 1}* for Batch Zip), or specify clearly in text or voice note.` 
+            text: `⚠️ *Selection not recognized.* Please quote/reply with the option number (e.g. *1* for Episode 1, or *${firstBatchIdx}* for All Episodes 720P), or specify clearly in text or voice note.` 
         }, { quoted: msg });
     }
 
@@ -471,7 +485,7 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
             });
         }
 
-        // 2. LIST ALL AVAILABLE BATCH ZIP OPTIONS AT THE VERY END (N+1. Full Season Batch Zip 480p...)
+        // 2. LIST ALL AVAILABLE BATCH ZIP OPTIONS AT THE VERY END (N+1. All Episodes 480P, N+2. 720P, N+3. 1080P)
         if (catalog.batchZips && catalog.batchZips.length > 0) {
             catalog.batchZips.forEach(bz => {
                 optionsList.push(`${optionIdx}. ${bz.title}`);
@@ -481,11 +495,11 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
         }
 
         const firstBatchIdx = (catalog.episodes?.length || 0) + 1;
-        const optionsText = `📦 *Select Download Option for ${catalog.postTitle} (Season ${catalog.targetSeason})*\n\n` +
+        const optionsText = `📦 *Select Download Option for Season ${catalog.targetSeason}*\n\n` +
                             `${optionsList.join('\n')}\n\n` +
                             `💬 *How to choose:*\n` +
-                            `• *Quote/Reply* with option number(s) (e.g. *1* for Episode 1, *${firstBatchIdx}* for Batch Zip, *1, 2* for Episodes 1 & 2)\n` +
-                            `• *Quote/Reply* with episode name or quality (e.g. *Episode 5* or *720p Batch*)\n` +
+                            `• *Quote/Reply* with option number(s) (e.g. *1* for Episode 1, *${firstBatchIdx}* for All Episodes 480P, *1, 2* for Episodes 1 & 2)\n` +
+                            `• *Quote/Reply* with episode name or quality (e.g. *Episode 5* or *All Episodes 720P*)\n` +
                             `• Or send a voice note saying your choice!`;
 
         const sentMsg = await sock.sendMessage(chatId, { text: optionsText }, { quoted: msg });
