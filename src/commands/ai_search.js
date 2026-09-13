@@ -563,16 +563,35 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
     let mediaUrl = post.link;
     let postTitle = post.title;
     try {
-        if (intent.type === 'series' && intent.episode) {
-            const seasonResult = await getSeriesSeasonMediaUrl(post, intent, candidates);
-            mediaUrl = seasonResult.mediaUrl;
-            if (seasonResult.postTitle) postTitle = seasonResult.postTitle;
+        if (intent.type === 'series') {
+            console.log(`[AISearch] Resolving TV Series media URL for Season ${intent.season || 1}${intent.episode ? ` Episode ${intent.episode}` : ''}...`);
+            const catalog = await buildVcloudCatalog(post, intent, candidates);
+            let chosenEp = null;
+            if (intent.episode && catalog.episodes && catalog.episodes.length > 0) {
+                chosenEp = catalog.episodes.find(e => e.epNum === intent.episode) || catalog.episodes[intent.episode - 1];
+            } else if (catalog.episodes && catalog.episodes.length > 0) {
+                chosenEp = catalog.episodes[0];
+            }
+
+            if (chosenEp && chosenEp.href) {
+                const isDirectHost = chosenEp.href.includes('vcloud') || chosenEp.href.includes('hubcloud') || chosenEp.href.includes('fastdl') || chosenEp.href.includes('filebee');
+                const landing = isDirectHost ? chosenEp.href : await resolveLandingLink(chosenEp.href);
+                mediaUrl = await resolveVcloudLink(landing);
+                postTitle = `${post.title} (${chosenEp.label})`;
+            } else if (catalog.batchZips && catalog.batchZips.length > 0) {
+                const bz = catalog.batchZips.find(b => b.resolution === catalog.targetRes) || catalog.batchZips[0];
+                const isDirectHost = bz.href.includes('vcloud') || bz.href.includes('hubcloud') || bz.href.includes('fastdl') || bz.href.includes('filebee');
+                const landing = isDirectHost ? bz.href : await resolveLandingLink(bz.href);
+                mediaUrl = await resolveVcloudLink(landing);
+                postTitle = `${post.title} (${bz.title})`;
+            }
         } else {
             const allLinks = await scrapeAllPostLinks(post.link);
             const targetRes = (intent.resolution || '720p').toLowerCase();
             const matchedResLink = allLinks.find(l => l.resolution && l.resolution.toLowerCase() === targetRes) || allLinks[0];
             if (matchedResLink && matchedResLink.href) {
-                const landing = await resolveLandingLink(matchedResLink.href);
+                const isDirectHost = matchedResLink.href.includes('vcloud') || matchedResLink.href.includes('hubcloud') || matchedResLink.href.includes('fastdl') || matchedResLink.href.includes('filebee');
+                const landing = isDirectHost ? matchedResLink.href : await resolveLandingLink(matchedResLink.href);
                 mediaUrl = await resolveVcloudLink(landing);
             }
         }
