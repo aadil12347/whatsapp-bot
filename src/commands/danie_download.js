@@ -1204,18 +1204,80 @@ class TaskQueueManager {
     getStatus() {
         let activeStr = 'None';
         if (this.activeTask) {
-            activeStr = `= *[PROCESSING]* ${this.activeTask.description}`;
+            activeStr = `⚡ *[PROCESSING]* ${this.activeTask.description}`;
         }
 
         let pendingStr = 'No pending items in queue.';
         if (this.queue.length > 0) {
-            pendingStr = this.queue.map((t, idx) => `  \`${idx + 1}\`  ${t.description}`).join('\n');
+            pendingStr = this.queue.map((t, idx) => `  \`${idx + 1}\`   ${t.description}`).join('\n\n');
         }
 
-        return `= *Task Queue Status*\n\n` +
+        return `📋 *Task Queue Status*\n\n` +
                `*Currently Processing:*\n${activeStr}\n\n` +
                `*Pending in Queue (${this.queue.length}):*\n${pendingStr}\n\n` +
                `_Use \`.c\` to cancel all, \`.qdel <num>\` to remove an item, or \`.qedit <num> <new_cmd>\` to update._`;
+    }
+}
+
+function getCleanFileNameFromUrl(urlStr) {
+    if (!urlStr) return 'Media File';
+    try {
+        const u = new URL(urlStr);
+        const disposition = u.searchParams.get('response-content-disposition');
+        if (disposition) {
+            const match = disposition.match(/filename=["']?([^"';\n]+)["']?/i);
+            if (match && match[1]) {
+                let name = decodeURIComponent(match[1].trim());
+                return applyBranding(cleanFileName(name));
+            }
+            let cleanDisp = decodeURIComponent(disposition.trim());
+            return applyBranding(cleanFileName(cleanDisp));
+        }
+        const pathname = u.pathname;
+        const lastPart = pathname.substring(pathname.lastIndexOf('/') + 1);
+        if (lastPart && lastPart.length > 2 && !lastPart.includes('search')) {
+            let name = decodeURIComponent(lastPart.trim());
+            return applyBranding(cleanFileName(name));
+        }
+    } catch (_) {}
+    return 'Media File';
+}
+
+async function sendTmdbPosterAndTrailer(conn, targets, title, mediaType = 'movie', seasonNum = null) {
+    try {
+        const { fetchTmdbMetadata, fetchTmdbTrailerUrl } = require('../Utils/movie_scraper');
+        let cleanSearchTitle = (title || '')
+            .replace(/\.(mp4|mkv|avi|webm|mov|3gp|srt|zip|rar|7z)$/i, '')
+            .replace(/[-_.]/g, ' ')
+            .replace(/\b(480p|720p|1080p|2160p|4k|bluray|web-dl|webrip|danieWatch)\b/gi, '')
+            .replace(/S\d+\s*E\d+.*/i, '')
+            .replace(/Season\s*\d+.*/i, '')
+            .trim();
+
+        if (!cleanSearchTitle) return;
+
+        const tmdb = await fetchTmdbMetadata(cleanSearchTitle, mediaType === 'tv' ? 'tv' : 'movie');
+        if (tmdb && (tmdb.posterUrl || tmdb.backdropUrl)) {
+            const trailerUrl = await fetchTmdbTrailerUrl(tmdb.tmdbId, tmdb.type || mediaType, tmdb.title, seasonNum);
+            let caption = `🎬 *${tmdb.title}*${tmdb.year && tmdb.year !== 'N/A' ? ` (${tmdb.year})` : ''}\n\n`;
+            if (tmdb.genres && tmdb.genres !== 'Unknown') caption += `🎭 *Genres:* ${tmdb.genres}\n`;
+            if (seasonNum) caption += `🎯 *Season:* Season ${seasonNum}\n`;
+            if (tmdb.overview) caption += `📖 *Overview:* ${tmdb.overview.substring(0, 300)}...\n\n`;
+            if (trailerUrl) caption += `🍿 *Official Trailer:* ${trailerUrl}`;
+
+            const imgUrl = tmdb.posterUrl || tmdb.backdropUrl;
+            const targetList = Array.isArray(targets) && targets.length > 0 ? targets.map(t => typeof t === 'string' ? t : t?.jid).filter(Boolean) : [];
+            
+            for (const tJid of targetList) {
+                try {
+                    await conn.sendMessage(tJid, { image: { url: imgUrl }, caption: caption.trim() });
+                } catch (e) {
+                    console.warn(`[TMDBPoster] Failed to send poster to ${tJid}:`, e.message);
+                }
+            }
+        }
+    } catch (err) {
+        console.warn('[TMDBPoster] Error sending poster & trailer:', err.message);
     }
 }
 
@@ -2616,6 +2678,11 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
                 activeDownloadRef.filePath = tempFilePath;
             }
 
+            // Notify user that download successfully started
+            try {
+                await reply('⏳ *Downloading, please wait . . .*');
+            } catch (_) {}
+
             // Download using resume-enabled download function
             const responseHeaders = await downloadFileWithResume(url, tempFilePath, {}, abortSignal);
 
@@ -2723,6 +2790,7 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
             }
 
             if (isArchive) {
+                await sendTmdbPosterAndTrailer(conn, activeTargets, tempFilename || targetFilename, 'tv');
                 await reply(`📥 Archive detected: *${tempFilename}* (${sizeInMB} MB). Extracting files...`);
                 const targetDir = path.join(__dirname, 'extracted_' + Date.now());
                 try {
@@ -2914,6 +2982,12 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
                     }
                 }
 
+                // If Movie file, send TMDB poster and trailer to destination target first
+                const isMovie = !/S\d+\s*E\d+/i.test(finalFileName);
+                if (isMovie) {
+                    await sendTmdbPosterAndTrailer(conn, activeTargets, finalFileName, 'movie');
+                }
+
                 await sendAndForwardFile(conn, activeTargets, {
                     document: { url: tempFilePath },
                     mimetype: mime,
@@ -2931,14 +3005,14 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
         }
 
     } catch (error) {
-        if (error.message === 'Aborted') {
-            console.log('[DanieDownload] Download task aborted.');
-            throw error;
+        if ((abortSignal && abortSignal.aborted) || (signal && signal.aborted) || error.message === 'Aborted' || error.name === 'AbortError' || (error.message && error.message.toLowerCase().includes('aborted'))) {
+            console.log('[DanieDownload] Download task aborted silently.');
+            throw new Error('Aborted');
         }
         console.error('Download command error:', error);
         if (!silentErrors) {
             try {
-                await reply(`❌ Failed to download/upload file: ${error.message}`);
+                await reply(`❌ *Download failed.* ${error.message}\n\n👉 Please try *"All Episodes"* / Batch Zip or select another episode.`);
             } catch (replyErr) {
                 console.error('[DanieDownload] Failed to send error reply (connection likely closed):', replyErr.message);
             }
@@ -3927,10 +4001,10 @@ DANIE_COMMANDS['d'] = async (conn, mek, from, senderJid, args, reply) => {
     if (!args || !args.trim()) {
         return reply('❌ Please provide a download link!\n*Example:* \`.d https://example.com/file.mp4\`');
     }
-    const label = args.length > 50 ? args.substring(0, 47) + '...' : args;
+    const cleanName = getCleanFileNameFromUrl(args);
     const task = {
         type: 'd_command',
-        description: `📥 Download Task: .d ${label}`,
+        description: `📥 Download: *${cleanName}*`,
         commandText: `.d ${args}`,
         senderJid,
         from,
@@ -3940,7 +4014,7 @@ DANIE_COMMANDS['d'] = async (conn, mek, from, senderJid, args, reply) => {
     };
     const queuedTask = globalTaskQueue.add(task);
     if (globalTaskQueue.activeTask && globalTaskQueue.activeTask.id !== queuedTask.id) {
-        await reply(`📥 *Task Added to Queue* (Position #${globalTaskQueue.queue.length}):\n📌 \`.d ${label}\``);
+        await reply(`📥 *Task Added to Queue* (Position #${globalTaskQueue.queue.length}):\n📌 *${cleanName}*`);
     }
 };
 
@@ -3948,10 +4022,15 @@ DANIE_COMMANDS['p'] = async (conn, mek, from, senderJid, args, reply) => {
     if (!args || !args.trim()) {
         return reply('❌ Please provide a TMDB link and download url(s)!\n*Example:* \`.p https://themoviedb.org/movie/123 = https://link.com\`');
     }
-    const label = args.length > 50 ? args.substring(0, 47) + '...' : args;
+    const parts = args.split('=');
+    const tmdbUrl = parts[0]?.trim() || '';
+    let pLabel = tmdbUrl;
+    if (tmdbUrl.length > 60) {
+        pLabel = tmdbUrl.substring(0, 57) + '...';
+    }
     const task = {
         type: 'p_command',
-        description: `🎬 TMDB Task: .p ${label}`,
+        description: `🎬 Post Task: ${pLabel}`,
         commandText: `.p ${args}`,
         senderJid,
         from,
@@ -3961,7 +4040,7 @@ DANIE_COMMANDS['p'] = async (conn, mek, from, senderJid, args, reply) => {
     };
     const queuedTask = globalTaskQueue.add(task);
     if (globalTaskQueue.activeTask && globalTaskQueue.activeTask.id !== queuedTask.id) {
-        await reply(`🎬 *Task Added to Queue* (Position #${globalTaskQueue.queue.length}):\n📌 \`.p ${label}\``);
+        await reply(`🎬 *Task Added to Queue* (Position #${globalTaskQueue.queue.length}):\n📌 ${pLabel}`);
     }
 };
 

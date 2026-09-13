@@ -284,6 +284,7 @@ async function handleAiSearchCommand(sock, msg, args, userTextInput = null, isVo
         if (tmdbInfo && tmdbInfo.title) {
             console.log(`[AISearch] ✅ Google/TMDB Official Title Resolved: "${tmdbInfo.title}" (${tmdbInfo.year || 'N/A'})`);
             intent.query = tmdbInfo.title;
+            intent.tmdbId = tmdbInfo.tmdbId;
             if (tmdbInfo.year && tmdbInfo.year !== 'N/A') {
                 intent.year = tmdbInfo.year;
             }
@@ -438,8 +439,8 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
                 const landing = isDirectHost ? selectedBatchObj.href : await resolveLandingLink(selectedBatchObj.href);
                 const mediaUrl = await resolveVcloudLink(landing);
                 if (mediaUrl) {
-                    console.log(`[AISearch] Triggering .d command with Batch Zip VCloud link: ${mediaUrl}`);
-                    return await downloadCommandHandler(sock, msg, chatId, msg.key.participant || chatId, mediaUrl, replyFn);
+                    console.log(`[AISearch] Triggering .p command with Batch Zip VCloud link: ${mediaUrl}`);
+                    return await triggerPCommandHandlerFromAiSearch(sock, msg, chatId, msg.key.participant || chatId, catalog.intent || intent, mediaUrl, selectedBatchObj.title);
                 } else {
                     throw new Error('VCloud resolution returned empty direct link');
                 }
@@ -456,7 +457,7 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
                     const mediaUrl = await resolveVcloudLink(landing);
                     if (mediaUrl) {
                         console.log(`[AISearch] Fallback sequential download for ${ep.label}: ${mediaUrl}`);
-                        await downloadCommandHandler(sock, msg, chatId, msg.key.participant || chatId, mediaUrl, replyFn);
+                        await triggerPCommandHandlerFromAiSearch(sock, msg, chatId, msg.key.participant || chatId, catalog.intent || intent, mediaUrl, ep.label);
                     }
                 } catch (epErr) {
                     console.warn(`[AISearch] Fallback download failed for ${ep.label}: ${epErr.message}`);
@@ -502,8 +503,8 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
                     const landing = isDirectHost ? ep.href : await resolveLandingLink(ep.href);
                     const mediaUrl = await resolveVcloudLink(landing);
                     if (mediaUrl) {
-                        console.log(`[AISearch] Triggering .d command for ${ep.label}: ${mediaUrl}`);
-                        await downloadCommandHandler(sock, msg, chatId, msg.key.participant || chatId, mediaUrl, replyFn);
+                        console.log(`[AISearch] Triggering download for ${ep.label}: ${mediaUrl}`);
+                        await triggerPCommandHandlerFromAiSearch(sock, msg, chatId, msg.key.participant || chatId, session.intent || intent, mediaUrl, ep.label);
                     } else {
                         throw new Error('VCloud resolution returned empty direct link');
                     }
@@ -641,8 +642,8 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
                 const landing = isDirectHost ? ep.href : await resolveLandingLink(ep.href);
                 const mediaUrl = await resolveVcloudLink(landing);
                 if (mediaUrl) {
-                    console.log(`[AISearch] Triggering .d command for ${ep.label}: ${mediaUrl}`);
-                    await downloadCommandHandler(sock, msg, chatId, msg.key.participant || chatId, mediaUrl, replyFn);
+                    console.log(`[AISearch] Triggering download for ${ep.label}: ${mediaUrl}`);
+                    await triggerPCommandHandlerFromAiSearch(sock, msg, chatId, msg.key.participant || chatId, intent, mediaUrl, ep.label);
                 }
             } catch (epErr) {
                 console.warn(`[AISearch] Download failed for ${ep.label}: ${epErr.message}`);
@@ -757,9 +758,42 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
         await sock.sendMessage(chatId, { text: browserMsg }, { quoted: msg });
     } else {
         const downloadQuery = mediaUrl;
-        console.log(`[AISearch] Triggering .d command handler with direct link: ${downloadQuery}`);
-        await downloadCommandHandler(sock, msg, chatId, msg.key.participant || chatId, downloadQuery, replyFn);
+        console.log(`[AISearch] Triggering download handler with direct link: ${downloadQuery}`);
+        await triggerPCommandHandlerFromAiSearch(sock, msg, chatId, msg.key.participant || chatId, intent, downloadQuery);
     }
+}
+
+async function triggerPCommandHandlerFromAiSearch(sock, msg, chatId, sender, intent, mediaUrl, epLabel = '') {
+    const { pCommandHandler, downloadCommandHandler } = require('./danie_download');
+    const replyFn = async (t) => {
+        if (typeof t === 'string' && t.trim()) {
+            try { await sock.sendMessage(chatId, { text: t }, { quoted: msg }); } catch (_) {}
+        }
+    };
+
+    let tmdbUrl = '';
+    if (intent && intent.tmdbId) {
+        const typeStr = intent.type === 'series' ? 'tv' : 'movie';
+        tmdbUrl = `https://www.themoviedb.org/${typeStr}/${intent.tmdbId}`;
+        if (intent.type === 'series' && intent.season) {
+            tmdbUrl += `/season/${intent.season}`;
+        }
+    } else if (intent && intent.query) {
+        tmdbUrl = intent.query;
+    }
+
+    if (tmdbUrl) {
+        let pArgs = `${tmdbUrl} = ${mediaUrl}`;
+        if (epLabel) pArgs += `, ${epLabel}`;
+        console.log(`[AISearch] Delegating download to pCommandHandler with TMDB URL: "${pArgs}"`);
+        try {
+            return await pCommandHandler(sock, msg, chatId, sender, pArgs, replyFn);
+        } catch (pErr) {
+            console.warn('[AISearch] pCommandHandler fallback to downloadCommandHandler:', pErr.message);
+        }
+    }
+
+    return await downloadCommandHandler(sock, msg, chatId, sender, mediaUrl, replyFn);
 }
 
 module.exports = {
