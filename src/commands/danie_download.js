@@ -1795,9 +1795,7 @@ function initUpsertListener(conn) {
             // ---- Check if it's a plain-number reply for pending config ----
             if (pendingConfig[cleanSender]) {
                 const quotedId = getQuotedMessageId(mek);
-                const isValidNumber = /^\d+$/.test(trimmedText);
-                const isMatch = (quotedId && quotedId === pendingConfig[cleanSender].messageId) || 
-                                (!quotedId && isValidNumber);
+                const isMatch = !!(quotedId && pendingConfig[cleanSender].messageId && quotedId === pendingConfig[cleanSender].messageId);
                 if (isMatch) {
                     console.log(`[DanieWatch] Directing reply "${trimmedText}" to handleConfigReply for ${cleanSender}.`);
                     await handleConfigReply(conn, mek, null, senderJid, trimmedText, reply);
@@ -1808,10 +1806,15 @@ function initUpsertListener(conn) {
             // ---- Check if it's a reply for pending AI search pre-confirmation ----
             const { pendingPreConfirmations, handlePreConfirmationReply } = require('./ai_search');
             let matchedConfirmKey = null;
+            const quotedId = getQuotedMessageId(mek);
+
             for (const [key, session] of pendingPreConfirmations.entries()) {
                 if (session.chatId === targetJid || session.chatId === from) {
-                    matchedConfirmKey = key;
-                    break;
+                    // STRICT QUOTED-REPLY VERIFICATION: User MUST quote/reply to the bot's prompt message!
+                    if (session.messageId && quotedId && quotedId === session.messageId) {
+                        matchedConfirmKey = key;
+                        break;
+                    }
                 }
             }
 
@@ -1826,7 +1829,7 @@ function initUpsertListener(conn) {
                     await handlePreConfirmationReply(conn, mek, matchedConfirmKey, false);
                     return;
                 } else {
-                    console.log(`[DanieWatch] Directing reply "${trimmedText}" to handlePreConfirmationReply (TITLE CORRECTION).`);
+                    console.log(`[DanieWatch] Directing reply "${trimmedText}" to handlePreConfirmationReply (SEASON OR TITLE CORRECTION).`);
                     await handlePreConfirmationReply(conn, mek, matchedConfirmKey, null, trimmedText);
                     return;
                 }
@@ -1834,12 +1837,8 @@ function initUpsertListener(conn) {
 
             // ---- Check if it's a reply for pending search/resolution ----
             if (pendingSearch[cleanSender]) {
-                const quotedId = getQuotedMessageId(mek);
-                const isValidNumber = /^\d+$/.test(trimmedText) || /^\d+[\s, \-]+/.test(trimmedText) || trimmedText.toLowerCase() === 'all';
                 const isInteractiveMsg = !!(mek.message.interactiveResponseMessage || mek.message.buttonsResponseMessage || mek.message.listResponseMessage || mek.message.templateButtonReplyMessage);
-                const isMatch = (quotedId && quotedId === pendingSearch[cleanSender].messageId) || 
-                                (!quotedId && isValidNumber) ||
-                                isInteractiveMsg;
+                const isMatch = !!(quotedId && pendingSearch[cleanSender].messageId && quotedId === pendingSearch[cleanSender].messageId) || isInteractiveMsg;
                 if (isMatch) {
                     console.log(`[DanieWatch] Directing reply "${trimmedText}" to handleSearchReply for ${cleanSender}.`);
                     await handleSearchReply(conn, mek, senderJid, trimmedText, reply);
@@ -1849,10 +1848,7 @@ function initUpsertListener(conn) {
 
             // ---- Check if it's a reply for pending antilink / antispam group selection ----
             if (pendingGroupSelection[cleanSender]) {
-                const quotedId = getQuotedMessageId(mek);
-                const isValidNumber = /^\d+$/.test(trimmedText) || /^\d+[\s, \-]+/.test(trimmedText) || trimmedText.toLowerCase() === 'all' || trimmedText.toLowerCase() === 'cancel';
-                const isMatch = (quotedId && quotedId === pendingGroupSelection[cleanSender].messageId) || 
-                                (!quotedId && isValidNumber);
+                const isMatch = !!(quotedId && pendingGroupSelection[cleanSender].messageId && quotedId === pendingGroupSelection[cleanSender].messageId);
                 if (isMatch) {
                     console.log(`[DanieWatch] Directing reply "${trimmedText}" to handleGroupSelectionReply for ${cleanSender}.`);
                     await handleGroupSelectionReply(conn, mek, senderJid, trimmedText, reply);
@@ -1860,12 +1856,8 @@ function initUpsertListener(conn) {
                 }
             }
 
-            // ---- Check if it's a reply for pending history day selection ----
             if (pendingHistory[cleanSender]) {
-                const quotedId = getQuotedMessageId(mek);
-                const isValidNumber = /^\d+$/.test(trimmedText);
-                const isMatch = (quotedId && quotedId === pendingHistory[cleanSender].messageId) || 
-                                (!quotedId && isValidNumber);
+                const isMatch = !!(quotedId && pendingHistory[cleanSender].messageId && quotedId === pendingHistory[cleanSender].messageId);
                 if (isMatch) {
                     console.log(`[DanieWatch] Directing reply "${trimmedText}" to handleHistoryReply for ${cleanSender}.`);
                     await handleHistoryReply(conn, mek, from, senderJid, trimmedText, reply);
