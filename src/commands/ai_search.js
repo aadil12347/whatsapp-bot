@@ -460,7 +460,13 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
             return;
         }
 
-        // If selection couldn't be understood, ask user to specify again
+        // If selection couldn't be understood as an option number/episode/batch,
+        // and user provided a new title/query in text or voice note, re-trigger AI search!
+        if ((updatedInput && /[a-zA-Z]{2,}/.test(updatedInput)) || (isVoice && audioBuffer)) {
+            console.log(`[AISearch] Re-triggering search with user query/title correction: "${updatedInput || 'Voice Note'}"`);
+            return handleAiSearchCommand(sock, msg, [], updatedInput, isVoice, audioBuffer);
+        }
+
         const firstBatchIdx = (catalog.episodes?.length || 0) + 1;
         return sock.sendMessage(chatId, { 
             text: `⚠️ *Selection not recognized.* Please quote/reply with the option number (e.g. *1* for Episode 1, or *${firstBatchIdx}* for All Episodes 720P), or specify clearly in text or voice note.` 

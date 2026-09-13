@@ -155,6 +155,7 @@ Scraped Candidate Posts:
 ${candidates.map((c, i) => `[Index ${i}] Title: "${c.title}" | Site: ${c.site} | URL: ${c.link}`).join('\n')}
 
 Select the SINGLE best candidate post index that matches the title, year, and requested quality (${targetResolution}).
+IMPORTANT PREFERENCE: If multiple candidate posts match the requested title, strongly prioritize posts that contain 'Hindi' (Dual Audio / Multi Audio / Hindi ORG) over English-only or non-Hindi posts.
 Respond ONLY with JSON: {"bestIndex": <number>, "reason": "<short explanation>"}`;
 
     const candidateModels = ['openai/gpt-oss-120b', 'groq/compound-mini'];

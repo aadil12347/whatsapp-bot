@@ -2111,6 +2111,9 @@ async function extractSeriesVcloudLinks(nextdriveUrl, options = {}) {
 /**
  * Helper to query search.php / ts-search.php JSON search endpoints for Vegamovies & Rogmovies
  */
+/**
+ * Helper to query search.php / ts-search.php JSON search endpoints for Vegamovies & Rogmovies
+ */
 async function searchSiteApi(siteName, domain, query) {
     const results = [];
     const cleanDomain = domain.endsWith('/') ? domain : domain + '/';
@@ -2119,37 +2122,42 @@ async function searchSiteApi(siteName, domain, query) {
         : ['search.php'];
 
     for (const path of apiPaths) {
-        try {
-            const url = `${cleanDomain}${path}?q=${encodeURIComponent(query)}&page=1`;
-            console.log(`[SearchAPI] Querying ${siteName} API: ${url}`);
-            const res = await axios.get(url, {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
-                    'Accept': 'application/json, text/plain, */*',
-                    'Referer': cleanDomain
-                },
-                timeout: 10000
-            });
-            if (res.data && Array.isArray(res.data.hits) && res.data.hits.length > 0) {
-                for (const h of res.data.hits) {
-                    let permalink = h.document?.permalink || '';
-                    if (permalink && !permalink.startsWith('http')) {
-                        permalink = `${cleanDomain}${permalink.startsWith('/') ? permalink.slice(1) : permalink}`;
+        for (let attempt = 1; attempt <= 2; attempt++) {
+            try {
+                const url = `${cleanDomain}${path}?q=${encodeURIComponent(query)}&page=1`;
+                console.log(`[SearchAPI] Querying ${siteName} API (Attempt ${attempt}): ${url}`);
+                const res = await axios.get(url, {
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+                        'Accept': 'application/json, text/plain, */*',
+                        'Referer': cleanDomain
+                    },
+                    timeout: 10000
+                });
+                if (res.data && Array.isArray(res.data.hits) && res.data.hits.length > 0) {
+                    for (const h of res.data.hits) {
+                        let permalink = h.document?.permalink || '';
+                        if (permalink && !permalink.startsWith('http')) {
+                            permalink = `${cleanDomain}${permalink.startsWith('/') ? permalink.slice(1) : permalink}`;
+                        }
+                        let thumbnail = h.document?.post_thumbnail || null;
+                        if (thumbnail && !thumbnail.startsWith('http')) {
+                            thumbnail = `${cleanDomain}${thumbnail.startsWith('/') ? thumbnail.slice(1) : thumbnail}`;
+                        }
+                        let title = h.document?.post_title || h.document?.title || '';
+                        if (permalink && title && !results.some(p => p.link === permalink)) {
+                            results.push({ site: siteName, title, link: permalink, thumbnail });
+                        }
                     }
-                    let thumbnail = h.document?.post_thumbnail || null;
-                    if (thumbnail && !thumbnail.startsWith('http')) {
-                        thumbnail = `${cleanDomain}${thumbnail.startsWith('/') ? thumbnail.slice(1) : thumbnail}`;
-                    }
-                    let title = h.document?.post_title || h.document?.title || '';
-                    if (permalink && title && !results.some(p => p.link === permalink)) {
-                        results.push({ site: siteName, title, link: permalink, thumbnail });
-                    }
+                    if (results.length > 0) break;
                 }
-                if (results.length > 0) break;
+                break; // Exit retry loop if request completed cleanly
+            } catch (e) {
+                console.log(`[SearchAPI] ${siteName} ${path} error (Attempt ${attempt}): ${e.message}`);
+                if (attempt < 2) await new Promise(r => setTimeout(r, 1000));
             }
-        } catch (e) {
-            console.log(`[SearchAPI] ${siteName} ${path} error: ${e.message}`);
         }
+        if (results.length > 0) break;
     }
     return results;
 }
@@ -2230,6 +2238,15 @@ async function searchMoviesAndSeries(query, origin = 'non-indian') {
             }
         }
     }
+
+    // Sort candidates: Prioritize posts containing 'Hindi' (Dual Audio / Multi Audio / ORG Audio) in title
+    candidatePosts.sort((a, b) => {
+        const aHindi = /hindi/i.test(a.title);
+        const bHindi = /hindi/i.test(b.title);
+        if (aHindi && !bHindi) return -1;
+        if (!aHindi && bHindi) return 1;
+        return 0;
+    });
 
     console.log(`✅ [UnifiedSearch] Collected ${candidatePosts.length} candidate post(s) (Origin: ${origin}) for "${cleanQuery}".`);
     return candidatePosts;
