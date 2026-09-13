@@ -1643,19 +1643,27 @@ function initUpsertListener(conn) {
                     }
                     if (buffer.length > 0) {
                         const { pendingPreConfirmations, handlePreConfirmationReply } = require('./ai_search');
+                        const quotedId = getQuotedMessageId(mek);
                         let matchedConfirmKey = null;
-                        for (const [key, session] of pendingPreConfirmations.entries()) {
-                            if (session.chatId === targetJid || session.chatId === from) {
-                                matchedConfirmKey = key;
-                                break;
+
+                        // STRICT QUOTED-MESSAGE VERIFICATION FOR VOICE NOTES:
+                        // Voice note is only treated as a correction if it explicitly quotes a pending pre-confirmation message!
+                        if (quotedId) {
+                            for (const [key, session] of pendingPreConfirmations.entries()) {
+                                if ((session.chatId === targetJid || session.chatId === from) && session.messageId && quotedId === session.messageId) {
+                                    matchedConfirmKey = key;
+                                    break;
+                                }
                             }
                         }
+
                         if (matchedConfirmKey) {
                             console.log(`[DanieWatch] Voice note correction received for confirmation key ${matchedConfirmKey}.`);
                             await handlePreConfirmationReply(conn, mek, matchedConfirmKey, null, null, true, buffer);
                             return;
                         }
 
+                        // Fresh voice note starts a NEW search
                         await handleAiSearchCommand(conn, mek, [], null, true, buffer);
                         return;
                     }
@@ -3962,6 +3970,13 @@ DANIE_COMMANDS['c'] = async (conn, mek, from, senderJid, args, reply) => {
     Object.keys(pendingSearch).forEach(k => delete pendingSearch[k]);
     Object.keys(pendingConfig).forEach(k => delete pendingConfig[k]);
 
+    // Clear AI Search pending confirmation states
+    try {
+        const { pendingPreConfirmations, pendingPostSelections } = require('./ai_search');
+        if (pendingPreConfirmations) pendingPreConfirmations.clear();
+        if (pendingPostSelections) pendingPostSelections.clear();
+    } catch (_) {}
+
     const { count, activeAborted } = globalTaskQueue.cancelAll(senderJid);
 
     globalProgressState.active = false;
@@ -3996,6 +4011,7 @@ DANIE_COMMANDS['c'] = async (conn, mek, from, senderJid, args, reply) => {
     let msg = `╭─── 🛑 *OPERATIONS CANCELLED* 🛑 ───╮\n\n`;
     if (activeAborted) msg += `⚡ Aborted active download task.\n`;
     if (count > 0) msg += `📋 Cleared *${count}* pending queued task(s).\n`;
+    msg += `🤖 Cleared all AI Search & Pre-Confirmation sessions.\n`;
     msg += `🔄 Reset all progress states.\n`;
     msg += `🧹 Cleaned temporary files.\n\n`;
     msg += `🚀 _Bot is in fresh idle state. Ready for new commands!_`;

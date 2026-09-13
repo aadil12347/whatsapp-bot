@@ -171,6 +171,19 @@ async function handleAiSearchCommand(sock, msg, args, userTextInput = null, isVo
     const chatId = msg.key.remoteJid;
     const sender = msg.key.participant || msg.key.remoteJid;
 
+    // 0. CLEAR PRIOR SEARCH SESSIONS for this chat/sender before starting a new search
+    const now = Date.now();
+    for (const [key, session] of pendingPreConfirmations.entries()) {
+        if (session.chatId === chatId || session.sender === sender || (now - (session.timestamp || 0) > 300000)) {
+            pendingPreConfirmations.delete(key);
+        }
+    }
+    for (const [key, session] of pendingPostSelections.entries()) {
+        if (session.chatId === chatId || session.sender === sender || (now - (session.timestamp || 0) > 300000)) {
+            pendingPostSelections.delete(key);
+        }
+    }
+
     let userPrompt = userTextInput || (Array.isArray(args) ? args.join(' ').trim() : args || '');
 
     // 1. If Voice Note, translate speech to English silently
