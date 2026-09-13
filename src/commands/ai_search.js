@@ -164,6 +164,63 @@ async function buildVcloudCatalog(post, intent, candidates = []) {
     };
 }
 
+function extractLanguages(title) {
+    const lower = (title || '').toLowerCase();
+    const langs = [];
+    if (lower.includes('hindi')) langs.push('Hindi');
+    if (lower.includes('english')) langs.push('English');
+    if (lower.includes('korean')) langs.push('Korean');
+    if (lower.includes('japanese') || lower.includes('anime')) langs.push('Japanese');
+    if (lower.includes('tamil')) langs.push('Tamil');
+    if (lower.includes('telugu')) langs.push('Telugu');
+    if (lower.includes('multi audio')) langs.push('Multi Audio');
+    if (lower.includes('dual audio')) langs.push('Dual Audio');
+    return langs.length > 0 ? Array.from(new Set(langs)).join(' - ') : 'Hindi - English (Dual Audio)';
+}
+
+function formatPreConfirmCard(chosenPost, intent, availableSeasons = []) {
+    const cleanTitle = intent.query || chosenPost.title;
+    const rawLangs = extractLanguages(chosenPost.title);
+    const languages = rawLangs.replace(/\s*-\s*/g, ' • ');
+    const resUpper = (intent.resolution || '720p').toUpperCase();
+    const yearStr = intent.year ? ` (${intent.year})` : '';
+
+    let seasonSection = '';
+    let flowSummary = `${cleanTitle}`;
+
+    if (intent.type === 'series') {
+        const selSeason = intent.season || 1;
+        const selSeasonLabel = `S${String(selSeason).padStart(2, '0')}`;
+        
+        if (availableSeasons && availableSeasons.length > 0) {
+            const formattedSeasons = availableSeasons.map(s => `S${String(s).padStart(2, '0')}`).join(', ');
+            seasonSection = `📅 *Total Seasons:* *${formattedSeasons}* 🎯\n\n` +
+                            `*Selected Season:* *${selSeasonLabel}*\n\n`;
+        } else {
+            seasonSection = `🎯 *Selected Season:* *${selSeasonLabel}*\n\n`;
+        }
+
+        let epStr = 'All Episodes';
+        if (intent.selectedEpisodes && intent.selectedEpisodes.length > 0) {
+            epStr = intent.selectedEpisodes.length === 1 ? `Episode ${intent.selectedEpisodes[0]}` : `Episodes ${intent.selectedEpisodes.join(', ')}`;
+        } else if (intent.episode) {
+            epStr = `Episode ${intent.episode}`;
+        }
+
+        flowSummary = `${cleanTitle} ➔ Season ${selSeason} ➔ ${epStr}`;
+    } else {
+        flowSummary = `${cleanTitle} ➔ ${resUpper}`;
+    }
+
+    return `🎬 *${cleanTitle}${yearStr}*\n\n` +
+           `─────────────────────────────\n\n` +
+           `🌐 *Languages:* *${languages}*\n` +
+           `📺 *Quality:* *${resUpper}*\n` +
+           `${seasonSection}` +
+           `─────────────────────────────\n\n` +
+           `🔄 *Confirm:* *${flowSummary}*`;
+}
+
 /**
  * Main AI Search & Downloader Handler
  */
@@ -186,9 +243,10 @@ async function handleAiSearchCommand(sock, msg, args, userTextInput = null, isVo
 
     let userPrompt = userTextInput || (Array.isArray(args) ? args.join(' ').trim() : args || '');
 
-    // 1. If Voice Note, translate speech to English silently
+    // 1. If Voice Note, send immediate short acknowledgement and translate speech
     if (isVoice && audioBuffer) {
         try {
+            await sock.sendMessage(chatId, { text: '⏳ *Processing, please wait . . .*' }, { quoted: msg });
             userPrompt = await translateAudio(audioBuffer, 'audio/ogg');
             console.log(`[AISearch] Voice Translated Speech: "${userPrompt}"`);
         } catch (err) {
@@ -290,23 +348,7 @@ async function handleAiSearchCommand(sock, msg, args, userTextInput = null, isVo
 
     // 4. Pre-Confirmation Gate
     const confirmKey = `${chatId}_${Date.now().toString().slice(-4)}`;
-    
-    let seasonInfoText = '';
-    if (intent.type === 'series' && availableSeasons.length > 0) {
-        seasonInfoText = `📅 *Available Seasons:* ${availableSeasons.map(s => `Season ${s}`).join(', ')}\n` +
-                         `🎯 *Selected:* Season ${intent.season || 1}\n\n`;
-    }
-
-    const preConfirmText = `❓ *Confirm Search Result*\n\n` +
-                           `🎬 *Title:* *${chosenPost.title}*\n` +
-                           `📺 *Quality:* ${intent.resolution}\n` +
-                           `⭐ *Type:* ${(intent.type || 'movie').toUpperCase()}\n` +
-                           `${seasonInfoText}` +
-                           `🌐 *Source:* ${chosenPost.site}\n\n` +
-                           `1️⃣ *Quote/Reply* with *yes* or *1* to confirm.\n` +
-                           (intent.type === 'series' && availableSeasons.length > 1 ? `2️⃣ *Quote/Reply* with season number (e.g. *season 2* or *2*) to change season.\n` : '') +
-                           `3️⃣ *Quote/Reply* with *no* or *0* to cancel.\n\n` +
-                           `⚠️ *Note:* You MUST quote/reply to this message for your choice to take effect!`;
+    const preConfirmText = formatPreConfirmCard(chosenPost, intent, availableSeasons);
 
     const sentMsg = chosenPost.thumbnail
         ? await sock.sendMessage(chatId, { image: { url: chosenPost.thumbnail }, caption: preConfirmText }, { quoted: msg })
@@ -486,21 +528,89 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
         }, { quoted: msg });
     }
 
-    // Check if user changed season (e.g. "season 2" or "2")
-    if (isApproved === null && updatedInput && session.intent.type === 'series') {
-        const seasonNumMatch = updatedInput.match(/\bseason\s*(\d+)\b/i) || updatedInput.match(/^\s*(\d+)\s*$/);
-        if (seasonNumMatch) {
-            const requestedSeason = parseInt(seasonNumMatch[1], 10);
-            session.intent.season = requestedSeason;
-            console.log(`[AISearch] User changed TV Series target to Season ${requestedSeason}`);
-            isApproved = true;
-        }
-    }
-
-    // Title/keyword correction re-trigger
+    // Check if user specified custom changes (season, resolution, or episode list e.g. "3, 4, 5, 6", "4,5,6,7", "season 2", "1080p")
     if (isApproved === null && (updatedInput || (isVoice && audioBuffer))) {
-        pendingPreConfirmations.delete(confirmKey);
-        return handleAiSearchCommand(sock, msg, [], updatedInput, isVoice, audioBuffer);
+        const textToAnalyze = (updatedInput || '').trim();
+        const lowerText = textToAnalyze.toLowerCase();
+
+        // 1. Check explicit confirmation / cancellation keywords
+        if (['yes', 'y', '1', 'confirm', 'ok', 'download', 'proceed', 'go'].includes(lowerText)) {
+            isApproved = true;
+        } else if (['no', 'n', 'cancel', '0', 'stop'].includes(lowerText)) {
+            isApproved = false;
+        } else {
+            // 2. Use AI / Regex to parse custom updates from voice or text reply
+            let replyIntent = null;
+            try {
+                replyIntent = await extractSearchIntent(textToAnalyze);
+            } catch (_) {}
+
+            // Check if title changed completely to a different movie/show
+            const currentTitleLower = (session.intent.query || '').toLowerCase();
+            const newTitleLower = (replyIntent?.query || '').toLowerCase();
+            const isDifferentTitle = replyIntent && replyIntent.query &&
+                !currentTitleLower.includes(newTitleLower) &&
+                !newTitleLower.includes(currentTitleLower) &&
+                !/^(episode|ep|season|s\d+|480p|720p|1080p|4k|yes|no|confirm|download)\b/i.test(newTitleLower);
+
+            if (isDifferentTitle) {
+                console.log(`[AISearch] User specified new title in reply: "${replyIntent.query}". Re-triggering search...`);
+                pendingPreConfirmations.delete(confirmKey);
+                return handleAiSearchCommand(sock, msg, [], textToAnalyze, isVoice, audioBuffer);
+            }
+
+            // Extract Season change
+            const seasonNumMatch = lowerText.match(/\bseason\s*(\d+)\b/i) || lowerText.match(/\bs(\d+)\b/i) || (replyIntent?.season ? [null, replyIntent.season] : null);
+            if (seasonNumMatch) {
+                const newSeason = parseInt(seasonNumMatch[1], 10);
+                if (newSeason >= 1 && newSeason <= 50) {
+                    session.intent.season = newSeason;
+                    console.log(`[AISearch] User updated season to Season ${newSeason}`);
+                    isApproved = true;
+                }
+            }
+
+            // Extract Quality change
+            const resMatch = lowerText.match(/\b(480p|720p|1080p|2160p|4k)\b/i) || (replyIntent?.resolutionExplicit ? [null, replyIntent.resolution] : null);
+            if (resMatch) {
+                session.intent.resolution = (resMatch[1] || resMatch).toLowerCase();
+                session.intent.resolutionExplicit = true;
+                console.log(`[AISearch] User updated resolution to ${session.intent.resolution}`);
+                isApproved = true;
+            }
+
+            // Extract Multi-Episode list (e.g. "3, 4, 5, 6", "4,5,6,7", "3 4 5 6", "episodes 3 to 6")
+            const epNums = [];
+            const rangeMatch = lowerText.match(/\b(?:episodes?|ep)?\s*(\d+)\s*(?:to|-|–)\s*(\d+)\b/i);
+            if (rangeMatch) {
+                const start = parseInt(rangeMatch[1], 10);
+                const end = parseInt(rangeMatch[2], 10);
+                if (start < end && end - start <= 30) {
+                    for (let i = start; i <= end; i++) {
+                        if (i !== session.intent.season) epNums.push(i);
+                    }
+                }
+            }
+
+            if (epNums.length === 0) {
+                const numMatches = lowerText.match(/\b\d+\b/g);
+                if (numMatches && numMatches.length > 0) {
+                    numMatches.forEach(n => {
+                        const num = parseInt(n, 10);
+                        if (num >= 1 && num <= 100 && num !== session.intent.season && num !== 480 && num !== 720 && num !== 1080 && !epNums.includes(num)) {
+                            epNums.push(num);
+                        }
+                    });
+                }
+            }
+
+            if (epNums.length > 0) {
+                session.intent.selectedEpisodes = epNums;
+                session.intent.episode = epNums[0];
+                console.log(`[AISearch] User specified target episodes: ${epNums.join(', ')}`);
+                isApproved = true;
+            }
+        }
     }
 
     if (!isApproved) {
@@ -517,6 +627,30 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
             } catch (_) {}
         }
     };
+
+    // If user requested specific episode list (e.g. [3, 4, 5, 6]):
+    if (intent.type === 'series' && intent.selectedEpisodes && intent.selectedEpisodes.length > 0) {
+        console.log(`[AISearch] Downloading user-specified episodes: ${intent.selectedEpisodes.join(', ')}...`);
+        const catalog = await buildVcloudCatalog(post, intent, candidates);
+        const selectedEps = catalog.episodes.filter(e => intent.selectedEpisodes.includes(e.epNum));
+        const firstBatchIdx = (catalog.episodes?.length || 0) + 1;
+
+        for (const ep of (selectedEps.length > 0 ? selectedEps : catalog.episodes)) {
+            try {
+                const isDirectHost = ep.href.includes('vcloud') || ep.href.includes('hubcloud') || ep.href.includes('fastdl') || ep.href.includes('filebee');
+                const landing = isDirectHost ? ep.href : await resolveLandingLink(ep.href);
+                const mediaUrl = await resolveVcloudLink(landing);
+                if (mediaUrl) {
+                    console.log(`[AISearch] Triggering .d command for ${ep.label}: ${mediaUrl}`);
+                    await downloadCommandHandler(sock, msg, chatId, msg.key.participant || chatId, mediaUrl, replyFn);
+                }
+            } catch (epErr) {
+                console.warn(`[AISearch] Download failed for ${ep.label}: ${epErr.message}`);
+                await replyFn(`❌ *Error downloading ${ep.label}:* ${epErr.message}\n\n👉 *Reply with ${firstBatchIdx}* (or speak/type *"All Episodes"*) to download the full Season Batch Zip instead!`);
+            }
+        }
+        return;
+    }
 
     // If initial pre-confirmation approved and it's a TV Series without explicit episode:
     if (intent.type === 'series' && !intent.episode) {
@@ -631,6 +765,7 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
 module.exports = {
     handleAiSearchCommand,
     handlePreConfirmationReply,
+    formatPreConfirmCard,
     pendingPreConfirmations,
     pendingPostSelections
 };
