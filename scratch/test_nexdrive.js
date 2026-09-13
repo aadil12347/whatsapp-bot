@@ -1,41 +1,23 @@
-const axios = require('axios');
+const { fetchHtmlWithRetry } = require('../src/Utils/movie_scraper');
 const cheerio = require('cheerio');
 
-async function testNexdrive(url) {
-    console.log(`\n=== Testing Nexdrive Link Resolution: ${url} ===`);
+async function test() {
     try {
-        const res = await axios.get(url, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            },
-            timeout: 15000
-        });
-        const $ = cheerio.load(res.data);
-
-        console.log('Nexdrive Page Title:', $('title').text().trim());
-
-        const links = [];
+        const url = 'https://nexdrive.fit/genxfm7847768608/';
+        console.log('Fetching:', url);
+        const html = await fetchHtmlWithRetry(url);
+        const $ = cheerio.load(html);
+        console.log('Title:', $('title').text());
+        console.log('All links found:');
         $('a[href]').each((i, el) => {
-            links.push({
-                text: $(el).text().trim(),
-                href: $(el).attr('href')
-            });
+            const href = $(el).attr('href');
+            const text = $(el).text().trim();
+            const parent = $(el).parent().text().trim();
+            console.log(`[${i}] Text: "${text}" | Parent: "${parent.substring(0, 60)}" | Href: "${href}"`);
         });
-
-        console.log('Found Links on Nexdrive:', links);
-
-        // Check for scripts / atob / redirect
-        $('script').each((i, el) => {
-            const txt = $(el).html();
-            if (txt && (txt.includes('atob') || txt.includes('url') || txt.includes('location'))) {
-                console.log(`\nScript ${i+1}:`, txt.substring(0, 300));
-            }
-        });
-
     } catch (e) {
-        console.error('Nexdrive test failed:', e.message);
+        console.error('Error:', e.message);
     }
 }
 
-testNexdrive('https://nexdrive.fit/genxfm784776499361/');
+test();

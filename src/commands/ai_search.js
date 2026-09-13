@@ -11,7 +11,7 @@ const pendingPostSelections = new Map();
  * - Scrapes post page buttons
  * - Opens detail landing pages
  * - Filters strictly VCloud direct links
- * - Implements Resolution Fallback System for single episodes (720p -> 480p -> 1080p) if user didn't explicitly specify resolution
+ * - Implements Resolution Fallback System for single episodes (720p -> 480p -> 1080p) matching any non-pack button ("Single Episode", "V-Cloud", "G-Direct")
  * - Categorizes into Individual Episode options (1..N) & All Available Batch Zip options named "All Episodes (RES)"
  */
 async function buildVcloudCatalog(post, intent, candidates = []) {
@@ -24,7 +24,7 @@ async function buildVcloudCatalog(post, intent, candidates = []) {
     const targetPosts = [];
     const individualPost = candidates.find(c => {
         const t = (c.title || '').toLowerCase();
-        const isIndividual = !/season[s]?\s*\d+\s*[-–]\s*\d+|\ball\s*season[s]?\b|\bcomplete\b/i.test(t);
+        const isIndividual = !/season[s]?\s*\d+\s*[-–]\s*\d+|\ball\s*season[s]?\b|\bcomplete\s*series\b|\bcomplete\s*pack\b/i.test(t);
         const seasonMatch = t.match(/season\s*(\d+)|\bs(\d+)\b/i);
         return isIndividual && seasonMatch && parseInt(seasonMatch[1] || seasonMatch[2], 10) === targetSeason;
     });
@@ -94,43 +94,65 @@ async function buildVcloudCatalog(post, intent, candidates = []) {
     batchZips.sort((a, b) => (resOrder[a.resolution] || 5) - (resOrder[b.resolution] || 5));
 
     // 2. Single Episode Quality Fallback System (720p -> 480p -> 1080p)
+    // Matches ANY non-pack landing button ("Single Episode", "V-Cloud", "G-Direct", "Download Episodes")
     const resPriority = isExplicitRes ? [targetRes] : ['720p', '480p', '1080p', '2160p'];
     const episodes = [];
     let chosenQuality = null;
 
     for (const res of resPriority) {
-        const vcloudButton = activeLinks.find(l => !l.isPack && (l.resolution || '').toLowerCase() === res && (l.text.toLowerCase().includes('v-cloud') || l.text.toLowerCase().includes('resumable')));
+        const epLandingButtons = activeLinks.filter(l => !l.isPack && (l.resolution || '').toLowerCase() === res);
 
-        if (vcloudButton && vcloudButton.href) {
-            try {
-                console.log(`[AISearch] Trying single episode extraction for resolution ${res}: ${vcloudButton.href}`);
-                const html = await fetchHtmlWithRetry(vcloudButton.href);
-                const $ = cheerio.load(html);
-                const vcloudHrefs = [];
-                $('a[href*="vcloud"]').each((_, el) => {
-                    const href = $(el).attr('href');
-                    if (href && !vcloudHrefs.includes(href)) {
-                        vcloudHrefs.push(href);
-                    }
-                });
+        for (const epBtn of epLandingButtons) {
+            if (epBtn && epBtn.href) {
+                try {
+                    console.log(`[AISearch] Trying single episode landing page (${res}): "${epBtn.text}" (${epBtn.href})`);
+                    const html = await fetchHtmlWithRetry(epBtn.href);
+                    const $ = cheerio.load(html);
+                    const vcloudHrefs = [];
+                    const vcloudElements = [];
 
-                if (vcloudHrefs.length > 0) {
-                    chosenQuality = res;
-                    vcloudHrefs.forEach((href, idx) => {
-                        const epNum = idx + 1;
-                        episodes.push({
-                            epNum,
-                            label: `Episode ${epNum}`,
-                            href,
-                            postTitle: vcloudButton._postTitle || post.title
-                        });
+                    $('a[href*="vcloud"], a[href*="hubcloud"]').each((_, el) => {
+                        const href = $(el).attr('href');
+                        if (href && !vcloudHrefs.includes(href)) {
+                            vcloudHrefs.push(href);
+                            vcloudElements.push(el);
+                        }
                     });
-                    break; // Stop at first successful quality in fallback chain
+
+                    if (vcloudHrefs.length > 0) {
+                        chosenQuality = res;
+                        vcloudHrefs.forEach((href, idx) => {
+                            const el = vcloudElements[idx];
+                            let epNum = null;
+                            let epLabel = null;
+                            if (el) {
+                                const parentText = $(el).parent().text().trim();
+                                const prevText = $(el).parent().prev().text().trim();
+                                const combinedContext = `${parentText} ${prevText}`;
+                                const epMatch = combinedContext.match(/(?:episode|ep|e)\s*[:\-–—]?\s*(\d+)/i);
+                                if (epMatch) {
+                                    epNum = parseInt(epMatch[1], 10);
+                                    epLabel = `Episode ${epNum}`;
+                                }
+                            }
+                            if (!epNum) epNum = idx + 1;
+                            if (!epLabel) epLabel = `Episode ${epNum}`;
+
+                            episodes.push({
+                                epNum,
+                                label: epLabel,
+                                href,
+                                postTitle: epBtn._postTitle || post.title
+                            });
+                        });
+                        break; // Stop checking buttons for this resolution once single episodes are extracted
+                    }
+                } catch (eErr) {
+                    console.warn(`[AISearch] Failed extracting ${res} single episode list from ${epBtn.href}:`, eErr.message);
                 }
-            } catch (eErr) {
-                console.warn(`[AISearch] Failed extracting ${res} single episode list:`, eErr.message);
             }
         }
+        if (episodes.length > 0) break; // Stop at first successful resolution in priority fallback chain
     }
 
     return {
@@ -357,11 +379,14 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
         if (selectedBatchObj) {
             console.log(`[AISearch] User selected Batch Zip: ${selectedBatchObj.title} (${selectedBatchObj.href})`);
             try {
-                const landing = await resolveLandingLink(selectedBatchObj.href);
+                const isDirectHost = selectedBatchObj.href.includes('vcloud') || selectedBatchObj.href.includes('hubcloud') || selectedBatchObj.href.includes('fastdl') || selectedBatchObj.href.includes('filebee');
+                const landing = isDirectHost ? selectedBatchObj.href : await resolveLandingLink(selectedBatchObj.href);
                 const mediaUrl = await resolveVcloudLink(landing);
                 if (mediaUrl) {
                     console.log(`[AISearch] Triggering .d command with Batch Zip VCloud link: ${mediaUrl}`);
                     return await downloadCommandHandler(sock, msg, chatId, msg.key.participant || chatId, mediaUrl, replyFn);
+                } else {
+                    throw new Error('VCloud resolution returned empty direct link');
                 }
             } catch (bErr) {
                 console.warn(`[AISearch] Batch Zip resolution/download failed: ${bErr.message}. Initiating sequential episode fallback...`);
@@ -371,7 +396,8 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
             // Fallback: Sequential episode download if Batch Zip failed
             for (const ep of catalog.episodes) {
                 try {
-                    const landing = await resolveLandingLink(ep.href);
+                    const isDirectHost = ep.href.includes('vcloud') || ep.href.includes('hubcloud') || ep.href.includes('fastdl') || ep.href.includes('filebee');
+                    const landing = isDirectHost ? ep.href : await resolveLandingLink(ep.href);
                     const mediaUrl = await resolveVcloudLink(landing);
                     if (mediaUrl) {
                         console.log(`[AISearch] Fallback sequential download for ${ep.label}: ${mediaUrl}`);
@@ -413,16 +439,22 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
 
         if (selectedEpisodes.length > 0) {
             console.log(`[AISearch] User selected ${selectedEpisodes.length} episode(s):`, selectedEpisodes.map(e => e.label));
+            const firstBatchIdx = (catalog.episodes?.length || 0) + 1;
+
             for (const ep of selectedEpisodes) {
                 try {
-                    const landing = await resolveLandingLink(ep.href);
+                    const isDirectHost = ep.href.includes('vcloud') || ep.href.includes('hubcloud') || ep.href.includes('fastdl') || ep.href.includes('filebee');
+                    const landing = isDirectHost ? ep.href : await resolveLandingLink(ep.href);
                     const mediaUrl = await resolveVcloudLink(landing);
                     if (mediaUrl) {
                         console.log(`[AISearch] Triggering .d command for ${ep.label}: ${mediaUrl}`);
                         await downloadCommandHandler(sock, msg, chatId, msg.key.participant || chatId, mediaUrl, replyFn);
+                    } else {
+                        throw new Error('VCloud resolution returned empty direct link');
                     }
                 } catch (epErr) {
                     console.warn(`[AISearch] Download failed for ${ep.label}: ${epErr.message}`);
+                    await replyFn(`❌ *Error downloading ${ep.label}:* ${epErr.message}\n\n⚠️ *This specific episode link is giving an error or unavailable.*\n\n👉 *Reply with ${firstBatchIdx}* (or speak/type *"All Episodes"* / *"Batch Zip"*) to download the full Season Batch Zip instead!`);
                 }
             }
             return;
