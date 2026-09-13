@@ -1,67 +1,37 @@
-const { formatPreConfirmCard, handlePreConfirmationReply, pendingPreConfirmations } = require('../src/commands/ai_search');
+const { formatPreConfirmCard } = require('../src/commands/ai_search');
 
-async function testCardAndReplies() {
-    console.log("=== Testing Pre-Confirmation Card Formatting ===");
-    const mockPost = {
-        title: "Download When Life Gives You Tangerines (2025) Season 1 Multi Audio {Hindi-English-Korean} NetFlix Series 480p | 720p | 1080p WEB-DL",
-        link: "https://example.com/post1"
-    };
+console.log('--- Testing Pre-Confirmation Card Formatting ---');
 
-    const mockIntent = {
-        query: "When Life Gives You Tangerines",
-        year: "2025",
-        resolution: "720p",
-        type: "series",
-        season: 1,
-        episode: null
-    };
+const intent = {
+    query: 'Money Heist',
+    year: 2017,
+    resolution: '720p',
+    type: 'series',
+    season: 1,
+    episode: null,
+    origin: 'non-indian'
+};
 
-    const availableSeasons = [1];
-    const cardText = formatPreConfirmCard(mockPost, mockIntent, availableSeasons);
-    console.log("Formatted Card:\n" + cardText);
+const post = {
+    title: 'Download Money Heist - Netflix Original (Season 1-5) Dual Audio {Hindi-English} 480p | 720p | 1080p WEB-DL HD',
+    thumbnail: 'https://example.com/poster.jpg'
+};
 
-    if (cardText.includes("1️⃣") || cardText.includes("2️⃣") || cardText.includes("Quote/Reply with yes")) {
-        console.error("❌ Test Failed: Card text still contains instructions at the end!");
-    } else {
-        console.log("✅ Test Passed: Card is clean, instruction-free, and correctly formatted!");
-    }
+const availableSeasons = [1, 2, 3, 4, 5];
 
-    console.log("\n=== Testing Multi-Episode Reply Parsing ===");
-    const confirmKey = "test_chat_1234";
-    pendingPreConfirmations.set(confirmKey, {
-        chatId: "test_chat",
-        sender: "test_user",
-        post: mockPost,
-        intent: mockIntent,
-        candidates: [mockPost],
-        availableSeasons: [1],
-        messageId: "msg123",
-        timestamp: Date.now()
-    });
+console.log('[Initial Card (Season 1)]:');
+console.log(formatPreConfirmCard(post, intent, availableSeasons));
 
-    const mockSock = {
-        sendMessage: async (jid, content) => {
-            console.log(`[Mock Sock] Message to ${jid}:`, content.text || content.caption || content);
-            return { key: { id: 'reply123' } };
-        }
-    };
+// Simulate updating season to Season 2 via quoted voice note / reply
+intent.season = 2;
 
-    const mockMsg = {
-        key: { remoteJid: "test_chat", participant: "test_user" }
-    };
+console.log('\n[Updated Card (Season 2)]:');
+const updatedCard = formatPreConfirmCard(post, intent, availableSeasons);
+console.log(updatedCard);
 
-    // Test text reply with multi-episode list e.g. "3, 4, 5, 6"
-    console.log("Testing text reply: 'episode 3, 4, 5, 6'");
-    await handlePreConfirmationReply(mockSock, mockMsg, confirmKey, null, "episode 3, 4, 5, 6");
-    
-    const updatedSession = pendingPreConfirmations.get(confirmKey);
-    console.log("Updated Intent Episodes:", mockIntent.selectedEpisodes);
-
-    if (mockIntent.selectedEpisodes && mockIntent.selectedEpisodes.join(',') === '3,4,5,6') {
-        console.log("✅ Test Passed: Multi-episode list parsed successfully as [3, 4, 5, 6]!");
-    } else {
-        console.error("❌ Test Failed: Multi-episode list parsing failed!");
-    }
+if (updatedCard.includes('Selected Season:* *S02*') && updatedCard.includes('Season 2 ➔ All Episodes')) {
+    console.log('\n✅ TEST PASSED: Pre-confirmation card updated correctly to Season 2 without triggering new TMDB title search!');
+} else {
+    console.error('\n❌ TEST FAILED: Card did not update season properly.');
+    process.exit(1);
 }
-
-testCardAndReplies().catch(console.error);

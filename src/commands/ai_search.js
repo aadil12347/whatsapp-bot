@@ -560,6 +560,8 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
                 return handleAiSearchCommand(sock, msg, [], textToAnalyze, isVoice, audioBuffer);
             }
 
+            let isCardModified = false;
+
             // Extract Season change
             const seasonNumMatch = lowerText.match(/\bseason\s*(\d+)\b/i) || lowerText.match(/\bs(\d+)\b/i) || (replyIntent?.season ? [null, replyIntent.season] : null);
             if (seasonNumMatch) {
@@ -567,7 +569,7 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
                 if (newSeason >= 1 && newSeason <= 50) {
                     session.intent.season = newSeason;
                     console.log(`[AISearch] User updated season to Season ${newSeason}`);
-                    isApproved = true;
+                    isCardModified = true;
                 }
             }
 
@@ -577,7 +579,7 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
                 session.intent.resolution = (resMatch[1] || resMatch).toLowerCase();
                 session.intent.resolutionExplicit = true;
                 console.log(`[AISearch] User updated resolution to ${session.intent.resolution}`);
-                isApproved = true;
+                isCardModified = true;
             }
 
             // Extract Multi-Episode list (e.g. "3, 4, 5, 6", "4,5,6,7", "3 4 5 6", "episodes 3 to 6")
@@ -609,7 +611,22 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
                 session.intent.selectedEpisodes = epNums;
                 session.intent.episode = epNums[0];
                 console.log(`[AISearch] User specified target episodes: ${epNums.join(', ')}`);
-                isApproved = true;
+                isCardModified = true;
+            }
+
+            // IF CARD DETAILS WERE MODIFIED, UPDATE & RE-SEND THE CONFIRMATION CARD INSTEAD OF PROCEEDING TO DOWNLOAD!
+            if (isCardModified) {
+                console.log(`[AISearch] Card details updated by user reply. Updating confirmation box message...`);
+                const updatedCardText = formatPreConfirmCard(session.post, session.intent, session.availableSeasons);
+                const sentMsg = session.post.thumbnail
+                    ? await sock.sendMessage(chatId, { image: { url: session.post.thumbnail }, caption: updatedCardText }, { quoted: msg })
+                    : await sock.sendMessage(chatId, { text: updatedCardText }, { quoted: msg });
+
+                if (sentMsg && sentMsg.key && sentMsg.key.id) {
+                    session.messageId = sentMsg.key.id;
+                    session.timestamp = Date.now();
+                }
+                return;
             }
         }
     }

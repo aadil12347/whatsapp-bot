@@ -987,12 +987,18 @@ function isLandingUrl(url) {
 }
 
 function getQuotedMessageId(mek) {
-    const msg = mek.message;
+    const msg = mek?.message;
     if (!msg) return null;
     const contextInfo = msg.extendedTextMessage?.contextInfo || 
                         msg.imageMessage?.contextInfo || 
                         msg.videoMessage?.contextInfo || 
-                        msg.documentMessage?.contextInfo;
+                        msg.documentMessage?.contextInfo ||
+                        msg.audioMessage?.contextInfo ||
+                        msg.stickerMessage?.contextInfo ||
+                        msg.buttonsResponseMessage?.contextInfo ||
+                        msg.listResponseMessage?.contextInfo ||
+                        msg.templateButtonReplyMessage?.contextInfo ||
+                        msg.interactiveResponseMessage?.contextInfo;
     return contextInfo?.stanzaId || null;
 }
 
