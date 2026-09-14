@@ -544,20 +544,19 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
                 await replyFn(`⚠️ *Batch Zip download failed/unavailable.* Automatically downloading all ${catalog.episodes.length} episodes sequentially via VCloud...`);
             }
 
-            // Fallback: Sequential episode download if Batch Zip failed
-            const resolvedFallbackUrls = [];
-            for (const ep of catalog.episodes) {
+            // Fallback: Parallel episode download if Batch Zip failed
+            const fallbackResolveResults = await Promise.all(catalog.episodes.map(async (ep) => {
                 try {
                     const isDirectHost = ep.href.includes('vcloud') || ep.href.includes('hubcloud') || ep.href.includes('fastdl') || ep.href.includes('filebee');
                     const landing = isDirectHost ? ep.href : await resolveLandingLink(ep.href);
-                    const mediaUrl = await resolveVcloudLink(landing);
-                    if (mediaUrl) {
-                        resolvedFallbackUrls.push(mediaUrl);
-                    }
+                    return await resolveVcloudLink(landing);
                 } catch (epErr) {
                     console.warn(`[AISearch] Fallback download failed for ${ep.label}: ${epErr.message}`);
+                    return null;
                 }
-            }
+            }));
+
+            const resolvedFallbackUrls = fallbackResolveResults.filter(Boolean);
             if (resolvedFallbackUrls.length > 0) {
                 await triggerPCommandHandlerFromAiSearch(
                     sock, msg, chatId, msg.key.participant || chatId, 
@@ -600,22 +599,30 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
 
 
 
-            const resolvedMediaUrls = [];
-            const failedEpisodes = [];
-
-            for (const ep of selectedEpisodes) {
+            console.log(`[AISearch] Parallel resolving direct download links for ${selectedEpisodes.length} episode(s)...`);
+            
+            const resolveResults = await Promise.all(selectedEpisodes.map(async (ep) => {
                 try {
                     const isDirectHost = ep.href.includes('vcloud') || ep.href.includes('hubcloud') || ep.href.includes('fastdl') || ep.href.includes('filebee');
                     const landing = isDirectHost ? ep.href : await resolveLandingLink(ep.href);
                     const mediaUrl = await resolveVcloudLink(landing);
                     if (mediaUrl) {
-                        resolvedMediaUrls.push(mediaUrl);
-                    } else {
-                        failedEpisodes.push(ep.label);
+                        return { ok: true, ep, mediaUrl };
                     }
                 } catch (epErr) {
                     console.warn(`[AISearch] Download resolution failed for ${ep.label}: ${epErr.message}`);
-                    failedEpisodes.push(ep.label);
+                }
+                return { ok: false, ep };
+            }));
+
+            const resolvedMediaUrls = [];
+            const failedEpisodes = [];
+
+            for (const res of resolveResults) {
+                if (res.ok && res.mediaUrl) {
+                    resolvedMediaUrls.push(res.mediaUrl);
+                } else {
+                    failedEpisodes.push(res.ep.label);
                 }
             }
 

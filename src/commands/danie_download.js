@@ -3055,8 +3055,7 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
 
                 const completionMsg = `✅ *Download Completed!*\n` +
                                       `🎬 *Title:* *${showTitle}*\n` +
-                                      `📺 *Episodes:* *${epStr}*\n` +
-                                      `📦 *Total Size:* *${totalSizeStr}*`;
+                                      `📺 *Episodes:* *${epStr}*`;
                 try { await reply(completionMsg); } catch (_) {}
             } else {
                 const movieTitle = detectedMediaTitle || 'Movie';
