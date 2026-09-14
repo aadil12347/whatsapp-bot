@@ -2519,6 +2519,17 @@ function parseQueryToItems(q) {
 // =========================================================================
 //  .download  Enhanced: supports multiple files, movie scraping, TMDB info
 // =========================================================================
+function extractTitleFromFilename(fileName) {
+    if (!fileName) return '';
+    let name = fileName.replace(/\.[a-z0-9]{2,4}$/i, '');
+    name = name.replace(/[\.\_]/g, ' ');
+    name = name.replace(/\bs\d+\s*e\d+\b.*/i, '');
+    name = name.replace(/\bs\d+\b.*/i, '');
+    name = name.replace(/\bepisode\s*\d+\b.*/i, '');
+    name = name.replace(/\b(480p|720p|1080p|2160p|4k|web-dl|webrip|bluray|hdrip|x264|x265|hevc|esub|hindi|english|dual|multi|audio|daniewatch|vegamovies)\b.*/i, '');
+    return name.trim();
+}
+
 async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal = null, activeDownloadRef = null, preferredServer = null, silentErrors = false) {
     console.log("=== DOWNLOAD COMMAND TRIGGERED ===");
     console.log("q:", q);
@@ -2540,6 +2551,11 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
         const { activeTargets, primaryJid, destLabel } = getActiveTargetsAndPrimary(settings, senderJid);
         const destJid = primaryJid;
 
+        let totalBytesAllItems = 0;
+        const downloadedEpisodesList = [];
+        let detectedMediaTitle = '';
+        let isSeriesDownload = false;
+
         for (let i = 0; i < items.length; i++) {
             if (abortSignal && abortSignal.aborted) {
                 console.log('[DanieDownload] Abort signal detected. Stopping download items loop.');
@@ -2547,10 +2563,6 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
             }
             let { customFilename, url } = parseDownloadItem(items[i]);
             let targetFilename = customFilename;
-
-            if (items.length > 1) {
-                await reply(`⏳ *Downloading file ${i + 1}/${items.length}...*`);
-            }
 
             // Direct download bypass (no movie scraping/resolution)
 
@@ -2684,10 +2696,13 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
                 activeDownloadRef.filePath = tempFilePath;
             }
 
-            // Notify user that download successfully started
-            try {
-                await reply('⏳ *Downloading, please wait . . .*');
-            } catch (_) {}
+            // Notify user if single movie download starting
+            const isMovieSingle = items.length === 1 && !/S\d+\s*E\d+|\bE\d+\b|\bEpisode\s*\d+/i.test(url) && !/S\d+\s*E\d+|\bE\d+\b|\bEpisode\s*\d+/i.test(q || '');
+            if (isMovieSingle && i === 0) {
+                try {
+                    await reply('⏳ *Downloading, please wait . . .*');
+                } catch (_) {}
+            }
 
             // Download using resume-enabled download function
             const responseHeaders = await downloadFileWithResume(url, tempFilePath, {}, abortSignal);
@@ -2988,25 +3003,69 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
                     }
                 }
 
-                // If Movie file, send TMDB poster and trailer to destination target first
-                const isMovie = !/S\d+\s*E\d+/i.test(finalFileName);
-                if (isMovie) {
-                    await sendTmdbPosterAndTrailer(conn, activeTargets, finalFileName, 'movie');
-                }
-
                 await sendAndForwardFile(conn, activeTargets, {
                     document: { url: tempFilePath },
                     mimetype: mime,
                     fileName: finalFileName
                 }, { quoted: destJid === from ? mek : null, from, senderJid });
 
-                // Send completion message
-                try {
-                    await reply(` *Download Complete!*\n📥 *File:* ${finalFileName}\n📥 *Size:* ${sizeInMB} MB\n🎬 *Sent to:* ${destLabel}`);
-                } catch (_) {}
+                // Accumulate totals & episode info
+                totalBytesAllItems += preUploadStats.size;
+
+                const epMatch = finalFileName.match(/S\d+\s*E(\d+)/i) || 
+                                finalFileName.match(/Episode\s*(\d+)/i) || 
+                                finalFileName.match(/\bE(\d+)\b/i);
+
+                if (epMatch) {
+                    isSeriesDownload = true;
+                    const epNum = parseInt(epMatch[1], 10);
+                    const epTag = `EP ${String(epNum).padStart(2, '0')}`;
+                    if (!downloadedEpisodesList.includes(epTag)) {
+                        downloadedEpisodesList.push(epTag);
+                    }
+                }
+
+                if (!detectedMediaTitle) {
+                    detectedMediaTitle = extractTitleFromFilename(finalFileName);
+                }
 
                 // Delete temporary file
                 try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch (_) {}
+            }
+        }
+
+        // ── Single Consolidated Completion Message ──
+        if (totalBytesAllItems > 0) {
+            let totalSizeStr = '';
+            if (totalBytesAllItems >= 1024 * 1024 * 1024) {
+                totalSizeStr = `${(totalBytesAllItems / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+            } else {
+                totalSizeStr = `${(totalBytesAllItems / (1024 * 1024)).toFixed(2)} MB`;
+            }
+
+            if (isSeriesDownload || downloadedEpisodesList.length > 0 || items.length > 1) {
+                downloadedEpisodesList.sort((a, b) => {
+                    const numA = parseInt(a.replace(/\D/g, ''), 10);
+                    const numB = parseInt(b.replace(/\D/g, ''), 10);
+                    return numA - numB;
+                });
+
+                const showTitle = detectedMediaTitle || 'Series';
+                const epStr = downloadedEpisodesList.length > 0 ? downloadedEpisodesList.join(', ') : 'All Episodes';
+
+                const completionMsg = `✅ *Download Completed!*\n` +
+                                      `🎬 *Title:* *${showTitle}*\n` +
+                                      `📺 *Episodes:* *${epStr}*\n` +
+                                      `📦 *Total Size:* *${totalSizeStr}*`;
+                try { await reply(completionMsg); } catch (_) {}
+            } else {
+                const movieTitle = detectedMediaTitle || 'Movie';
+                const completionMsg = `✅ *Download Completed!*\n` +
+                                      `🎬 *Title:* *${movieTitle}*\n` +
+                                      `📦 *Size:* *${totalSizeStr}*`;
+                try { await reply(completionMsg); } catch (_) {}
+            }
+        }
             }
         }
 
@@ -3151,10 +3210,10 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
             );
         }
 
-        let statusMsg = await reply('⏳ *[1/3] Fetching TMDB metadata & poster...*');
-        globalProgressState.statusMsg = statusMsg && statusMsg.key ? { key: statusMsg.key, from } : null;
+        let statusMsg = null;
+        globalProgressState.statusMsg = null;
         globalProgressState.active = true;
-        globalProgressState.phaseText = '[1/3] Fetching TMDB metadata';
+        globalProgressState.phaseText = 'Fetching TMDB metadata';
 
         const updatePStatus = async (textMsg) => {
             globalProgressState.phaseText = textMsg.replace(/[*_]/g, '');

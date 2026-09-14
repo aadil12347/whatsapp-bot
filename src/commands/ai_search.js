@@ -598,9 +598,7 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
             console.log(`[AISearch] User selected ${selectedEpisodes.length} episode(s):`, selectedEpisodes.map(e => e.label));
             const firstBatchIdx = (catalog.episodes?.length || 0) + 1;
 
-            if (selectedEpisodes.length > 1) {
-                await replyFn(`⏳ *Extracting direct download links for ${selectedEpisodes.length} selected episodes...*`);
-            }
+
 
             const resolvedMediaUrls = [];
             const failedEpisodes = [];
