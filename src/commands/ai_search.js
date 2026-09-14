@@ -655,32 +655,13 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
         }
     };
 
-    // If user requested specific episode list (e.g. [3, 4, 5, 6]):
-    if (intent.type === 'series' && intent.selectedEpisodes && intent.selectedEpisodes.length > 0) {
-        console.log(`[AISearch] Downloading user-specified episodes: ${intent.selectedEpisodes.join(', ')}...`);
-        const catalog = await buildVcloudCatalog(post, intent, candidates);
-        const selectedEps = catalog.episodes.filter(e => intent.selectedEpisodes.includes(e.epNum));
-        const firstBatchIdx = (catalog.episodes?.length || 0) + 1;
-
-        for (const ep of (selectedEps.length > 0 ? selectedEps : catalog.episodes)) {
-            try {
-                const isDirectHost = ep.href.includes('vcloud') || ep.href.includes('hubcloud') || ep.href.includes('fastdl') || ep.href.includes('filebee');
-                const landing = isDirectHost ? ep.href : await resolveLandingLink(ep.href);
-                const mediaUrl = await resolveVcloudLink(landing);
-                if (mediaUrl) {
-                    console.log(`[AISearch] Triggering download for ${ep.label}: ${mediaUrl}`);
-                    await triggerPCommandHandlerFromAiSearch(sock, msg, chatId, msg.key.participant || chatId, intent, mediaUrl, ep.label);
-                }
-            } catch (epErr) {
-                console.warn(`[AISearch] Download failed for ${ep.label}: ${epErr.message}`);
-                await replyFn(`❌ *Error downloading ${ep.label}:* ${epErr.message}\n\n👉 *Reply with ${firstBatchIdx}* (or speak/type *"All Episodes"*) to download the full Season Batch Zip instead!`);
-            }
-        }
-        return;
-    }
-
-    // If initial pre-confirmation approved and it's a TV Series without explicit episode:
-    if (intent.type === 'series' && !intent.episode) {
+    // ══════════════════════════════════════════════════════════════════
+    // SERIES: ALWAYS show the interactive episode selection menu.
+    // Never auto-download — even if user specified episode numbers in
+    // their search query. Let them confirm which episodes to download
+    // after seeing the full list with resolution info.
+    // ══════════════════════════════════════════════════════════════════
+    if (intent.type === 'series') {
         console.log(`[AISearch] Building interactive options menu for ${post.title} (Season ${intent.season || 1})...`);
         const catalog = await buildVcloudCatalog(post, intent, candidates);
         
@@ -688,10 +669,12 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
         const optionsList = [];
         const optionsMap = new Map();
 
-        // 1. LIST INDIVIDUAL EPISODES FIRST (1. Episode 1, 2. Episode 2...)
+        const resLabel = (catalog.targetRes || '720p').toUpperCase();
+
+        // 1. LIST INDIVIDUAL EPISODES with resolution (1. Episode 1 [720P], 2. Episode 2 [720P]...)
         if (catalog.episodes && catalog.episodes.length > 0) {
             catalog.episodes.forEach(ep => {
-                optionsList.push(`${optionIdx}. ${ep.label}`);
+                optionsList.push(`${optionIdx}. ${ep.label}  ─  _${resLabel}_`);
                 optionsMap.set(optionIdx, { type: 'episode', ...ep });
                 optionIdx++;
             });
@@ -700,17 +683,18 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
         // 2. LIST ALL AVAILABLE BATCH ZIP OPTIONS AT THE VERY END (N+1. All Episodes 480P, N+2. 720P, N+3. 1080P)
         if (catalog.batchZips && catalog.batchZips.length > 0) {
             catalog.batchZips.forEach(bz => {
-                optionsList.push(`${optionIdx}. ${bz.title}`);
+                optionsList.push(`${optionIdx}. 📦 ${bz.title}`);
                 optionsMap.set(optionIdx, { type: 'batch', data: bz });
                 optionIdx++;
             });
         }
 
         const firstBatchIdx = (catalog.episodes?.length || 0) + 1;
-        const optionsText = `📦 *Select Download Option for Season ${catalog.targetSeason}*\n\n` +
+        const optionsText = `📦 *Select Download Option for Season ${catalog.targetSeason}*\n` +
+                            `📺 *Episode Quality:* *${resLabel}*\n\n` +
                             `${optionsList.join('\n')}\n\n` +
                             `💬 *How to choose:*\n` +
-                            `• *Quote/Reply* with option number(s) (e.g. *1* for Episode 1, *${firstBatchIdx}* for All Episodes 480P, *1, 2* for Episodes 1 & 2)\n` +
+                            `• *Quote/Reply* with option number(s) (e.g. *1* for Episode 1, *${firstBatchIdx}* for ${catalog.batchZips?.[0]?.title || 'All Episodes'}, *1, 2* for Episodes 1 & 2)\n` +
                             `• *Quote/Reply* with episode name or quality (e.g. *Episode 5* or *All Episodes 720P*)\n` +
                             `• Or send a voice note saying your choice!`;
 
@@ -733,41 +717,19 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
         return;
     }
 
-    // Movie or series with explicit episode specified in initial prompt
+    // ══════════════════════════════════════════════════════════════════
+    // MOVIE: Resolve download link and trigger .p + .d
+    // ══════════════════════════════════════════════════════════════════
     let mediaUrl = post.link;
     let postTitle = post.title;
     try {
-        if (intent.type === 'series') {
-            console.log(`[AISearch] Resolving TV Series media URL for Season ${intent.season || 1}${intent.episode ? ` Episode ${intent.episode}` : ''}...`);
-            const catalog = await buildVcloudCatalog(post, intent, candidates);
-            let chosenEp = null;
-            if (intent.episode && catalog.episodes && catalog.episodes.length > 0) {
-                chosenEp = catalog.episodes.find(e => e.epNum === intent.episode) || catalog.episodes[intent.episode - 1];
-            } else if (catalog.episodes && catalog.episodes.length > 0) {
-                chosenEp = catalog.episodes[0];
-            }
-
-            if (chosenEp && chosenEp.href) {
-                const isDirectHost = chosenEp.href.includes('vcloud') || chosenEp.href.includes('hubcloud') || chosenEp.href.includes('fastdl') || chosenEp.href.includes('filebee');
-                const landing = isDirectHost ? chosenEp.href : await resolveLandingLink(chosenEp.href);
-                mediaUrl = await resolveVcloudLink(landing);
-                postTitle = `${post.title} (${chosenEp.label})`;
-            } else if (catalog.batchZips && catalog.batchZips.length > 0) {
-                const bz = catalog.batchZips.find(b => b.resolution === catalog.targetRes) || catalog.batchZips[0];
-                const isDirectHost = bz.href.includes('vcloud') || bz.href.includes('hubcloud') || bz.href.includes('fastdl') || bz.href.includes('filebee');
-                const landing = isDirectHost ? bz.href : await resolveLandingLink(bz.href);
-                mediaUrl = await resolveVcloudLink(landing);
-                postTitle = `${post.title} (${bz.title})`;
-            }
-        } else {
-            const allLinks = await scrapeAllPostLinks(post.link);
-            const targetRes = (intent.resolution || '720p').toLowerCase();
-            const matchedResLink = allLinks.find(l => l.resolution && l.resolution.toLowerCase() === targetRes) || allLinks[0];
-            if (matchedResLink && matchedResLink.href) {
-                const isDirectHost = matchedResLink.href.includes('vcloud') || matchedResLink.href.includes('hubcloud') || matchedResLink.href.includes('fastdl') || matchedResLink.href.includes('filebee');
-                const landing = isDirectHost ? matchedResLink.href : await resolveLandingLink(matchedResLink.href);
-                mediaUrl = await resolveVcloudLink(landing);
-            }
+        const allLinks = await scrapeAllPostLinks(post.link);
+        const targetRes = (intent.resolution || '720p').toLowerCase();
+        const matchedResLink = allLinks.find(l => l.resolution && l.resolution.toLowerCase() === targetRes) || allLinks[0];
+        if (matchedResLink && matchedResLink.href) {
+            const isDirectHost = matchedResLink.href.includes('vcloud') || matchedResLink.href.includes('hubcloud') || matchedResLink.href.includes('fastdl') || matchedResLink.href.includes('filebee');
+            const landing = isDirectHost ? matchedResLink.href : await resolveLandingLink(matchedResLink.href);
+            mediaUrl = await resolveVcloudLink(landing);
         }
     } catch (scrapeErr) {
         console.warn('[AISearch] Link extraction fallback to post URL:', scrapeErr.message);
