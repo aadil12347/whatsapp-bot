@@ -545,18 +545,24 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
             }
 
             // Fallback: Sequential episode download if Batch Zip failed
+            const resolvedFallbackUrls = [];
             for (const ep of catalog.episodes) {
                 try {
                     const isDirectHost = ep.href.includes('vcloud') || ep.href.includes('hubcloud') || ep.href.includes('fastdl') || ep.href.includes('filebee');
                     const landing = isDirectHost ? ep.href : await resolveLandingLink(ep.href);
                     const mediaUrl = await resolveVcloudLink(landing);
                     if (mediaUrl) {
-                        console.log(`[AISearch] Fallback sequential download for ${ep.label}: ${mediaUrl}`);
-                        await triggerPCommandHandlerFromAiSearch(sock, msg, chatId, msg.key.participant || chatId, catalog.intent || intent, mediaUrl, ep.label);
+                        resolvedFallbackUrls.push(mediaUrl);
                     }
                 } catch (epErr) {
                     console.warn(`[AISearch] Fallback download failed for ${ep.label}: ${epErr.message}`);
                 }
+            }
+            if (resolvedFallbackUrls.length > 0) {
+                await triggerPCommandHandlerFromAiSearch(
+                    sock, msg, chatId, msg.key.participant || chatId, 
+                    catalog.intent || intent, resolvedFallbackUrls.join(', '), `Season ${catalog.targetSeason} (${catalog.episodes.length} Episodes)`, true
+                );
             }
             return;
         }
@@ -592,22 +598,45 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
             console.log(`[AISearch] User selected ${selectedEpisodes.length} episode(s):`, selectedEpisodes.map(e => e.label));
             const firstBatchIdx = (catalog.episodes?.length || 0) + 1;
 
+            if (selectedEpisodes.length > 1) {
+                await replyFn(`⏳ *Extracting direct download links for ${selectedEpisodes.length} selected episodes...*`);
+            }
+
+            const resolvedMediaUrls = [];
+            const failedEpisodes = [];
+
             for (const ep of selectedEpisodes) {
                 try {
                     const isDirectHost = ep.href.includes('vcloud') || ep.href.includes('hubcloud') || ep.href.includes('fastdl') || ep.href.includes('filebee');
                     const landing = isDirectHost ? ep.href : await resolveLandingLink(ep.href);
                     const mediaUrl = await resolveVcloudLink(landing);
                     if (mediaUrl) {
-                        console.log(`[AISearch] Triggering download for ${ep.label}: ${mediaUrl}`);
-                        await triggerPCommandHandlerFromAiSearch(sock, msg, chatId, msg.key.participant || chatId, session.intent || intent, mediaUrl, ep.label);
+                        resolvedMediaUrls.push(mediaUrl);
                     } else {
-                        throw new Error('VCloud resolution returned empty direct link');
+                        failedEpisodes.push(ep.label);
                     }
                 } catch (epErr) {
-                    console.warn(`[AISearch] Download failed for ${ep.label}: ${epErr.message}`);
-                    await replyFn(`❌ *Error downloading ${ep.label}:* ${epErr.message}\n\n⚠️ *This specific episode link is giving an error or unavailable.*\n\n👉 *Reply with ${firstBatchIdx}* (or speak/type *"All Episodes"* / *"Batch Zip"*) to download the full Season Batch Zip instead!`);
+                    console.warn(`[AISearch] Download resolution failed for ${ep.label}: ${epErr.message}`);
+                    failedEpisodes.push(ep.label);
                 }
             }
+
+            if (resolvedMediaUrls.length > 0) {
+                const combinedMediaQuery = resolvedMediaUrls.join(', ');
+                const labelSummary = selectedEpisodes.length === 1 
+                    ? selectedEpisodes[0].label 
+                    : `${selectedEpisodes.length} Episodes (${selectedEpisodes.map(e => e.epNum ? `E${e.epNum}` : e.label).join(', ')})`;
+                
+                await triggerPCommandHandlerFromAiSearch(
+                    sock, msg, chatId, msg.key.participant || chatId, 
+                    session.intent || intent, combinedMediaQuery, labelSummary, true
+                );
+            }
+
+            if (failedEpisodes.length > 0) {
+                await replyFn(`⚠️ *Could not resolve direct links for:* ${failedEpisodes.join(', ')}\n\n👉 *Reply with ${firstBatchIdx}* to download the full Season Batch Zip instead!`);
+            }
+
             return;
         }
 
@@ -629,10 +658,19 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
         const textToAnalyze = (updatedInput || '').trim();
         const lowerText = textToAnalyze.toLowerCase();
 
-        // 1. Check explicit confirmation / cancellation keywords
-        if (['yes', 'y', '1', 'confirm', 'ok', 'download', 'proceed', 'go'].includes(lowerText)) {
+        // 1. Check explicit confirmation / cancellation keywords & voice phrases (English & Hindi/Hinglish)
+        const confirmKeywords = [
+            'yes', 'y', '1', 'confirm', 'ok', 'okay', 'download', 'proceed', 'go',
+            'haan', 'ha', 'haji', 'ji haan', 'haan ji', 'yahi', 'sahi', 'sahi hai',
+            'kar do', 'bhej do', 'bhejo', 'yep', 'yeah', 'yup', 'sure', 'correct', 'right', 'ok hai', 'ha yahi'
+        ];
+
+        const isAgreement = confirmKeywords.includes(lowerText) ||
+                            /\b(yes|haan|ha|haji|ok|okay|yahi|sahi|kar do|bhej do|bhejo|sure|yep|yeah|yup|proceed|download)\b/i.test(lowerText);
+
+        if (isAgreement) {
             isApproved = true;
-        } else if (['no', 'n', 'cancel', '0', 'stop'].includes(lowerText)) {
+        } else if (['no', 'n', 'cancel', '0', 'stop', 'mat karo', 'na', 'rahne do'].includes(lowerText)) {
             isApproved = false;
         } else {
             // 2. Use AI / Regex to parse custom updates from voice or text reply
@@ -785,7 +823,7 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
     }
 }
 
-async function triggerPCommandHandlerFromAiSearch(sock, msg, chatId, sender, intent, mediaUrl, epLabel = '') {
+async function triggerPCommandHandlerFromAiSearch(sock, msg, chatId, sender, intent, mediaUrl, epLabel = '', includePoster = true) {
     const { pCommandHandler, downloadCommandHandler, globalTaskQueue } = getDanieMods();
     const replyFn = async (t) => {
         if (typeof t === 'string' && t.trim()) {
@@ -807,12 +845,10 @@ async function triggerPCommandHandlerFromAiSearch(sock, msg, chatId, sender, int
 
     const titleLabel = (intent && intent.query) || 'AI Search Download';
     const downloadLabel = epLabel ? `${titleLabel} (${epLabel})` : titleLabel;
+    const dArgs = mediaUrl;
 
-    if (tmdbUrl) {
+    if (tmdbUrl && includePoster) {
         // ── Task 1: Queue .p command with TMDB URL ONLY (poster + trailer) ──
-        // Pass ONLY the TMDB URL so parseDownloadItem doesn't get confused
-        // by two URLs separated by '='. The .p command will send poster,
-        // details card, and trailer — but NO download (no download URL appended).
         const pTask = {
             type: 'p_command',
             description: `🎬 Post: ${downloadLabel}`,
@@ -827,32 +863,10 @@ async function triggerPCommandHandlerFromAiSearch(sock, msg, chatId, sender, int
         if (globalTaskQueue.activeTask && globalTaskQueue.activeTask.id !== queuedP.id) {
             await replyFn(`🎬 *Post Queued* (Position #${globalTaskQueue.queue.length}):\n📌 ${downloadLabel}`);
         }
-
-        // ── Task 2: Queue .d command with the direct download link ──
-        // This downloads the actual media file extracted from the website.
-        const dArgs = epLabel ? `${epLabel} = ${mediaUrl}` : mediaUrl;
-        const dTask = {
-            type: 'd_command',
-            description: `📥 Download: ${downloadLabel}`,
-            commandText: `.d ${dArgs}`,
-            senderJid: sender,
-            from: chatId,
-            executeFn: async (signal, ref) => {
-                await downloadCommandHandler(sock, msg, chatId, sender, dArgs, replyFn, signal, ref);
-            }
-        };
-        const queuedD = globalTaskQueue.add(dTask);
-        if (globalTaskQueue.activeTask && globalTaskQueue.activeTask.id !== queuedD.id) {
-            await replyFn(`📥 *Download Queued* (Position #${globalTaskQueue.queue.length}):\n📌 ${downloadLabel}`);
-        }
-
-        console.log(`[AISearch] Queued .p (TMDB: ${tmdbUrl}) and .d (media: ${mediaUrl}) as separate tasks for "${downloadLabel}"`);
-        return;
     }
 
-    // Fallback: No TMDB info available — queue just the download
-    const dArgs = epLabel ? `${epLabel} = ${mediaUrl}` : mediaUrl;
-    const fallbackTask = {
+    // ── Task 2: Queue .d command with the direct download link ──
+    const dTask = {
         type: 'd_command',
         description: `📥 Download: ${downloadLabel}`,
         commandText: `.d ${dArgs}`,
@@ -862,11 +876,12 @@ async function triggerPCommandHandlerFromAiSearch(sock, msg, chatId, sender, int
             await downloadCommandHandler(sock, msg, chatId, sender, dArgs, replyFn, signal, ref);
         }
     };
-    const queuedFallback = globalTaskQueue.add(fallbackTask);
-    if (globalTaskQueue.activeTask && globalTaskQueue.activeTask.id !== queuedFallback.id) {
+    const queuedD = globalTaskQueue.add(dTask);
+    if (globalTaskQueue.activeTask && globalTaskQueue.activeTask.id !== queuedD.id) {
         await replyFn(`📥 *Download Queued* (Position #${globalTaskQueue.queue.length}):\n📌 ${downloadLabel}`);
     }
-    console.log(`[AISearch] Queued .d fallback (no TMDB) for: ${mediaUrl}`);
+
+    console.log(`[AISearch] Queued download for "${downloadLabel}" (includePoster: ${includePoster})`);
 }
 
 module.exports = {

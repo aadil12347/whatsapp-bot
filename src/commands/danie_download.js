@@ -2549,7 +2549,7 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
             let targetFilename = customFilename;
 
             if (items.length > 1) {
-                await reply(`⏳ Processing file *${i + 1}/${items.length}*...\n📥 Target: ${targetFilename || 'Auto-detect'}`);
+                await reply(`⏳ *Downloading file ${i + 1}/${items.length}...*`);
             }
 
             // Direct download bypass (no movie scraping/resolution)
