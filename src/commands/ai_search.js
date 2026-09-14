@@ -209,14 +209,7 @@ function formatPreConfirmCard(chosenPost, intent, availableSeasons = []) {
             seasonSection = `🎯 *Selected Season:* *${selSeasonLabel}*\n\n`;
         }
 
-        let epStr = 'All Episodes';
-        if (intent.selectedEpisodes && intent.selectedEpisodes.length > 0) {
-            epStr = intent.selectedEpisodes.length === 1 ? `Episode ${intent.selectedEpisodes[0]}` : `Episodes ${intent.selectedEpisodes.join(', ')}`;
-        } else if (intent.episode) {
-            epStr = `Episode ${intent.episode}`;
-        }
-
-        flowSummary = `${cleanTitle} ➔ Season ${selSeason} ➔ ${epStr}`;
+        flowSummary = `${cleanTitle} ➔ Season ${selSeason} ➔ ${resUpper}`;
     } else {
         flowSummary = `${cleanTitle} ➔ ${resUpper}`;
     }
@@ -690,8 +683,7 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
         }
 
         const firstBatchIdx = (catalog.episodes?.length || 0) + 1;
-        const optionsText = `📦 *Select Download Option for Season ${catalog.targetSeason}*\n` +
-                            `📺 *Episode Quality:* *${resLabel}*\n\n` +
+        const optionsText = `📦 *Select Download Option for Season ${catalog.targetSeason}*\n\n` +
                             `${optionsList.join('\n')}\n\n` +
                             `💬 *How to choose:*\n` +
                             `• *Quote/Reply* with option number(s) (e.g. *1* for Episode 1, *${firstBatchIdx}* for ${catalog.batchZips?.[0]?.title || 'All Episodes'}, *1, 2* for Episodes 1 & 2)\n` +
