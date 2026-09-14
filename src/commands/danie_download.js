@@ -3065,8 +3065,6 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
                 try { await reply(completionMsg); } catch (_) {}
             }
         }
-            }
-        }
 
     } catch (error) {
         if ((abortSignal && abortSignal.aborted) || (signal && signal.aborted) || error.message === 'Aborted' || error.name === 'AbortError' || (error.message && error.message.toLowerCase().includes('aborted'))) {
