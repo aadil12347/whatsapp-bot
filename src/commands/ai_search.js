@@ -2,6 +2,15 @@ const { translateAudio, extractSearchIntent, selectBestMatch } = require('../Uti
 const { searchMoviesAndSeries, scrapePostPage, scrapeAllPostLinks, resolveLandingLink, resolveVcloudLink, extractSubOptions, fetchHtmlWithRetry } = require('../Utils/movie_scraper');
 const cheerio = require('cheerio');
 
+// Lazy-loaded references (resolved on first use to avoid circular dependency)
+let _danieMods = null;
+function getDanieMods() {
+    if (!_danieMods) {
+        _danieMods = require('./danie_download');
+    }
+    return _danieMods;
+}
+
 // In-memory state tracking
 const pendingPreConfirmations = new Map();
 const pendingPostSelections = new Map();
@@ -395,7 +404,7 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
         const { catalog, optionsMap } = session;
         const userInput = (updatedInput || '').trim();
         const lowerInput = userInput.toLowerCase();
-        const { downloadCommandHandler } = require('./danie_download');
+        const { downloadCommandHandler } = getDanieMods();
         const replyFn = async (t) => {
             if (typeof t === 'string' && t.trim()) {
                 try {
@@ -637,7 +646,7 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
     }
 
     const { post, intent, candidates } = session;
-    const { pCommandHandler, downloadCommandHandler } = require('./danie_download');
+    const { pCommandHandler, downloadCommandHandler } = getDanieMods();
     const replyFn = async (t) => {
         if (typeof t === 'string' && t.trim()) {
             try {
@@ -781,13 +790,14 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
 }
 
 async function triggerPCommandHandlerFromAiSearch(sock, msg, chatId, sender, intent, mediaUrl, epLabel = '') {
-    const { pCommandHandler, downloadCommandHandler } = require('./danie_download');
+    const { pCommandHandler, downloadCommandHandler, globalTaskQueue } = getDanieMods();
     const replyFn = async (t) => {
         if (typeof t === 'string' && t.trim()) {
             try { await sock.sendMessage(chatId, { text: t }, { quoted: msg }); } catch (_) {}
         }
     };
 
+    // Build TMDB URL for poster/trailer
     let tmdbUrl = '';
     if (intent && intent.tmdbId) {
         const typeStr = intent.type === 'series' ? 'tv' : 'movie';
@@ -799,18 +809,68 @@ async function triggerPCommandHandlerFromAiSearch(sock, msg, chatId, sender, int
         tmdbUrl = intent.query;
     }
 
+    const titleLabel = (intent && intent.query) || 'AI Search Download';
+    const downloadLabel = epLabel ? `${titleLabel} (${epLabel})` : titleLabel;
+
     if (tmdbUrl) {
-        let pArgs = `${tmdbUrl} = ${mediaUrl}`;
-        if (epLabel) pArgs += `, ${epLabel}`;
-        console.log(`[AISearch] Delegating download to pCommandHandler with TMDB URL: "${pArgs}"`);
-        try {
-            return await pCommandHandler(sock, msg, chatId, sender, pArgs, replyFn);
-        } catch (pErr) {
-            console.warn('[AISearch] pCommandHandler fallback to downloadCommandHandler:', pErr.message);
+        // ── Task 1: Queue .p command with TMDB URL ONLY (poster + trailer) ──
+        // Pass ONLY the TMDB URL so parseDownloadItem doesn't get confused
+        // by two URLs separated by '='. The .p command will send poster,
+        // details card, and trailer — but NO download (no download URL appended).
+        const pTask = {
+            type: 'p_command',
+            description: `🎬 Post: ${downloadLabel}`,
+            commandText: `.p ${tmdbUrl}`,
+            senderJid: sender,
+            from: chatId,
+            executeFn: async (signal, ref) => {
+                await pCommandHandler(sock, msg, chatId, sender, tmdbUrl, replyFn, signal, ref);
+            }
+        };
+        const queuedP = globalTaskQueue.add(pTask);
+        if (globalTaskQueue.activeTask && globalTaskQueue.activeTask.id !== queuedP.id) {
+            await replyFn(`🎬 *Post Queued* (Position #${globalTaskQueue.queue.length}):\n📌 ${downloadLabel}`);
         }
+
+        // ── Task 2: Queue .d command with the direct download link ──
+        // This downloads the actual media file extracted from the website.
+        const dArgs = epLabel ? `${epLabel} = ${mediaUrl}` : mediaUrl;
+        const dTask = {
+            type: 'd_command',
+            description: `📥 Download: ${downloadLabel}`,
+            commandText: `.d ${dArgs}`,
+            senderJid: sender,
+            from: chatId,
+            executeFn: async (signal, ref) => {
+                await downloadCommandHandler(sock, msg, chatId, sender, dArgs, replyFn, signal, ref);
+            }
+        };
+        const queuedD = globalTaskQueue.add(dTask);
+        if (globalTaskQueue.activeTask && globalTaskQueue.activeTask.id !== queuedD.id) {
+            await replyFn(`📥 *Download Queued* (Position #${globalTaskQueue.queue.length}):\n📌 ${downloadLabel}`);
+        }
+
+        console.log(`[AISearch] Queued .p (TMDB: ${tmdbUrl}) and .d (media: ${mediaUrl}) as separate tasks for "${downloadLabel}"`);
+        return;
     }
 
-    return await downloadCommandHandler(sock, msg, chatId, sender, mediaUrl, replyFn);
+    // Fallback: No TMDB info available — queue just the download
+    const dArgs = epLabel ? `${epLabel} = ${mediaUrl}` : mediaUrl;
+    const fallbackTask = {
+        type: 'd_command',
+        description: `📥 Download: ${downloadLabel}`,
+        commandText: `.d ${dArgs}`,
+        senderJid: sender,
+        from: chatId,
+        executeFn: async (signal, ref) => {
+            await downloadCommandHandler(sock, msg, chatId, sender, dArgs, replyFn, signal, ref);
+        }
+    };
+    const queuedFallback = globalTaskQueue.add(fallbackTask);
+    if (globalTaskQueue.activeTask && globalTaskQueue.activeTask.id !== queuedFallback.id) {
+        await replyFn(`📥 *Download Queued* (Position #${globalTaskQueue.queue.length}):\n📌 ${downloadLabel}`);
+    }
+    console.log(`[AISearch] Queued .d fallback (no TMDB) for: ${mediaUrl}`);
 }
 
 module.exports = {
