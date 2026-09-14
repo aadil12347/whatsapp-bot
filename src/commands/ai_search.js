@@ -372,6 +372,68 @@ async function handleAiSearchCommand(sock, msg, args, userTextInput = null, isVo
 }
 
 /**
+ * Helper to build and send interactive episode selection menu for series
+ */
+async function sendInteractiveEpisodeMenu(sock, msg, chatId, confirmKey, session) {
+    const { post, intent, candidates } = session;
+    const resUpper = (intent.resolution || '720p').toUpperCase();
+    console.log(`[AISearch] Building interactive options menu for ${post.title} (Season ${intent.season || 1}, ${resUpper})...`);
+    
+    const catalog = await buildVcloudCatalog(post, intent, candidates);
+    
+    let optionIdx = 1;
+    const optionsList = [];
+    const optionsMap = new Map();
+
+    const resLabel = (catalog.targetRes || '720p').toUpperCase();
+
+    // 1. LIST INDIVIDUAL EPISODES with resolution
+    if (catalog.episodes && catalog.episodes.length > 0) {
+        catalog.episodes.forEach(ep => {
+            optionsList.push(`${optionIdx}. ${ep.label}  ─  _${resLabel}_`);
+            optionsMap.set(optionIdx, { type: 'episode', ...ep });
+            optionIdx++;
+        });
+    }
+
+    // 2. LIST ALL AVAILABLE BATCH ZIP OPTIONS AT THE VERY END
+    if (catalog.batchZips && catalog.batchZips.length > 0) {
+        catalog.batchZips.forEach(bz => {
+            optionsList.push(`${optionIdx}. 📦 ${bz.title}`);
+            optionsMap.set(optionIdx, { type: 'batch', data: bz });
+            optionIdx++;
+        });
+    }
+
+    if (optionsList.length === 0) {
+        return sock.sendMessage(chatId, { 
+            text: `❌ *No download options found for Season ${catalog.targetSeason || intent.season || 1} (${resLabel}).* Please try another season or resolution.` 
+        }, { quoted: msg });
+    }
+
+    const firstBatchIdx = (catalog.episodes?.length || 0) + 1;
+    const optionsText = `📦 *Select Download Option for Season ${catalog.targetSeason}*\n\n` +
+                        `${optionsList.join('\n')}\n\n` +
+                        `💬 *How to choose:*\n` +
+                        `• *Quote/Reply* with option number(s) (e.g. *1* for Episode 1, *${firstBatchIdx}* for ${catalog.batchZips?.[0]?.title || 'All Episodes'}, *1, 2* for Episodes 1 & 2)\n` +
+                        `• *Quote/Reply* with episode name or quality (e.g. *Episode 5* or *All Episodes 720P*)\n` +
+                        `• Or send a voice note saying your choice!`;
+
+    const sentMsg = await sock.sendMessage(chatId, { text: optionsText }, { quoted: msg });
+
+    if (sentMsg && sentMsg.key && sentMsg.key.id) {
+        pendingPreConfirmations.set(confirmKey, {
+            ...session,
+            catalog,
+            optionsMap,
+            step: 'select_episode_or_batch',
+            messageId: sentMsg.key.id,
+            timestamp: Date.now()
+        });
+    }
+}
+
+/**
  * Pre-Confirmation Gate Response Handler
  */
 async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, updatedInput = null, isVoice = false, audioBuffer = null) {
@@ -405,6 +467,37 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
                 } catch (_) {}
             }
         };
+
+        // Check if user requested a Season or Quality/Resolution change while on the episode menu
+        const seasonMatch = lowerInput.match(/\bseason\s*(\d+)\b/i) || 
+                            lowerInput.match(/\bs(\d+)\b/i) || 
+                            lowerInput.match(/\b(\d+)(?:st|nd|rd|th)\s*season\b/i);
+        const resMatch = lowerInput.match(/\b(480p?|720p?|1080p?|2160p?|4k)\b/i);
+
+        const newSeason = seasonMatch ? parseInt(seasonMatch[1] || seasonMatch[2] || seasonMatch[3], 10) : null;
+        let newRes = null;
+        if (resMatch) {
+            const rawRes = resMatch[1].toLowerCase();
+            newRes = (rawRes.endsWith('p') || rawRes === '4k') ? rawRes : `${rawRes}p`;
+        }
+
+        // If Season or Quality is specified in the user reply, switch season/quality and re-send the episode selection menu
+        // (Do NOT start downloading)
+        if (newSeason || newRes) {
+            console.log(`[AISearch] User requested season/quality change on options menu. New Season: ${newSeason}, New Res: ${newRes}`);
+            pendingPreConfirmations.delete(confirmKey);
+
+            if (newSeason && newSeason >= 1 && newSeason <= 50) {
+                session.intent.season = newSeason;
+            }
+            if (newRes) {
+                session.intent.resolution = newRes;
+                session.intent.resolutionExplicit = true;
+            }
+
+            await replyFn(`🔄 *Updating download options for Season ${session.intent.season || 1} (${(session.intent.resolution || '720p').toUpperCase()})...*`);
+            return sendInteractiveEpisodeMenu(sock, msg, chatId, confirmKey, session);
+        }
 
         pendingPreConfirmations.delete(confirmKey);
 
@@ -655,58 +748,7 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
     // after seeing the full list with resolution info.
     // ══════════════════════════════════════════════════════════════════
     if (intent.type === 'series') {
-        console.log(`[AISearch] Building interactive options menu for ${post.title} (Season ${intent.season || 1})...`);
-        const catalog = await buildVcloudCatalog(post, intent, candidates);
-        
-        let optionIdx = 1;
-        const optionsList = [];
-        const optionsMap = new Map();
-
-        const resLabel = (catalog.targetRes || '720p').toUpperCase();
-
-        // 1. LIST INDIVIDUAL EPISODES with resolution (1. Episode 1 [720P], 2. Episode 2 [720P]...)
-        if (catalog.episodes && catalog.episodes.length > 0) {
-            catalog.episodes.forEach(ep => {
-                optionsList.push(`${optionIdx}. ${ep.label}  ─  _${resLabel}_`);
-                optionsMap.set(optionIdx, { type: 'episode', ...ep });
-                optionIdx++;
-            });
-        }
-
-        // 2. LIST ALL AVAILABLE BATCH ZIP OPTIONS AT THE VERY END (N+1. All Episodes 480P, N+2. 720P, N+3. 1080P)
-        if (catalog.batchZips && catalog.batchZips.length > 0) {
-            catalog.batchZips.forEach(bz => {
-                optionsList.push(`${optionIdx}. 📦 ${bz.title}`);
-                optionsMap.set(optionIdx, { type: 'batch', data: bz });
-                optionIdx++;
-            });
-        }
-
-        const firstBatchIdx = (catalog.episodes?.length || 0) + 1;
-        const optionsText = `📦 *Select Download Option for Season ${catalog.targetSeason}*\n\n` +
-                            `${optionsList.join('\n')}\n\n` +
-                            `💬 *How to choose:*\n` +
-                            `• *Quote/Reply* with option number(s) (e.g. *1* for Episode 1, *${firstBatchIdx}* for ${catalog.batchZips?.[0]?.title || 'All Episodes'}, *1, 2* for Episodes 1 & 2)\n` +
-                            `• *Quote/Reply* with episode name or quality (e.g. *Episode 5* or *All Episodes 720P*)\n` +
-                            `• Or send a voice note saying your choice!`;
-
-        const sentMsg = await sock.sendMessage(chatId, { text: optionsText }, { quoted: msg });
-
-        if (sentMsg && sentMsg.key && sentMsg.key.id) {
-            pendingPreConfirmations.set(confirmKey, {
-                chatId,
-                sender: msg.key.participant || chatId,
-                post,
-                intent,
-                candidates,
-                catalog,
-                optionsMap,
-                step: 'select_episode_or_batch',
-                messageId: sentMsg.key.id,
-                timestamp: Date.now()
-            });
-        }
-        return;
+        return sendInteractiveEpisodeMenu(sock, msg, chatId, confirmKey, session);
     }
 
     // ══════════════════════════════════════════════════════════════════
