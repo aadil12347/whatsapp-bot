@@ -330,11 +330,50 @@ Respond ONLY with JSON: {"bestIndex": <number>, "reason": "<short explanation>"}
     return candidates[0];
 }
 
+/**
+ * Performs hybrid verification when user provides text alongside a poster image.
+ * Cross-references user-provided title text with poster metadata and TMDB database.
+ */
+async function verifyPosterWithUserTitle(userText, posterInfo = null) {
+    let intent = await extractSearchIntent(userText || '');
+    if (posterInfo && posterInfo.query) {
+        const textTitle = (intent.query || userText || '').toLowerCase().trim().replace(/[^a-z]/g, '');
+        const posterTitle = (posterInfo.query || '').toLowerCase().trim().replace(/[^a-z]/g, '');
+
+        const isExactMatch = textTitle === posterTitle;
+        const isSubstring = textTitle.includes(posterTitle) || posterTitle.includes(textTitle);
+
+        // Check if first 3-4 letters match (e.g. "hasindilruba" vs "haseendillruba")
+        const sharePrefix = textTitle.length >= 3 && posterTitle.length >= 3 && textTitle.slice(0, 3) === posterTitle.slice(0, 3);
+
+        if (isExactMatch || isSubstring || sharePrefix) {
+            console.log(`[AIVerifier] ✅ Poster metadata verified against user title: "${intent.query}" ~ "${posterInfo.query}"`);
+            intent.query = posterInfo.query || intent.query;
+            if (posterInfo.year) intent.year = posterInfo.year;
+            if (posterInfo.language) intent.language = posterInfo.language;
+            if (posterInfo.origin) intent.origin = posterInfo.origin;
+            if (posterInfo.type) intent.type = posterInfo.type;
+            intent.verified = true;
+        } else {
+            console.log(`[AIVerifier] ⚠️ User title "${userText}" differs from poster image "${posterInfo.query}". Combining hints...`);
+            if (posterInfo.year && !intent.year) intent.year = posterInfo.year;
+            if (posterInfo.language && !intent.language) intent.language = posterInfo.language;
+            if (posterInfo.origin && intent.origin === 'non-indian') intent.origin = posterInfo.origin;
+            intent.verified = false;
+        }
+    }
+    return intent;
+}
+
+
+
 module.exports = {
     translateAudio,
     transcribeAudio,
     extractSearchIntent,
     understandUniversalIntent,
+    verifyPosterWithUserTitle,
     selectBestMatch
 };
+
 
