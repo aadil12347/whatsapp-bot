@@ -454,6 +454,36 @@ async function handlePreConfirmationReply(sock, msg, confirmKey, isApproved, upd
         }
     }
 
+    // 1b. Handle Step: 'select_homepage_post' (Homepage listing reply)
+    if (session.step === 'select_homepage_post') {
+        const { posts, optionsMap } = session;
+        const userInput = (updatedInput || '').trim();
+        const lowerInput = userInput.toLowerCase();
+        pendingPreConfirmations.delete(confirmKey);
+
+        let chosenPost = null;
+        const numMatch = userInput.match(/\b\d+\b/);
+        if (numMatch) {
+            const idx = parseInt(numMatch[0], 10);
+            if (optionsMap && optionsMap.has(idx)) {
+                chosenPost = optionsMap.get(idx);
+            } else if (posts && posts[idx - 1]) {
+                chosenPost = posts[idx - 1];
+            }
+        }
+
+        const resMatch = lowerInput.match(/\b(480p?|720p?|1080p?|2160p?|4k)\b/i);
+        let requestedRes = resMatch ? resMatch[1].toLowerCase() : '720p';
+        if (!requestedRes.endsWith('p') && requestedRes !== '4k') requestedRes += 'p';
+
+        if (chosenPost) {
+            console.log(`[AISearch] User selected homepage post #${numMatch[0]}: "${chosenPost.title}" in ${requestedRes}`);
+            return handleAiSearchCommand(sock, msg, [], `${chosenPost.title} in ${requestedRes}`);
+        } else {
+            return handleAiSearchCommand(sock, msg, [], userInput, isVoice, audioBuffer);
+        }
+    }
+
     // 2. Handle Step: 'select_episode_or_batch' (Options menu reply)
     if (session.step === 'select_episode_or_batch') {
         const { catalog, optionsMap } = session;
@@ -852,7 +882,9 @@ async function triggerPCommandHandlerFromAiSearch(sock, msg, chatId, sender, int
     const downloadLabel = epLabel ? `${titleLabel} (${epLabel})` : titleLabel;
     const dArgs = mediaUrl;
 
-    if (tmdbUrl && includePoster) {
+    const shouldIncludePoster = includePoster && !(intent && (intent.noPoster || intent.noCaption || intent.noTrailer));
+
+    if (tmdbUrl && shouldIncludePoster) {
         // ── Task 1: Queue .p command with TMDB URL ONLY (poster + trailer) ──
         const pTask = {
             type: 'p_command',
@@ -886,11 +918,68 @@ async function triggerPCommandHandlerFromAiSearch(sock, msg, chatId, sender, int
         await replyFn(`📥 *Download Queued* (Position #${globalTaskQueue.queue.length}):\n📌 ${downloadLabel}`);
     }
 
-    console.log(`[AISearch] Queued download for "${downloadLabel}" (includePoster: ${includePoster})`);
+    console.log(`[AISearch] Queued download for "${downloadLabel}" (includePoster: ${shouldIncludePoster})`);
+}
+
+/**
+ * Scrapes and formats homepage or category listing posts for step-by-step interactive selection
+ */
+async function handleHomepageExtract(sock, msg, site = 'vegamovies', category = null) {
+    const chatId = msg.key.remoteJid;
+    const sender = msg.key.participant || msg.key.remoteJid;
+    const { scrapeHomepagePosts } = require('../Utils/movie_scraper');
+
+    const siteLabel = site.toLowerCase().includes('rog') ? 'Rogmovies' : (site.toLowerCase().includes('hdhub') ? 'HDHub4u' : 'Vegamovies');
+    const catLabel = category ? ` (${category})` : '';
+
+    await sock.sendMessage(chatId, { text: `⏳ *Extracting latest homepage posts from ${siteLabel}${catLabel} . . .*` }, { quoted: msg });
+
+    try {
+        const posts = await scrapeHomepagePosts(site, category);
+        if (!posts || posts.length === 0) {
+            return sock.sendMessage(chatId, { text: `❌ No homepage posts found on ${siteLabel}.` }, { quoted: msg });
+        }
+
+        const confirmKey = `${chatId}_${Date.now().toString().slice(-4)}`;
+        let menuText = `🏠 *${siteLabel} Latest Homepage Posts:* ${catLabel}\n\n`;
+        const optionsMap = new Map();
+
+        posts.forEach((p, idx) => {
+            const num = idx + 1;
+            menuText += `\`${num}\`. *${p.title}*\n`;
+            optionsMap.set(num, p);
+        });
+
+        menuText += `\n💬 *How to proceed:*\n` +
+                    `• Reply to this message with a post number and resolution (e.g. *1 in 720p*, *extract 720 link of post 3*, or *post 2*)\n` +
+                    `• Or reply with a new search term or voice note!`;
+
+        const topPost = posts[0];
+        const sentMsg = topPost && topPost.thumbnail
+            ? await sock.sendMessage(chatId, { image: { url: topPost.thumbnail }, caption: menuText }, { quoted: msg })
+            : await sock.sendMessage(chatId, { text: menuText }, { quoted: msg });
+
+        if (sentMsg && sentMsg.key && sentMsg.key.id) {
+            pendingPreConfirmations.set(confirmKey, {
+                chatId,
+                sender,
+                step: 'select_homepage_post',
+                site: siteLabel,
+                posts,
+                optionsMap,
+                messageId: sentMsg.key.id,
+                timestamp: Date.now()
+            });
+        }
+    } catch (err) {
+        console.error(`[AISearch] Homepage extract failed for ${siteLabel}:`, err.message);
+        sock.sendMessage(chatId, { text: `❌ Failed to extract homepage from ${siteLabel}: ${err.message}` }, { quoted: msg });
+    }
 }
 
 module.exports = {
     handleAiSearchCommand,
+    handleHomepageExtract,
     handlePreConfirmationReply,
     formatPreConfirmCard,
     pendingPreConfirmations,

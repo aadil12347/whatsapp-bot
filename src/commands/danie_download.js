@@ -612,6 +612,7 @@ const SETTINGS_PATH = path.join(__dirname, '..', '..', 'session', 'download_sett
 // Track which private JIDs have had their Signal session primed this bot session.
 // Once a text primer succeeds for a JID, we don't need to prime it again until restart.
 const _primedSessions = new Set();
+const pendingGroupConfirmations = new Map();
 
 async function sendAndForwardFile(conn, targets, filePayload, sendOptions = {}) {
     if (sendOptions.abortSignal && sendOptions.abortSignal.aborted) {
@@ -1941,6 +1942,41 @@ function initUpsertListener(conn) {
                 }
             }
 
+            // ---- Check if it's a reply for pending group antilink / antispam confirmation ----
+            let matchedGroupConfirmKey = null;
+            for (const [key, session] of pendingGroupConfirmations.entries()) {
+                if (session.chatId === targetJid) {
+                    if (session.messageId && quotedId && quotedId === session.messageId) {
+                        matchedGroupConfirmKey = key;
+                        break;
+                    }
+                }
+            }
+
+            if (matchedGroupConfirmKey) {
+                const session = pendingGroupConfirmations.get(matchedGroupConfirmKey);
+                pendingGroupConfirmations.delete(matchedGroupConfirmKey);
+
+                const lower = trimmedText.toLowerCase();
+                if (['yes', 'y', '1', 'confirm', 'ok', 'haan', 'ha', 'yahi', 'sahi', 'kar do'].includes(lower)) {
+                    if (session.mode === 'antilink') {
+                        const { addGroupToAntilink, removeGroupFromAntilink } = require('../Utils/antilink');
+                        if (session.enable) addGroupToAntilink(session.groupJid);
+                        else removeGroupFromAntilink(session.groupJid);
+                        await reply(`✅ Anti-Link protection *${session.enable ? 'ENABLED' : 'DISABLED'}* for group *${session.groupName}* (\`${session.groupJid}\`).`);
+                    } else if (session.mode === 'antispam') {
+                        const { addGroupToAntispam, removeGroupFromAntispam } = require('../Utils/antispam');
+                        if (session.enable) addGroupToAntispam(session.groupJid);
+                        else removeGroupFromAntispam(session.groupJid);
+                        await reply(`✅ Anti-Spam protection *${session.enable ? 'ENABLED' : 'DISABLED'}* for group *${session.groupName}* (\`${session.groupJid}\`).`);
+                    }
+                    return;
+                } else {
+                    await reply('❌ Group settings change cancelled.');
+                    return;
+                }
+            }
+
             // ---- AUTO-URL DETECTOR FOR OWNER (Direct Link Auto-Downloader) ----
             const isBotOutputMessage = mek.key.fromMe && (
                 trimmedText.startsWith('❌') || 
@@ -2008,6 +2044,203 @@ function initUpsertListener(conn) {
                         await safeExec('se');
                         return;
                     }
+                }
+            }
+
+            // ══════════════════════════════════════════════════════════════════
+            //  UNIVERSAL AI AGENT CONTROLLER — Full Bot Control & Assistant Router
+            // ══════════════════════════════════════════════════════════════════
+            if (!isBotOutputMessage && trimmedText) {
+                console.log(`[UniversalAIAgent] 🤖 Analyzing natural language request in You (own) chat: "${trimmedText}"`);
+                try {
+                    const { understandUniversalIntent } = require('../Utils/ai_provider');
+                    const { handleHomepageExtract } = require('./ai_search');
+
+                    const actionIntent = await understandUniversalIntent(trimmedText);
+                    console.log(`[UniversalAIAgent] 🎯 Action Intent Classified:`, actionIntent);
+
+                    const actionType = actionIntent.action || 'search_download';
+
+                    // 1. Action: homepage_extract / category_extract
+                    if (actionType === 'homepage_extract' || actionType === 'category_extract') {
+                        const site = actionIntent.site || 'vegamovies';
+                        const category = actionIntent.category || null;
+                        await handleHomepageExtract(conn, mek, site, category);
+                        return;
+                    }
+
+                    // 2. Action: toggle_antilink
+                    if (actionType === 'toggle_antilink') {
+                        const targetName = (actionIntent.targetGroupName || '').trim();
+                        const enable = actionIntent.enable !== false;
+
+                        const { addGroupToAntilink, removeGroupFromAntilink } = require('../Utils/antilink');
+
+                        let groupsObj = {};
+                        try { groupsObj = await safeFetchParticipatingGroups(conn); } catch (_) {}
+                        const groupsList = Object.values(groupsObj);
+
+                        let matchedGroup = null;
+                        if (targetName) {
+                            const lTarget = targetName.toLowerCase();
+                            matchedGroup = groupsList.find(g => (g.subject || '').toLowerCase().includes(lTarget) || (g.name || '').toLowerCase().includes(lTarget));
+                        }
+
+                        if (!matchedGroup && groupsList.length === 1) {
+                            matchedGroup = groupsList[0];
+                        }
+
+                        if (matchedGroup) {
+                            const confirmKey = `${targetJid}_group_${Date.now().toString().slice(-4)}`;
+                            const actionLabel = enable ? 'Turn ON Anti-Link Protection' : 'Turn OFF Anti-Link Protection';
+                            const confirmText = `⚠️ *Confirmation Required:* ${actionLabel} for group *${matchedGroup.subject || matchedGroup.name}* (\`${matchedGroup.id}\`)?\n\n` +
+                                                `Reply with *yes* to confirm or *no* to cancel.`;
+
+                            const sentMsg = await reply(confirmText);
+                            if (sentMsg && sentMsg.key && sentMsg.key.id) {
+                                pendingGroupConfirmations.set(confirmKey, {
+                                    chatId: targetJid,
+                                    sender: senderJid,
+                                    mode: 'antilink',
+                                    enable,
+                                    groupJid: matchedGroup.id,
+                                    groupName: matchedGroup.subject || matchedGroup.name,
+                                    messageId: sentMsg.key.id,
+                                    timestamp: Date.now()
+                                });
+                            }
+                            return;
+                        } else {
+                            await handleAntilinkCommand(conn, mek, targetJid, senderJid, enable ? 'add' : 'remove', reply);
+                            return;
+                        }
+                    }
+
+                    // 3. Action: toggle_antispam
+                    if (actionType === 'toggle_antispam') {
+                        const targetName = (actionIntent.targetGroupName || '').trim();
+                        const enable = actionIntent.enable !== false;
+
+                        const { addGroupToAntispam, removeGroupFromAntispam } = require('../Utils/antispam');
+
+                        let groupsObj = {};
+                        try { groupsObj = await safeFetchParticipatingGroups(conn); } catch (_) {}
+                        const groupsList = Object.values(groupsObj);
+
+                        let matchedGroup = null;
+                        if (targetName) {
+                            const lTarget = targetName.toLowerCase();
+                            matchedGroup = groupsList.find(g => (g.subject || '').toLowerCase().includes(lTarget) || (g.name || '').toLowerCase().includes(lTarget));
+                        }
+
+                        if (matchedGroup) {
+                            const confirmKey = `${targetJid}_group_${Date.now().toString().slice(-4)}`;
+                            const actionLabel = enable ? 'Turn ON Anti-Spam Protection' : 'Turn OFF Anti-Spam Protection';
+                            const confirmText = `⚠️ *Confirmation Required:* ${actionLabel} for group *${matchedGroup.subject || matchedGroup.name}* (\`${matchedGroup.id}\`)?\n\n` +
+                                                `Reply with *yes* to confirm or *no* to cancel.`;
+
+                            const sentMsg = await reply(confirmText);
+                            if (sentMsg && sentMsg.key && sentMsg.key.id) {
+                                pendingGroupConfirmations.set(confirmKey, {
+                                    chatId: targetJid,
+                                    sender: senderJid,
+                                    mode: 'antispam',
+                                    enable,
+                                    groupJid: matchedGroup.id,
+                                    groupName: matchedGroup.subject || matchedGroup.name,
+                                    messageId: sentMsg.key.id,
+                                    timestamp: Date.now()
+                                });
+                            }
+                            return;
+                        } else {
+                            await handleAntispamCommand(conn, mek, targetJid, senderJid, enable ? 'add' : 'remove', reply);
+                            return;
+                        }
+                    }
+
+                    // 4. Action: queue_management
+                    if (actionType === 'queue_management') {
+                        const sub = (actionIntent.subAction || 'show').toLowerCase();
+                        if (sub === 'clear') {
+                            if (typeof DANIE_COMMANDS['c'] === 'function') await DANIE_COMMANDS['c'](conn, mek, targetJid, senderJid, '', reply);
+                        } else if (sub === 'remove' && actionIntent.itemIndex) {
+                            if (typeof DANIE_COMMANDS['qdel'] === 'function') await DANIE_COMMANDS['qdel'](conn, mek, targetJid, senderJid, String(actionIntent.itemIndex), reply);
+                        } else {
+                            if (typeof DANIE_COMMANDS['que'] === 'function') await DANIE_COMMANDS['que'](conn, mek, targetJid, senderJid, '', reply);
+                        }
+                        return;
+                    }
+
+                    // 5. Action: daily_release_list
+                    if (actionType === 'daily_release_list') {
+                        const sub = (actionIntent.subAction || 'generate').toLowerCase();
+                        if (sub === 'history') {
+                            if (typeof DANIE_COMMANDS['7days'] === 'function') await DANIE_COMMANDS['7days'](conn, mek, targetJid, senderJid, '', reply);
+                        } else {
+                            if (typeof DANIE_COMMANDS['createlist'] === 'function') await DANIE_COMMANDS['createlist'](conn, mek, targetJid, senderJid, '', reply);
+                        }
+                        return;
+                    }
+
+                    // 6. Action: domain_settings
+                    if (actionType === 'domain_settings') {
+                        if (actionIntent.subAction === 'update' && actionIntent.value) {
+                            const choice = actionIntent.site === 'rogmovies' ? '1' : (actionIntent.site === 'vegamovies' ? '2' : '3');
+                            const res = setDomain(choice, actionIntent.value);
+                            if (res.success) {
+                                await reply(`✅ *Domain Updated Successfully!*\n\n• *Site:* ${res.site || 'Settings'}\n• *Value:* \`${actionIntent.value}\``);
+                            } else {
+                                await reply(`❌ ${res.error}`);
+                            }
+                        } else {
+                            if (typeof DANIE_COMMANDS['domain'] === 'function') await DANIE_COMMANDS['domain'](conn, mek, targetJid, senderJid, '', reply);
+                        }
+                        return;
+                    }
+
+                    // 7. Action: system_status
+                    if (actionType === 'system_status') {
+                        if (typeof DANIE_COMMANDS['status'] === 'function') await DANIE_COMMANDS['status'](conn, mek, targetJid, senderJid, '', reply);
+                        return;
+                    }
+
+                    // 8. Action: general_ai_assistant (General Q&A, Web Search, Conversational Chat)
+                    if (actionType === 'general_ai_assistant' && actionIntent.answerPrompt) {
+                        console.log(`[UniversalAIAgent] 💬 Generating conversational response for: "${actionIntent.answerPrompt}"`);
+                        const GROQ_KEY = process.env.GROQ_API_KEY || process.env.GROK_API_KEY;
+                        if (GROQ_KEY) {
+                            try {
+                                const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
+                                    model: 'openai/gpt-oss-120b',
+                                    messages: [
+                                        { role: 'system', content: 'You are DanieWatch Personal Assistant AI. Answer questions clearly, accurately, and politely in formatted Markdown.' },
+                                        { role: 'user', content: actionIntent.answerPrompt }
+                                    ],
+                                    temperature: 0.7
+                                }, {
+                                    headers: {
+                                        'Authorization': `Bearer ${GROQ_KEY}`,
+                                        'Content-Type': 'application/json'
+                                    }
+                                });
+                                const responseText = aiRes.data.choices[0].message.content;
+                                if (responseText && responseText.trim()) {
+                                    await reply(responseText.trim());
+                                    return;
+                                }
+                            } catch (gErr) {
+                                console.warn('[UniversalAIAgent] Conversational AI response failed:', gErr.message);
+                            }
+                        }
+                    }
+
+                    // 9. Default Fallback: search_download
+                    console.log(`[UniversalAIAgent] Executing search_download for query: "${actionIntent.query || trimmedText}"`);
+                    await handleAiSearchCommand(conn, mek, [], trimmedText);
+                } catch (aiErr) {
+                    console.error('[UniversalAIAgent] Error processing natural language command:', aiErr.message);
+                    await handleAiSearchCommand(conn, mek, [], trimmedText);
                 }
             }
         }
