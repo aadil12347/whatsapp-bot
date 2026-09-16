@@ -1,6 +1,7 @@
-const { translateAudio, extractSearchIntent, selectBestMatch } = require('../Utils/ai_provider');
+const { translateAudio, extractSearchIntent, selectBestMatch, analyzePosterImage, verifyPosterWithUserTitle } = require('../Utils/ai_provider');
 const { searchMoviesAndSeries, scrapePostPage, scrapeAllPostLinks, resolveLandingLink, resolveVcloudLink, extractSubOptions, fetchHtmlWithRetry } = require('../Utils/movie_scraper');
 const cheerio = require('cheerio');
+const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
 
 // Lazy-loaded references (resolved on first use to avoid circular dependency)
 let _danieMods = null;
@@ -14,6 +15,26 @@ function getDanieMods() {
 // In-memory state tracking
 const pendingPreConfirmations = new Map();
 const pendingPostSelections = new Map();
+
+function extractTitleAndYearFromPostTitle(postTitle) {
+    if (!postTitle) return { title: null, year: null };
+    const raw = postTitle.replace(/^download\s+/i, '').trim();
+    const yearMatch = raw.match(/\b(19\d\d|20\d\d)\b/);
+    const year = yearMatch ? yearMatch[1] : null;
+
+    const clean = raw
+        .replace(/\s*\(\s*(?:19|20)\d\d\s*\)/gi, '')
+        .replace(/\s*\(\s*season\s+.*?\)/gi, '')
+        .replace(/\[[^\]]*\]/g, '')
+        .replace(/\{[^}]*\}/g, '')
+        .replace(/\|/g, '')
+        .replace(/\b(dual|multi|audio|hindi|english|dubbed|subbed|esub|org|web-dl|webdl|bluray|hdrip|480p|720p|1080p|2160p|4k|dd5\.1|dd\+5\.1|movie)\b/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .replace(/[-:\.\s]+$/, '').trim();
+
+    return { title: clean || null, year: year || null };
+}
 
 /**
  * Builds a structured VCloud-only catalog for a TV series post:
@@ -188,11 +209,13 @@ function extractLanguages(title) {
 }
 
 function formatPreConfirmCard(chosenPost, intent, availableSeasons = []) {
-    const cleanTitle = intent.query || chosenPost.title;
+    const postInfo = extractTitleAndYearFromPostTitle(chosenPost.title);
+    const cleanTitle = intent.query || postInfo.title || chosenPost.title;
+    const yearVal = intent.year || postInfo.year;
     const rawLangs = extractLanguages(chosenPost.title);
     const languages = rawLangs.replace(/\s*-\s*/g, ' • ');
     const resUpper = (intent.resolution || '720p').toUpperCase();
-    const yearStr = intent.year ? ` (${intent.year})` : '';
+    const yearStr = yearVal ? ` (${yearVal})` : '';
 
     let seasonSection = '';
     let flowSummary = `${cleanTitle}`;
@@ -226,7 +249,7 @@ function formatPreConfirmCard(chosenPost, intent, availableSeasons = []) {
 /**
  * Main AI Search & Downloader Handler
  */
-async function handleAiSearchCommand(sock, msg, args, userTextInput = null, isVoice = false, audioBuffer = null) {
+async function handleAiSearchCommand(sock, msg, args, userTextInput = null, isVoice = false, audioBuffer = null, imageBuffer = null, mimeType = 'image/jpeg') {
     const chatId = msg.key.remoteJid;
     const sender = msg.key.participant || msg.key.remoteJid;
 
@@ -245,6 +268,33 @@ async function handleAiSearchCommand(sock, msg, args, userTextInput = null, isVo
 
     let userPrompt = userTextInput || (Array.isArray(args) ? args.join(' ').trim() : args || '');
 
+    // 0b. Detect & analyze attached or quoted poster image using Vision AI if present
+    let posterInfo = null;
+    const imageMsg = msg.message?.imageMessage || msg.message?.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage;
+
+    if (!audioBuffer && (imageBuffer || imageMsg)) {
+        try {
+            if (!imageBuffer && imageMsg) {
+                await sock.sendMessage(chatId, { text: '🔍 *Analyzing poster image with Vision AI . . .*' }, { quoted: msg });
+                const stream = await downloadContentFromMessage(imageMsg, 'image');
+                let buf = Buffer.from([]);
+                for await (const chunk of stream) buf = Buffer.concat([buf, chunk]);
+                if (buf.length > 0) {
+                    imageBuffer = buf;
+                    mimeType = imageMsg.mimetype || 'image/jpeg';
+                }
+            }
+            if (imageBuffer) {
+                posterInfo = await analyzePosterImage(imageBuffer, mimeType);
+                if (posterInfo) {
+                    console.log(`[AISearch] 🖼️ Poster metadata resolved by Vision AI:`, posterInfo);
+                }
+            }
+        } catch (imgErr) {
+            console.warn('[AISearch] Vision AI image processing warning:', imgErr.message);
+        }
+    }
+
     // 1. If Voice Note, send immediate short acknowledgement and translate speech
     if (isVoice && audioBuffer) {
         try {
@@ -256,21 +306,39 @@ async function handleAiSearchCommand(sock, msg, args, userTextInput = null, isVo
         }
     }
 
-    if (!userPrompt || userPrompt.trim() === '') {
-        return sock.sendMessage(chatId, { text: '⚠️ Please provide a movie/series name or send a voice note.\nExample: `.search Superman 2025 in 720p`' }, { quoted: msg });
+    if (!posterInfo && (!userPrompt || userPrompt.trim() === '')) {
+        return sock.sendMessage(chatId, { text: '⚠️ Please provide a movie/series name or send a poster image / voice note.\nExample: `.search Superman 2025 in 720p`' }, { quoted: msg });
     }
 
-    // 2. Extract Intent using AI
+    // 2. Extract Intent using AI or Vision poster metadata
     let intent;
-    try {
-        intent = await extractSearchIntent(userPrompt);
-        console.log(`[AISearch] Extracted Intent:`, intent);
-    } catch (e) {
-        intent = { query: userPrompt, year: null, resolution: '720p', type: 'movie', origin: 'non-indian' };
+    if (posterInfo && userPrompt && userPrompt.replace(/^\.search/i, '').trim().length > 0) {
+        intent = await verifyPosterWithUserTitle(userPrompt, posterInfo);
+    } else if (posterInfo && posterInfo.query) {
+        intent = {
+            query: posterInfo.query,
+            year: posterInfo.year || null,
+            resolution: posterInfo.resolution || '720p',
+            type: posterInfo.type || 'movie',
+            origin: posterInfo.origin || 'non-indian',
+            language: posterInfo.language || null,
+            site: 'both',
+            noPoster: false,
+            noCaption: false,
+            noTrailer: false,
+            addToQueue: false
+        };
+    } else {
+        try {
+            intent = await extractSearchIntent(userPrompt);
+            console.log(`[AISearch] Extracted Intent:`, intent);
+        } catch (e) {
+            intent = { query: userPrompt, year: null, resolution: '720p', type: 'movie', origin: 'non-indian' };
+        }
     }
 
-    intent.userPrompt = userPrompt;
-    intent.resolutionExplicit = /\b(480p|720p|1080p|2160p|4k)\b/i.test(userPrompt);
+    intent.userPrompt = userPrompt || intent.query;
+    intent.resolutionExplicit = /\b(480p|720p|1080p|2160p|4k)\b/i.test(intent.userPrompt);
 
     if (!intent.query || intent.query.trim() === '') {
         intent.query = userPrompt;
@@ -307,7 +375,7 @@ async function handleAiSearchCommand(sock, msg, args, userTextInput = null, isVo
     // 3. Search target sites
     let candidates = await searchMoviesAndSeries(intent.query, intent.origin);
 
-    if ((!candidates || candidates.length === 0) && intent.query !== userPrompt) {
+    if ((!candidates || candidates.length === 0) && userPrompt && intent.query !== userPrompt) {
         console.log(`[AISearch] 🔄 0 hits for "${intent.query}". Retrying site search with raw keyword: "${userPrompt}"`);
         candidates = await searchMoviesAndSeries(userPrompt, intent.origin);
     }
@@ -319,6 +387,19 @@ async function handleAiSearchCommand(sock, msg, args, userTextInput = null, isVo
     let chosenPost = candidates[0];
     if (candidates.length > 1) {
         chosenPost = await selectBestMatch({ title: intent.query, year: intent.year }, candidates, intent.resolution);
+    }
+
+    // Sync intent title and year with chosen candidate post if post has a specific title (e.g. M3GAN 2.0 (2025))
+    const postTitleDetails = extractTitleAndYearFromPostTitle(chosenPost.title);
+    if (postTitleDetails.title) {
+        const postHasNumber = /\b\d+(\.\d+)?\b/.test(postTitleDetails.title);
+        const intentHasNumber = /\b\d+(\.\d+)?\b/.test(intent.query);
+        if (postHasNumber || !intentHasNumber) {
+            intent.query = postTitleDetails.title;
+        }
+    }
+    if (postTitleDetails.year) {
+        intent.year = postTitleDetails.year;
     }
 
     // AUTO-DETECT SERIES TYPE FROM CANDIDATE POST TITLE

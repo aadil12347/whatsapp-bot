@@ -66,6 +66,77 @@ async function transcribeAudio(audioBuffer, mimeType = 'audio/mp3') {
 }
 
 /**
+ * Analyzes movie/series poster image buffer using Groq Vision models to extract canonical title, release year, and metadata.
+ */
+async function analyzePosterImage(imageBuffer, mimeType = 'image/jpeg') {
+    if (!GROQ_KEY) {
+        throw new Error("GROQ_API_KEY is not configured in config.env");
+    }
+
+    try {
+        const cleanMime = (mimeType || 'image/jpeg').split(';')[0].trim();
+        const base64Img = imageBuffer.toString('base64');
+
+        const systemPrompt = `You are an expert movie and TV series poster analyzer.
+Analyze the provided image of a movie or TV show poster.
+Extract details into strict JSON:
+- "query": Official, exact title of the movie or TV show visible on the poster (e.g. "M3GAN 2.0", "Haseen Dillruba", "Stree 2", "Pushpa 2"). PRESERVE ANY SEQUEL NUMBERS AND VERSION IDENTIFIERS (e.g. "2.0", "2", "Part 2").
+- "year": 4-digit release year if visible on poster or well-known for this movie/show (e.g. "2025", "2022"), else null
+- "type": "movie" or "series"
+- "origin": "indian" (if Bollywood, Hindi, Tamil, Telugu, South Indian, Urdu) or "non-indian" (if Hollywood, English, Korean, Foreign)
+- "language": primary language if indicated, else null
+- "resolution": "720p"
+
+Respond ONLY with valid JSON, no markdown wrappers, no prose.`;
+
+        const candidateVisionModels = [
+            'llama-3.2-11b-vision-preview',
+            'llama-3.2-90b-vision-preview',
+            'llama-3.2-11b-instruct'
+        ];
+
+        for (const model of candidateVisionModels) {
+            try {
+                const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
+                    model: model,
+                    messages: [
+                        { role: 'system', content: systemPrompt },
+                        {
+                            role: 'user',
+                            content: [
+                                { type: 'text', text: 'Analyze this movie/series poster image and output strict JSON.' },
+                                { type: 'image_url', image_url: { url: `data:${cleanMime};base64,${base64Img}` } }
+                            ]
+                        }
+                    ],
+                    response_format: { type: "json_object" },
+                    temperature: 0.1
+                }, {
+                    headers: {
+                        'Authorization': `Bearer ${GROQ_KEY}`,
+                        'Content-Type': 'application/json'
+                    },
+                    timeout: 25000
+                });
+
+                const raw = response.data.choices[0].message.content;
+                const parsed = JSON.parse(raw);
+                if (parsed && parsed.query) {
+                    console.log(`[VisionAI] 🖼️ Poster image successfully analyzed via ${model}:`, parsed);
+                    return parsed;
+                }
+            } catch (err) {
+                console.warn(`⚠️ Vision model ${model} attempt failed: ${err.message}`);
+            }
+        }
+        return null;
+    } catch (err) {
+        console.error("❌ Poster image analysis error:", err.message);
+        return null;
+    }
+}
+
+/**
  * Parses user text or transcribed speech into structured movie/series search intent,
  * correcting mispronunciations, spoken accents, and phonetic errors (e.g. "streetoo" -> "Stree 2").
  */
@@ -78,8 +149,8 @@ async function extractSearchIntent(inputPrompt) {
 The user input may come from spoken voice notes or mispronounced/phonetically misspelled text in English, Hindi, Urdu, or regional languages (e.g. "streetoo" -> "Stree 2", "pushpa tu" -> "Pushpa 2", "avengers end game" -> "Avengers: Endgame", "spiderman no way home" -> "Spider-Man: No Way Home", "stranger thngs s2" -> "Stranger Things").
 
 Analyze the input and output strict JSON with keys:
-- "query": OFFICIAL CANONICAL TITLE of the movie or TV show (corrected for phonetic mispronunciations, Urdu/Hindi spoken accents, typos, and phonetic speech errors like "streetoo" -> "Stree 2").
-- "year": 4-digit release year if mentioned or strongly associated (e.g. "2023"), else null
+- "query": OFFICIAL CANONICAL TITLE of the movie or TV show. IMPORTANT: PRESERVE EXACT SEQUEL NUMBERS AND VERSION IDENTIFIERS (e.g. "M3GAN 2.0", "Stree 2", "Pushpa 2", "Dune: Part Two", "Avatar 2"). Do NOT strip numbers like "2.0", "2", "Part 2" or revert sequel titles back to the original movie title.
+- "year": 4-digit release year if mentioned or strongly associated (e.g. "2023", "2025"), else null
 - "resolution": requested quality ("480p", "720p", "1080p", "4k"). DEFAULT to "720p" if unspecified.
 - "type": "movie" or "series" (detect based on words like "season", "episode", "s01", "series", "tv", "part 2" vs "movie")
 - "season": season number if mentioned as integer (e.g. 2 for "season 2"), else null
@@ -165,8 +236,8 @@ Your job is to analyze the user's input (text or transcribed voice note) and det
 Available Actions & Fields:
 1. "search_download": User wants to search & download/queue a movie or TV show.
    Fields:
-   - "query": Canonical movie/series title (e.g. "Custody", "Stree 2", "Inception")
-   - "year": 4-digit release year if mentioned (e.g. "2023"), else null
+   - "query": Canonical movie/series title (e.g. "Custody", "Stree 2", "Inception", "M3GAN 2.0")
+   - "year": 4-digit release year if mentioned (e.g. "2023", "2025"), else null
    - "resolution": requested quality ("480p", "720p", "1080p", "4k"). Default "720p".
    - "type": "movie" or "series"
    - "season": season integer if mentioned, else null
@@ -337,8 +408,8 @@ Respond ONLY with JSON: {"bestIndex": <number>, "reason": "<short explanation>"}
 async function verifyPosterWithUserTitle(userText, posterInfo = null) {
     let intent = await extractSearchIntent(userText || '');
     if (posterInfo && posterInfo.query) {
-        const textTitle = (intent.query || userText || '').toLowerCase().trim().replace(/[^a-z]/g, '');
-        const posterTitle = (posterInfo.query || '').toLowerCase().trim().replace(/[^a-z]/g, '');
+        const textTitle = (intent.query || userText || '').toLowerCase().trim().replace(/[^a-z0-9]/g, '');
+        const posterTitle = (posterInfo.query || '').toLowerCase().trim().replace(/[^a-z0-9]/g, '');
 
         const isExactMatch = textTitle === posterTitle;
         const isSubstring = textTitle.includes(posterTitle) || posterTitle.includes(textTitle);
@@ -356,6 +427,7 @@ async function verifyPosterWithUserTitle(userText, posterInfo = null) {
             intent.verified = true;
         } else {
             console.log(`[AIVerifier] ⚠️ User title "${userText}" differs from poster image "${posterInfo.query}". Combining hints...`);
+            intent.query = posterInfo.query || intent.query;
             if (posterInfo.year && !intent.year) intent.year = posterInfo.year;
             if (posterInfo.language && !intent.language) intent.language = posterInfo.language;
             if (posterInfo.origin && intent.origin === 'non-indian') intent.origin = posterInfo.origin;
@@ -365,11 +437,10 @@ async function verifyPosterWithUserTitle(userText, posterInfo = null) {
     return intent;
 }
 
-
-
 module.exports = {
     translateAudio,
     transcribeAudio,
+    analyzePosterImage,
     extractSearchIntent,
     understandUniversalIntent,
     verifyPosterWithUserTitle,
