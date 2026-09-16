@@ -1450,12 +1450,31 @@ function getAllPrivateChats(conn, cleanSender) {
 let _danieStartupSent = false;
 let _connInstance = null;
 
+const _botSentMessageIds = new Set();
+
 function initUpsertListener(conn) {
     if (conn.danieDownloadUpsertRegistered) return;
     conn.danieDownloadUpsertRegistered = true;
     _connInstance = conn;
     if (!conn._startupTime) conn._startupTime = Date.now();
     if (!conn._connectTimeSeconds) conn._connectTimeSeconds = Math.floor(conn._startupTime / 1000);
+
+    // Install wrapper on conn.sendMessage to record all bot-sent message IDs and prevent self-reply loops
+    if (!conn._sendMessageLoopProtectorInstalled) {
+        conn._sendMessageLoopProtectorInstalled = true;
+        const origSendMessage = conn.sendMessage.bind(conn);
+        conn.sendMessage = async function(jid, content, options) {
+            const sentMsg = await origSendMessage(jid, content, options);
+            if (sentMsg && sentMsg.key && sentMsg.key.id) {
+                _botSentMessageIds.add(sentMsg.key.id);
+                if (_botSentMessageIds.size > 2000) {
+                    const firstKey = _botSentMessageIds.values().next().value;
+                    _botSentMessageIds.delete(firstKey);
+                }
+            }
+            return sentMsg;
+        };
+    }
 
     // Pre-prime the bot's own JID so we never send a primer message to ourselves
     if (conn.user && conn.user.id) {
@@ -1496,6 +1515,12 @@ function initUpsertListener(conn) {
 
             for (const mek of rawMessages) {
                 if (!mek) continue;
+
+                // Loop Protector: Silently ignore messages generated programmatically by the bot code itself
+                if (mek.key && mek.key.id && _botSentMessageIds.has(mek.key.id)) {
+                    console.log(`[DanieWatch] 🛡️ Ignored bot's own output message (id: ${mek.key.id}). Self-loop prevented.`);
+                    continue;
+                }
 
                 let msgTimestamp = 0;
                 if (typeof mek.messageTimestamp === 'number') {
@@ -2229,42 +2254,44 @@ function initUpsertListener(conn) {
                         return;
                     }
 
-                    // 8. Action: general_ai_assistant (General Q&A, Web Search, Conversational Chat)
-                    if (actionType === 'general_ai_assistant' && actionIntent.answerPrompt) {
-                        console.log(`[UniversalAIAgent] 💬 Generating conversational response for: "${actionIntent.answerPrompt}"`);
-                        const GROQ_KEY = process.env.GROQ_API_KEY || process.env.GROK_API_KEY;
-                        if (GROQ_KEY) {
-                            try {
-                                const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
-                                    model: 'openai/gpt-oss-120b',
-                                    messages: [
-                                        { role: 'system', content: 'You are DanieWatch Personal Assistant AI. Answer questions clearly, accurately, and politely in formatted Markdown.' },
-                                        { role: 'user', content: actionIntent.answerPrompt }
-                                    ],
-                                    temperature: 0.7
-                                }, {
-                                    headers: {
-                                        'Authorization': `Bearer ${GROQ_KEY}`,
-                                        'Content-Type': 'application/json'
-                                    }
-                                });
-                                const responseText = aiRes.data.choices[0].message.content;
-                                if (responseText && responseText.trim()) {
-                                    await reply(responseText.trim());
-                                    return;
-                                }
-                            } catch (gErr) {
-                                console.warn('[UniversalAIAgent] Conversational AI response failed:', gErr.message);
-                            }
-                        }
+                    // 8. Action: search_download (Executed strictly when search or movie/season keywords are present)
+                    const { isSearchKeywordPresent } = require('../Utils/ai_provider');
+                    if (actionType === 'search_download' && isSearchKeywordPresent(trimmedText)) {
+                        console.log(`[UniversalAIAgent] Executing search_download for query: "${actionIntent.query || trimmedText}"`);
+                        await handleAiSearchCommand(conn, mek, [], trimmedText);
+                        return;
                     }
 
-                    // 9. Default Fallback: search_download
-                    console.log(`[UniversalAIAgent] Executing search_download for query: "${actionIntent.query || trimmedText}"`);
-                    await handleAiSearchCommand(conn, mek, [], trimmedText);
+                    // 9. Action: general_ai_assistant (General Q&A, Voice Notes, Conversational Chat without movie search keywords)
+                    console.log(`[UniversalAIAgent] 💬 Generating conversational response for: "${trimmedText}"`);
+                    const GROQ_KEY = process.env.GROQ_API_KEY || process.env.GROK_API_KEY;
+                    if (GROQ_KEY) {
+                        try {
+                            const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
+                                model: 'openai/gpt-oss-120b',
+                                messages: [
+                                    { role: 'system', content: 'You are DanieWatch Personal Assistant AI. Answer questions clearly, accurately, and politely in formatted Markdown.' },
+                                    { role: 'user', content: actionIntent.answerPrompt || trimmedText }
+                                ],
+                                temperature: 0.7
+                            }, {
+                                headers: {
+                                    'Authorization': `Bearer ${GROQ_KEY}`,
+                                    'Content-Type': 'application/json'
+                                },
+                                timeout: 20000
+                            });
+                            const responseText = aiRes.data.choices[0].message.content;
+                            if (responseText && responseText.trim()) {
+                                await reply(responseText.trim());
+                                return;
+                            }
+                        } catch (gErr) {
+                            console.warn('[UniversalAIAgent] Conversational AI response failed:', gErr.message);
+                        }
+                    }
                 } catch (aiErr) {
                     console.error('[UniversalAIAgent] Error processing natural language command:', aiErr.message);
-                    await handleAiSearchCommand(conn, mek, [], trimmedText);
                 }
             }
         }

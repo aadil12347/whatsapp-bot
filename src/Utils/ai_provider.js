@@ -222,6 +222,20 @@ Respond ONLY with valid JSON, no markdown wrappers, no prose.`;
     };
 }
 
+function isSearchKeywordPresent(text) {
+    if (!text || typeof text !== 'string') return false;
+    const lower = text.toLowerCase().trim();
+
+    // 1. Compulsory search action word
+    const hasSearchWord = /\b(search|download|dhoondo|khojo|find|get|fetch)\b/i.test(lower);
+
+    // 2. Compulsory movie or season indicator word
+    const hasMovieOrSeasonWord = /\b(movie|movies|film|films|season|seasons|series|show|shows|episode|episodes|part\s*\d+|720p|1080p|480p|4k|poster|vegamovies|rogmovies|hdhub4u)\b/i.test(lower);
+
+    // BOTH search word AND movie/season word are compulsory!
+    return hasSearchWord && hasMovieOrSeasonWord;
+}
+
 /**
  * Universal Intent & Action Router for Full Personal AI Assistant control over the WhatsApp Bot
  */
@@ -234,7 +248,7 @@ async function understandUniversalIntent(inputPrompt, contextInfo = {}) {
 Your job is to analyze the user's input (text or transcribed voice note) and determine the exact action to execute.
 
 Available Actions & Fields:
-1. "search_download": User wants to search & download/queue a movie or TV show.
+1. "search_download": User explicitly asks to search, find, or download a movie, TV show, season, or episode. (MUST contain search or movie/show/season intent).
    Fields:
    - "query": Canonical movie/series title (e.g. "Custody", "Stree 2", "Inception", "M3GAN 2.0")
    - "year": 4-digit release year if mentioned (e.g. "2023", "2025"), else null
@@ -245,10 +259,6 @@ Available Actions & Fields:
    - "origin": "indian" or "non-indian"
    - "language": requested audio/sub language (e.g. "tamil", "hindi", "english"), else null
    - "site": "vegamovies", "rogmovies", "hdhub4u", or "both" (default "both")
-   - "noPoster": boolean (true if user specifies not to send poster)
-   - "noCaption": boolean (true if user specifies not to send caption)
-   - "noTrailer": boolean (true if user specifies not to send trailer)
-   - "addToQueue": boolean (true if user asks to add to queue directly)
 
 2. "homepage_extract": User wants to view/extract latest posts from site homepage.
    Fields:
@@ -264,7 +274,7 @@ Available Actions & Fields:
 4. "toggle_antilink": User wants to enable or disable Anti-Link protection on a group.
    Fields:
    - "enable": true to turn on, false to turn off
-   - "targetGroupName": name of the group mentioned (e.g. "request daniewatch", "movie group")
+   - "targetGroupName": name of the group mentioned
 
 5. "toggle_antispam": User wants to enable or disable Anti-Spam protection on a group.
    Fields:
@@ -277,24 +287,14 @@ Available Actions & Fields:
    - "itemIndex": 1-based index if removing a specific item, else null
 
 7. "daily_release_list": User wants to view or generate daily release catalog/history.
-   Fields:
-   - "subAction": "generate" (today list), "history" (last 7 days)
 
 8. "domain_settings": User wants to view or update site domain or host priority.
-   Fields:
-   - "subAction": "view" or "update"
-   - "site": "rogmovies", "vegamovies", or "host_priority"
-   - "value": new URL or priority string if updating
 
 9. "social_media_download": User wants to download YouTube, Instagram, TikTok, Facebook video or song.
-   Fields:
-   - "platform": "youtube", "instagram", "tiktok", "facebook"
-   - "mediaType": "video" or "audio"
-   - "url": URL if provided in text, else null
 
 10. "system_status": User asks for bot status, health, or uptime.
 
-11. "general_ai_assistant": For general questions, web search requests, news, math, actor info, plot explanations, or conversational chat.
+11. "general_ai_assistant": DEFAULT action for general questions, greetings, conversations, math, news, chat, or voice notes that DO NOT ask to search/download a movie or TV show.
    Fields:
    - "answerPrompt": clean search or response prompt to send to AI assistant
 
@@ -320,6 +320,10 @@ Output STRICT JSON with key "action" set to one of the above 11 action strings, 
             });
 
             const parsed = JSON.parse(response.data.choices[0].message.content);
+            if (parsed.action === 'search_download' && !isSearchKeywordPresent(inputPrompt)) {
+                parsed.action = 'general_ai_assistant';
+                parsed.answerPrompt = inputPrompt;
+            }
             return parsed;
         } catch (err) {
             console.warn(`⚠️ Universal intent classifier failed with model ${model}, trying next model... (${err.message})`);
@@ -341,9 +345,12 @@ Output STRICT JSON with key "action" set to one of the above 11 action strings, 
         return { action: 'toggle_antispam', enable, targetGroupName: inputPrompt.replace(/turn on|turn off|enable|disable|antispam|anti-spam|protection|group|in|on|the/gi, '').trim() };
     }
 
-    // Fallback to extractSearchIntent
-    const baseIntent = await extractSearchIntent(inputPrompt);
-    return { action: 'search_download', ...baseIntent };
+    if (isSearchKeywordPresent(inputPrompt)) {
+        const baseIntent = await extractSearchIntent(inputPrompt);
+        return { action: 'search_download', ...baseIntent };
+    } else {
+        return { action: 'general_ai_assistant', answerPrompt: inputPrompt };
+    }
 }
 
 /**
@@ -444,7 +451,8 @@ module.exports = {
     extractSearchIntent,
     understandUniversalIntent,
     verifyPosterWithUserTitle,
-    selectBestMatch
+    selectBestMatch,
+    isSearchKeywordPresent
 };
 
 
