@@ -1690,7 +1690,26 @@ function initUpsertListener(conn) {
             // Check if current chat is the owner's personal "You" chat (Message Yourself / Own DM)
             const isGroupChat = !!(from && from.endsWith('@g.us'));
             const isOwnerSender = !!(mek.key.fromMe || isOwner(senderJid, mek));
-            const isYouChat = !isGroupChat && isOwnerSender;
+
+            const cleanFromJid = cleanJid(from);
+            const botUserJid = conn.user?.id ? cleanJid(conn.user.id) : '';
+            const botLidJid = conn.user?.lid ? cleanJid(conn.user.lid) : '';
+
+            // A chat is considered "You" (own) chat ONLY IF:
+            // 1) `from` matches the sender's own JID (Message Yourself / self chat where cleanFromJid === cleanSender), OR
+            // 2) `from` matches the connected bot account's user JID or LID, OR
+            // 3) `isOwner(cleanFromJid, mek)` is true (the destination chat JID itself belongs to an owner).
+            const isSelfChat = !!(
+                cleanFromJid &&
+                (
+                    cleanFromJid === cleanSender ||
+                    (botUserJid && cleanFromJid === botUserJid) ||
+                    (botLidJid && cleanFromJid === botLidJid) ||
+                    isOwner(cleanFromJid, mek)
+                )
+            );
+
+            const isYouChat = !isGroupChat && isOwnerSender && isSelfChat;
 
             // Record incoming/outgoing chat JIDs
             if (from) saveActiveChat(from, null, mek.pushName);
