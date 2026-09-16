@@ -1787,14 +1787,19 @@ function initUpsertListener(conn) {
                 return;
             }
 
-            console.log(`[DanieWatch] 📱 Raw message received in You (own) chat: from="${from}" sender="${senderJid}" cleanSender="${cleanSender}" targetJid="${targetJid}" fromMe=${mek.key.fromMe} text="${trimmedText}"`);
+            const { applyAntiBanPresence, markAsRead } = require('../Utils/anti_ban');
+
+            // Auto-mark incoming message as read for human presence telemetry
+            await markAsRead(conn, mek);
 
             const reply = async (textMsg) => {
                 try {
+                    await applyAntiBanPresence(conn, mek, targetJid, 'composing');
                     return await conn.sendMessage(targetJid, { text: textMsg }, { quoted: mek });
                 } catch (err1) {
                     if (cleanSender && cleanSender !== targetJid) {
                         try {
+                            await applyAntiBanPresence(conn, mek, cleanSender, 'composing');
                             return await conn.sendMessage(cleanSender, { text: textMsg }, { quoted: mek });
                         } catch (err2) {}
                     }
