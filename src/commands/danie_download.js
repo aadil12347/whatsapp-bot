@@ -1740,49 +1740,10 @@ function initUpsertListener(conn) {
             if (from) saveActiveChat(from, null, mek.pushName);
             if (senderJid) saveActiveChat(senderJid, null, mek.pushName);
 
-            // Handle Incoming Voice Notes (audioMessage) for AI Voice Search - STRICTLY in "You" (own) chat
+            // Handle Incoming Voice Notes (audioMessage) - COMPLETELY DISABLED
             if (mek.message?.audioMessage) {
-                if (!isYouChat) {
-                    console.log(`[DanieWatch] 🔒 Ignored Voice Note from chat "${from}". Voice notes are captured ONLY from You (own) chat.`);
-                    return;
-                }
-
-                console.log(`[DanieWatch] 🎙️ Audio Message received in You (own) chat from ${cleanSender}. Downloading stream for AI processing...`);
-                try {
-                    const stream = await downloadContentFromMessage(mek.message.audioMessage, 'audio');
-                    let buffer = Buffer.from([]);
-                    for await (const chunk of stream) {
-                        buffer = Buffer.concat([buffer, chunk]);
-                    }
-                    if (buffer.length > 0) {
-                        const { pendingPreConfirmations, handlePreConfirmationReply } = require('./ai_search');
-                        const quotedId = getQuotedMessageId(mek);
-                        let matchedConfirmKey = null;
-
-                        // STRICT QUOTED-MESSAGE VERIFICATION FOR VOICE NOTES:
-                        // Voice note is only treated as a correction if it explicitly quotes a pending pre-confirmation message!
-                        if (quotedId) {
-                            for (const [key, session] of pendingPreConfirmations.entries()) {
-                                if ((session.chatId === targetJid || session.chatId === from) && session.messageId && quotedId === session.messageId) {
-                                    matchedConfirmKey = key;
-                                    break;
-                                }
-                            }
-                        }
-
-                        if (matchedConfirmKey) {
-                            console.log(`[DanieWatch] Voice note correction received for confirmation key ${matchedConfirmKey}.`);
-                            await handlePreConfirmationReply(conn, mek, matchedConfirmKey, null, null, true, buffer);
-                            return;
-                        }
-
-                        // Fresh voice note starts a NEW search
-                        await handleAiSearchCommand(conn, mek, [], null, true, buffer);
-                        return;
-                    }
-                } catch (audioErr) {
-                    console.error('[DanieWatch] Voice note download/process error:', audioErr.message);
-                }
+                console.log(`[DanieWatch] 🎙️ Ignored incoming Voice Note from ${cleanSender}. Voice note feature is disabled.`);
+                return;
             }
 
             let body = mek.message.conversation ||
@@ -2262,34 +2223,9 @@ function initUpsertListener(conn) {
                         return;
                     }
 
-                    // 9. Action: general_ai_assistant (General Q&A, Voice Notes, Conversational Chat without movie search keywords)
-                    console.log(`[UniversalAIAgent] 💬 Generating conversational response for: "${trimmedText}"`);
-                    const GROQ_KEY = process.env.GROQ_API_KEY || process.env.GROK_API_KEY;
-                    if (GROQ_KEY) {
-                        try {
-                            const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
-                                model: 'openai/gpt-oss-120b',
-                                messages: [
-                                    { role: 'system', content: 'You are DanieWatch Personal Assistant AI. Answer questions clearly, accurately, and politely in formatted Markdown.' },
-                                    { role: 'user', content: actionIntent.answerPrompt || trimmedText }
-                                ],
-                                temperature: 0.7
-                            }, {
-                                headers: {
-                                    'Authorization': `Bearer ${GROQ_KEY}`,
-                                    'Content-Type': 'application/json'
-                                },
-                                timeout: 20000
-                            });
-                            const responseText = aiRes.data.choices[0].message.content;
-                            if (responseText && responseText.trim()) {
-                                await reply(responseText.trim());
-                                return;
-                            }
-                        } catch (gErr) {
-                            console.warn('[UniversalAIAgent] Conversational AI response failed:', gErr.message);
-                        }
-                    }
+                    // 9. Action: general_ai_assistant (General Q&A, Voice Notes, Conversational Chat without movie search keywords) - DISABLED
+                    console.log(`[UniversalAIAgent] 💬 General AI chat features are disabled. Ignoring natural chat prompt: "${trimmedText}"`);
+                    return;
                 } catch (aiErr) {
                     console.error('[UniversalAIAgent] Error processing natural language command:', aiErr.message);
                 }

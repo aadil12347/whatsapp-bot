@@ -2,167 +2,35 @@ require('dotenv').config({ path: './config.env' });
 const axios = require('axios');
 const FormData = require('form-data');
 
-const GROQ_KEY = process.env.GROQ_API_KEY || process.env.GROK_API_KEY;
+// GLOBAL AI DISABLE FLAG — AI features are disabled per user request
+const ENABLE_AI = false;
 
 /**
- * Transcribes and translates audio buffer strictly into English or Urdu text using Groq Whisper Large v3
+ * Transcribes and translates audio buffer — DISABLED
  */
 async function translateAudio(audioBuffer, mimeType = 'audio/mp3') {
-    if (!GROQ_KEY) {
-        throw new Error("GROQ_API_KEY is not configured in config.env");
-    }
-
-    try {
-        const form = new FormData();
-        const cleanMime = (mimeType || 'audio/mp3').split(';')[0].trim();
-        const extension = cleanMime.includes('ogg') ? 'ogg' : cleanMime.includes('m4a') ? 'm4a' : 'mp3';
-        form.append('file', audioBuffer, { filename: `audio.${extension}`, contentType: cleanMime });
-        form.append('model', 'whisper-large-v3');
-        form.append('prompt', 'Strictly transcribe audio ONLY into English or Urdu (Roman Urdu / Urdu text). Do NOT output in any other language. Transcribe movie titles, TV series, season numbers, episode numbers, and qualities accurately, e.g. Custody 2023, Stree 2, Pushpa 2, 720p, 1080p, Tamil, Hindi, English, Urdu');
-
-        const response = await axios.post('https://api.groq.com/openai/v1/audio/translations', form, {
-            headers: {
-                'Authorization': `Bearer ${GROQ_KEY}`,
-                ...form.getHeaders()
-            }
-        });
-
-        return response.data.text ? response.data.text.trim() : '';
-    } catch (err) {
-        console.error("❌ Audio translation error:", err.response?.data || err.message);
-        // Fallback to transcription endpoint if translation endpoint fails
-        return transcribeAudio(audioBuffer, mimeType);
-    }
+    throw new Error("Voice note feature is disabled.");
 }
 
 /**
- * Transcribes audio buffer strictly into English or Urdu using Groq Whisper Large v3
+ * Transcribes audio buffer — DISABLED
  */
 async function transcribeAudio(audioBuffer, mimeType = 'audio/mp3') {
-    if (!GROQ_KEY) {
-        throw new Error("GROQ_API_KEY is not configured in config.env");
-    }
-
-    try {
-        const form = new FormData();
-        const cleanMime = (mimeType || 'audio/mp3').split(';')[0].trim();
-        const extension = cleanMime.includes('ogg') ? 'ogg' : cleanMime.includes('m4a') ? 'm4a' : 'mp3';
-        form.append('file', audioBuffer, { filename: `audio.${extension}`, contentType: cleanMime });
-        form.append('model', 'whisper-large-v3-turbo');
-        form.append('prompt', 'Strictly transcribe audio ONLY into English or Urdu (Roman Urdu / Urdu text). Do NOT output in any other language. Transcribe movie and TV show titles, season numbers, episodes, e.g. Custody 2023, Stree 2, Pushpa 2, Stranger Things, Season 2, Episode 5, 720p, 1080p');
-
-        const response = await axios.post('https://api.groq.com/openai/v1/audio/transcriptions', form, {
-            headers: {
-                'Authorization': `Bearer ${GROQ_KEY}`,
-                ...form.getHeaders()
-            }
-        });
-
-        return response.data.text ? response.data.text.trim() : '';
-    } catch (err) {
-        console.error("❌ Audio transcription error:", err.response?.data || err.message);
-        throw err;
-    }
+    throw new Error("Voice note feature is disabled.");
 }
 
 /**
- * Analyzes movie/series poster image buffer using OCR + Groq AI models to extract canonical title, release year, and metadata.
+ * Analyzes movie/series poster image buffer — DISABLED
  */
 async function analyzePosterImage(imageBuffer, mimeType = 'image/jpeg') {
-    try {
-        const cleanMime = (mimeType || 'image/jpeg').split(';')[0].trim();
-        const base64Img = `data:${cleanMime};base64,${imageBuffer.toString('base64')}`;
-
-        console.log('[VisionAI] 🖼️ Extracting text from poster image via OCR engine...');
-        const form = new FormData();
-        form.append('base64Image', base64Img);
-        form.append('apikey', 'helloworld');
-        form.append('language', 'eng');
-        form.append('isOverlayRequired', 'false');
-
-        const ocrRes = await axios.post('https://api.ocr.space/parse/image', form, {
-            headers: form.getHeaders(),
-            timeout: 20000
-        });
-
-        if (ocrRes.data && ocrRes.data.ParsedResults && ocrRes.data.ParsedResults[0]) {
-            const rawOcrText = (ocrRes.data.ParsedResults[0].ParsedText || '').trim();
-            if (rawOcrText && rawOcrText.length > 2) {
-                console.log(`[VisionAI] 📝 OCR extracted text from poster: "${rawOcrText.replace(/\n/g, ' ')}"`);
-                const intent = await extractSearchIntent(rawOcrText);
-                if (intent && intent.query && intent.query.length > 1) {
-                    console.log(`[VisionAI] ✅ Poster title normalized via Groq AI: "${intent.query}" (${intent.year || 'N/A'})`);
-                    return intent;
-                }
-            }
-        }
-    } catch (err) {
-        console.warn('⚠️ Poster OCR analysis warning:', err.message);
-    }
     return null;
 }
 
 /**
- * Parses user text or transcribed speech into structured movie/series search intent,
- * correcting mispronunciations, spoken accents, and phonetic errors (e.g. "streetoo" -> "Stree 2").
+ * Parses user text into structured movie/series search intent using fast local regex parsing (AI bypassed).
  */
 async function extractSearchIntent(inputPrompt) {
-    if (!GROQ_KEY) {
-        throw new Error("GROQ_API_KEY is not configured in config.env");
-    }
-
-    const systemPrompt = `You are an expert movie and TV series title normalization assistant.
-The user input may come from spoken voice notes or mispronounced/phonetically misspelled text in English, Hindi, Urdu, or regional languages (e.g. "streetoo" -> "Stree 2", "pushpa tu" -> "Pushpa 2", "avengers end game" -> "Avengers: Endgame", "spiderman no way home" -> "Spider-Man: No Way Home", "stranger thngs s2" -> "Stranger Things").
-
-Analyze the input and output strict JSON with keys:
-- "query": OFFICIAL CANONICAL TITLE of the movie or TV show. IMPORTANT: PRESERVE EXACT SEQUEL NUMBERS AND VERSION IDENTIFIERS (e.g. "M3GAN 2.0", "Stree 2", "Pushpa 2", "Dune: Part Two", "Avatar 2"). Do NOT strip numbers like "2.0", "2", "Part 2" or revert sequel titles back to the original movie title.
-- "year": 4-digit release year if mentioned or strongly associated (e.g. "2023", "2025"), else null
-- "resolution": requested quality ("480p", "720p", "1080p", "4k"). DEFAULT to "720p" if unspecified.
-- "type": "movie" or "series" (detect based on words like "season", "episode", "s01", "series", "tv", "part 2" vs "movie")
-- "season": season number if mentioned as integer (e.g. 2 for "season 2"), else null
-- "episode": episode number if mentioned as integer (e.g. 5 for "episode 5"), else null
-- "origin": "indian" (if Bollywood, Hindi, Urdu, South Indian, Tamil, Telugu, Punjabi, Malayalam) OR "non-indian" (if Hollywood, English, Korean, Anime, Foreign)
-- "language": specific language if mentioned (e.g. "tamil", "hindi", "telugu", "english"), else null
-- "site": "vegamovies", "rogmovies", "hdhub4u", or "both" (default "both")
-- "noPoster": boolean (true if user specifies not to send poster)
-- "noCaption": boolean (true if user specifies not to send caption)
-- "noTrailer": boolean (true if user specifies not to send trailer)
-- "addToQueue": boolean (true if user asks to add to queue directly)
-
-Respond ONLY with valid JSON, no markdown wrappers, no prose.`;
-
-    const candidateModels = ['openai/gpt-oss-120b', 'groq/compound-mini'];
-
-    for (const model of candidateModels) {
-        try {
-            const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
-                model: model,
-                messages: [
-                    { role: 'system', content: systemPrompt },
-                    { role: 'user', content: inputPrompt }
-                ],
-                response_format: { type: "json_object" },
-                temperature: 0.1
-            }, {
-                headers: {
-                    'Authorization': `Bearer ${GROQ_KEY}`,
-                    'Content-Type': 'application/json'
-                }
-            });
-
-            const raw = response.data.choices[0].message.content;
-            const parsed = JSON.parse(raw);
-            if (!parsed.resolution || !['480p', '720p', '1080p', '4k'].includes(parsed.resolution.toLowerCase())) {
-                parsed.resolution = '720p';
-            }
-            return parsed;
-        } catch (err) {
-            console.warn(`⚠️ Extract intent failed with model ${model}, trying next model... (${err.message})`);
-        }
-    }
-
-    // Fallback simple parsing with phonetic map if all AI models fail
-    let cleanText = inputPrompt;
+    let cleanText = inputPrompt || '';
     if (/streetoo|stree\s*two|stree2/i.test(cleanText)) cleanText = "Stree 2";
     if (/pushpa\s*two|pushpatwo/i.test(cleanText)) cleanText = "Pushpa 2";
 
@@ -171,13 +39,23 @@ Respond ONLY with valid JSON, no markdown wrappers, no prose.`;
     const yearMatch = cleanText.match(/\b(19\d\d|20\d\d)\b/);
     const isIndian = /hindi|bollywood|punjabi|tamil|telugu|malayalam|stree|pushpa|jawan|pathaan|rrx|kgf|custody/i.test(cleanText);
     const langMatch = cleanText.match(/tamil|hindi|telugu|malayalam|punjabi|english|korean|japanese/i);
+    const seasonMatch = cleanText.match(/season\s*(\d+)|\bs(\d+)\b/i);
+    const epMatch = cleanText.match(/episode\s*(\d+)|\be(\d+)\b/i);
+
+    const query = cleanText
+        .replace(/\b(1080p|720p|480p|4k|movie|series)\b/gi, '')
+        .replace(/\b(19\d\d|20\d\d)\b/gi, '')
+        .replace(/^\.search\s*/i, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
     return {
-        query: cleanText.replace(/1080p|720p|480p|4k|movie|series|\b(19\d\d|20\d\d)\b/gi, '').trim(),
+        query: query || cleanText,
         year: yearMatch ? yearMatch[1] : null,
         resolution: resMatch ? resMatch[0].toLowerCase() : '720p',
         type: isSeries ? 'series' : 'movie',
-        season: null,
-        episode: null,
+        season: seasonMatch ? parseInt(seasonMatch[1] || seasonMatch[2], 10) : null,
+        episode: epMatch ? parseInt(epMatch[1] || epMatch[2], 10) : null,
         origin: isIndian ? 'indian' : 'non-indian',
         language: langMatch ? langMatch[0].toLowerCase() : null,
         site: 'both',
@@ -192,222 +70,33 @@ function isSearchKeywordPresent(text) {
     if (!text || typeof text !== 'string') return false;
     const lower = text.toLowerCase().trim();
 
-    // 1. Compulsory search action word
     const hasSearchWord = /\b(search|download|dhoondo|khojo|find|get|fetch)\b/i.test(lower);
-
-    // 2. Compulsory movie or season indicator word
     const hasMovieOrSeasonWord = /\b(movie|movies|film|films|season|seasons|series|show|shows|episode|episodes|part\s*\d+|720p|1080p|480p|4k|poster|vegamovies|rogmovies|hdhub4u)\b/i.test(lower);
 
-    // BOTH search word AND movie/season word are compulsory!
     return hasSearchWord && hasMovieOrSeasonWord;
 }
 
 /**
- * Universal Intent & Action Router for Full Personal AI Assistant control over the WhatsApp Bot
+ * Universal Intent Router — Bypassed to direct intent
  */
 async function understandUniversalIntent(inputPrompt, contextInfo = {}) {
-    if (!GROQ_KEY) {
-        throw new Error("GROQ_API_KEY is not configured in config.env");
-    }
-
-    const systemPrompt = `You are a Universal Personal AI Assistant controlling a WhatsApp Automation Bot.
-Your job is to analyze the user's input (text or transcribed voice note) and determine the exact action to execute.
-
-Available Actions & Fields:
-1. "search_download": User explicitly asks to search, find, or download a movie, TV show, season, or episode. (MUST contain search or movie/show/season intent).
-   Fields:
-   - "query": Canonical movie/series title (e.g. "Custody", "Stree 2", "Inception", "M3GAN 2.0")
-   - "year": 4-digit release year if mentioned (e.g. "2023", "2025"), else null
-   - "resolution": requested quality ("480p", "720p", "1080p", "4k"). Default "720p".
-   - "type": "movie" or "series"
-   - "season": season integer if mentioned, else null
-   - "episode": episode integer if mentioned, else null
-   - "origin": "indian" or "non-indian"
-   - "language": requested audio/sub language (e.g. "tamil", "hindi", "english"), else null
-   - "site": "vegamovies", "rogmovies", "hdhub4u", or "both" (default "both")
-
-2. "homepage_extract": User wants to view/extract latest posts from site homepage.
-   Fields:
-   - "site": "vegamovies", "rogmovies", "hdhub4u", or "both"
-   - "category": category string if mentioned (e.g. "web-series", "1080p", "tamil"), else null
-
-3. "post_extract_link": User is replying or asking to extract a specific post number/resolution from previous listing.
-   Fields:
-   - "postIndex": 1-based integer index of post mentioned (e.g. 3 for "post 3" or "3")
-   - "resolution": requested quality ("480p", "720p", "1080p", "4k")
-   - "episode": episode integer if mentioned, else null
-
-4. "toggle_antilink": User wants to enable or disable Anti-Link protection on a group.
-   Fields:
-   - "enable": true to turn on, false to turn off
-   - "targetGroupName": name of the group mentioned
-
-5. "toggle_antispam": User wants to enable or disable Anti-Spam protection on a group.
-   Fields:
-   - "enable": true to turn on, false to turn off
-   - "targetGroupName": name of the group mentioned
-
-6. "queue_management": User wants to manage download queue.
-   Fields:
-   - "subAction": "show" (view queue), "clear" (clear queue), "remove" (remove item), "status"
-   - "itemIndex": 1-based index if removing a specific item, else null
-
-7. "daily_release_list": User wants to view or generate daily release catalog/history.
-
-8. "domain_settings": User wants to view or update site domain or host priority.
-
-9. "social_media_download": User wants to download YouTube, Instagram, TikTok, Facebook video or song.
-
-10. "system_status": User asks for bot status, health, or uptime.
-
-11. "general_ai_assistant": DEFAULT action for general questions, greetings, conversations, math, news, chat, or voice notes that DO NOT ask to search/download a movie or TV show.
-   Fields:
-   - "answerPrompt": clean search or response prompt to send to AI assistant
-
-Output STRICT JSON with key "action" set to one of the above 11 action strings, along with its specific fields. No markdown wrappers.`;
-
-    const candidateModels = ['openai/gpt-oss-120b', 'groq/compound-mini'];
-
-    for (const model of candidateModels) {
-        try {
-            const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
-                model: model,
-                messages: [
-                    { role: 'system', content: systemPrompt },
-                    { role: 'user', content: inputPrompt }
-                ],
-                response_format: { type: "json_object" },
-                temperature: 0.1
-            }, {
-                headers: {
-                    'Authorization': `Bearer ${GROQ_KEY}`,
-                    'Content-Type': 'application/json'
-                }
-            });
-
-            const parsed = JSON.parse(response.data.choices[0].message.content);
-            if (parsed.action === 'search_download' && !isSearchKeywordPresent(inputPrompt)) {
-                parsed.action = 'general_ai_assistant';
-                parsed.answerPrompt = inputPrompt;
-            }
-            return parsed;
-        } catch (err) {
-            console.warn(`⚠️ Universal intent classifier failed with model ${model}, trying next model... (${err.message})`);
-        }
-    }
-
-    // Fallback classification logic
-    const lower = inputPrompt.toLowerCase();
-    if (lower.includes('homepage') || lower.includes('latest post')) {
-        const site = lower.includes('rog') ? 'rogmovies' : 'vegamovies';
-        return { action: 'homepage_extract', site };
-    }
-    if (lower.includes('antilink') || lower.includes('anti-link')) {
-        const enable = !lower.includes('off') && !lower.includes('disable') && !lower.includes('remove');
-        return { action: 'toggle_antilink', enable, targetGroupName: inputPrompt.replace(/turn on|turn off|enable|disable|antilink|anti-link|protection|group|in|on|the/gi, '').trim() };
-    }
-    if (lower.includes('antispam') || lower.includes('anti-spam')) {
-        const enable = !lower.includes('off') && !lower.includes('disable') && !lower.includes('remove');
-        return { action: 'toggle_antispam', enable, targetGroupName: inputPrompt.replace(/turn on|turn off|enable|disable|antispam|anti-spam|protection|group|in|on|the/gi, '').trim() };
-    }
-
-    if (isSearchKeywordPresent(inputPrompt)) {
-        const baseIntent = await extractSearchIntent(inputPrompt);
-        return { action: 'search_download', ...baseIntent };
-    } else {
-        return { action: 'general_ai_assistant', answerPrompt: inputPrompt };
-    }
+    const baseIntent = await extractSearchIntent(inputPrompt);
+    return { action: 'search_download', ...baseIntent };
 }
 
 /**
- * Evaluates candidate posts scraped from Vegamovies/Rogmovies against TMDB info & target year/language using AI
+ * Select best candidate post — Bypassed to top candidate
  */
 async function selectBestMatch(tmdbInfo, candidates, targetResolution = '720p', targetYear = null, targetLanguage = null) {
     if (!candidates || candidates.length === 0) return null;
-    if (candidates.length === 1) return candidates[0];
-    if (!GROQ_KEY) return candidates[0];
-
-    const prompt = `User search request:
-Title: ${tmdbInfo?.title || 'Unknown'}
-Release Year: ${targetYear || tmdbInfo?.year || 'Unknown'}
-Target Language/Audio: ${targetLanguage || 'Any (Prefer Tamil/Hindi Dual/Multi Audio)'}
-Target Quality: ${targetResolution}
-
-Scraped Candidate Posts:
-${candidates.map((c, i) => `[Index ${i}] Title: "${c.title}" | Site: ${c.site} | URL: ${c.link}`).join('\n')}
-
-Select the SINGLE best candidate post index that matches the title, release year (${targetYear || tmdbInfo?.year || 'Any'}), requested language (${targetLanguage || 'Tamil/Hindi'}), and quality (${targetResolution}).
-IMPORTANT PREFERENCE:
-- If year (${targetYear || tmdbInfo?.year}) is provided, strongly prefer candidate posts that include that exact year in the post title.
-- If language (e.g. Tamil, Hindi) is requested, strongly prefer candidate posts matching that language.
-- Prefer Dual Audio / Multi Audio / ORG Audio posts over non-Hindi/non-regional posts.
-Respond ONLY with JSON: {"bestIndex": <number>, "reason": "<short explanation>"}`;
-
-    const candidateModels = ['openai/gpt-oss-120b', 'groq/compound-mini'];
-
-    for (const model of candidateModels) {
-        try {
-            const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
-                model: model,
-                messages: [
-                    { role: 'user', content: prompt }
-                ],
-                response_format: { type: "json_object" },
-                temperature: 0.1
-            }, {
-                headers: {
-                    'Authorization': `Bearer ${GROQ_KEY}`,
-                    'Content-Type': 'application/json'
-                }
-            });
-
-            const resJson = JSON.parse(response.data.choices[0].message.content);
-            const index = resJson.bestIndex;
-            if (typeof index === 'number' && candidates[index]) {
-                return candidates[index];
-            }
-            return candidates[0];
-        } catch (err) {
-            console.warn(`⚠️ Select best match AI failed with model ${model}, trying next...`);
-        }
-    }
     return candidates[0];
 }
 
 /**
- * Performs hybrid verification when user provides text alongside a poster image.
- * Cross-references user-provided title text with poster metadata and TMDB database.
+ * Poster verification — Bypassed to user intent
  */
 async function verifyPosterWithUserTitle(userText, posterInfo = null) {
-    let intent = await extractSearchIntent(userText || '');
-    if (posterInfo && posterInfo.query) {
-        const textTitle = (intent.query || userText || '').toLowerCase().trim().replace(/[^a-z0-9]/g, '');
-        const posterTitle = (posterInfo.query || '').toLowerCase().trim().replace(/[^a-z0-9]/g, '');
-
-        const isExactMatch = textTitle === posterTitle;
-        const isSubstring = textTitle.includes(posterTitle) || posterTitle.includes(textTitle);
-
-        // Check if first 3-4 letters match (e.g. "hasindilruba" vs "haseendillruba")
-        const sharePrefix = textTitle.length >= 3 && posterTitle.length >= 3 && textTitle.slice(0, 3) === posterTitle.slice(0, 3);
-
-        if (isExactMatch || isSubstring || sharePrefix) {
-            console.log(`[AIVerifier] ✅ Poster metadata verified against user title: "${intent.query}" ~ "${posterInfo.query}"`);
-            intent.query = posterInfo.query || intent.query;
-            if (posterInfo.year) intent.year = posterInfo.year;
-            if (posterInfo.language) intent.language = posterInfo.language;
-            if (posterInfo.origin) intent.origin = posterInfo.origin;
-            if (posterInfo.type) intent.type = posterInfo.type;
-            intent.verified = true;
-        } else {
-            console.log(`[AIVerifier] ⚠️ User title "${userText}" differs from poster image "${posterInfo.query}". Combining hints...`);
-            intent.query = posterInfo.query || intent.query;
-            if (posterInfo.year && !intent.year) intent.year = posterInfo.year;
-            if (posterInfo.language && !intent.language) intent.language = posterInfo.language;
-            if (posterInfo.origin && intent.origin === 'non-indian') intent.origin = posterInfo.origin;
-            intent.verified = false;
-        }
-    }
-    return intent;
+    return extractSearchIntent(userText || '');
 }
 
 module.exports = {
