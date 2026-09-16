@@ -66,74 +66,40 @@ async function transcribeAudio(audioBuffer, mimeType = 'audio/mp3') {
 }
 
 /**
- * Analyzes movie/series poster image buffer using Groq Vision models to extract canonical title, release year, and metadata.
+ * Analyzes movie/series poster image buffer using OCR + Groq AI models to extract canonical title, release year, and metadata.
  */
 async function analyzePosterImage(imageBuffer, mimeType = 'image/jpeg') {
-    if (!GROQ_KEY) {
-        throw new Error("GROQ_API_KEY is not configured in config.env");
-    }
-
     try {
         const cleanMime = (mimeType || 'image/jpeg').split(';')[0].trim();
-        const base64Img = imageBuffer.toString('base64');
+        const base64Img = `data:${cleanMime};base64,${imageBuffer.toString('base64')}`;
 
-        const systemPrompt = `You are an expert movie and TV series poster analyzer.
-Analyze the provided image of a movie or TV show poster.
-Extract details into strict JSON:
-- "query": Official, exact title of the movie or TV show visible on the poster (e.g. "M3GAN 2.0", "Haseen Dillruba", "Stree 2", "Pushpa 2"). PRESERVE ANY SEQUEL NUMBERS AND VERSION IDENTIFIERS (e.g. "2.0", "2", "Part 2").
-- "year": 4-digit release year if visible on poster or well-known for this movie/show (e.g. "2025", "2022"), else null
-- "type": "movie" or "series"
-- "origin": "indian" (if Bollywood, Hindi, Tamil, Telugu, South Indian, Urdu) or "non-indian" (if Hollywood, English, Korean, Foreign)
-- "language": primary language if indicated, else null
-- "resolution": "720p"
+        console.log('[VisionAI] 🖼️ Extracting text from poster image via OCR engine...');
+        const form = new FormData();
+        form.append('base64Image', base64Img);
+        form.append('apikey', 'helloworld');
+        form.append('language', 'eng');
+        form.append('isOverlayRequired', 'false');
 
-Respond ONLY with valid JSON, no markdown wrappers, no prose.`;
+        const ocrRes = await axios.post('https://api.ocr.space/parse/image', form, {
+            headers: form.getHeaders(),
+            timeout: 20000
+        });
 
-        const candidateVisionModels = [
-            'llama-3.2-11b-vision-preview',
-            'llama-3.2-90b-vision-preview',
-            'llama-3.2-11b-instruct'
-        ];
-
-        for (const model of candidateVisionModels) {
-            try {
-                const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
-                    model: model,
-                    messages: [
-                        { role: 'system', content: systemPrompt },
-                        {
-                            role: 'user',
-                            content: [
-                                { type: 'text', text: 'Analyze this movie/series poster image and output strict JSON.' },
-                                { type: 'image_url', image_url: { url: `data:${cleanMime};base64,${base64Img}` } }
-                            ]
-                        }
-                    ],
-                    response_format: { type: "json_object" },
-                    temperature: 0.1
-                }, {
-                    headers: {
-                        'Authorization': `Bearer ${GROQ_KEY}`,
-                        'Content-Type': 'application/json'
-                    },
-                    timeout: 25000
-                });
-
-                const raw = response.data.choices[0].message.content;
-                const parsed = JSON.parse(raw);
-                if (parsed && parsed.query) {
-                    console.log(`[VisionAI] 🖼️ Poster image successfully analyzed via ${model}:`, parsed);
-                    return parsed;
+        if (ocrRes.data && ocrRes.data.ParsedResults && ocrRes.data.ParsedResults[0]) {
+            const rawOcrText = (ocrRes.data.ParsedResults[0].ParsedText || '').trim();
+            if (rawOcrText && rawOcrText.length > 2) {
+                console.log(`[VisionAI] 📝 OCR extracted text from poster: "${rawOcrText.replace(/\n/g, ' ')}"`);
+                const intent = await extractSearchIntent(rawOcrText);
+                if (intent && intent.query && intent.query.length > 1) {
+                    console.log(`[VisionAI] ✅ Poster title normalized via Groq AI: "${intent.query}" (${intent.year || 'N/A'})`);
+                    return intent;
                 }
-            } catch (err) {
-                console.warn(`⚠️ Vision model ${model} attempt failed: ${err.message}`);
             }
         }
-        return null;
     } catch (err) {
-        console.error("❌ Poster image analysis error:", err.message);
-        return null;
+        console.warn('⚠️ Poster OCR analysis warning:', err.message);
     }
+    return null;
 }
 
 /**
