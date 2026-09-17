@@ -5,13 +5,21 @@ const {
     lockTargetGroup,
     markUserActive,
     getInactiveMembers,
-    removeKickedUsers
+    removeKickedUsers,
+    initGroupTracker
 } = require('../src/Utils/inactive_tracker');
 
-console.log('🧪 Starting Target Group Locking Unit Test...');
+const {
+    handleResetTracker,
+    handleNonActiveList,
+    handleKickNonActive,
+    handleDownloadInactiveList
+} = require('../src/commands/inactive_cmd');
+
+console.log('🧪 Starting Inactive Tracker (Group + DM execution) Unit Test...');
 
 const targetGroupId = '120363000000000000@g.us';
-const otherGroupId = '987654321000000000@g.us';
+const privateDmJid = '923009999999@s.whatsapp.net';
 const initialMembers = [
     '923001111111@s.whatsapp.net',
     '923002222222@s.whatsapp.net'
@@ -21,37 +29,70 @@ const initialMembers = [
 lockTargetGroup(targetGroupId);
 const data = loadInactiveData();
 data[targetGroupId] = {
-    groupName: 'Daniewatch',
+    groupName: 'Daniewatch Group',
     lastReset: Date.now(),
     inactiveMembers: [...initialMembers]
 };
 saveInactiveData(data);
 console.log('✅ Target group locked & seeded.');
 
-// 2. Verify getInactiveMembers on target group
-let current = getInactiveMembers(targetGroupId);
-if (!current || current.inactiveMembers.length !== 2) throw new Error('Target group fetch failed');
+// 2. Test getInactiveMembers when called from DM
+const dmFetch = getInactiveMembers(privateDmJid);
+if (!dmFetch || dmFetch.inactiveMembers.length !== 2) {
+    throw new Error('DM fetch failed to return target group data!');
+}
+if (dmFetch.targetGroupJid !== targetGroupId) {
+    throw new Error('DM fetch did not return targetGroupJid!');
+}
+console.log('✅ DM fetch returns Daniewatch group tracking data.');
 
-// 3. Verify getInactiveMembers on OTHER group returns locked state
-let other = getInactiveMembers(otherGroupId);
-if (!other || !other.locked) throw new Error('Other group was not locked out');
-console.log('✅ Lock enforcement on other groups verified.');
+// 3. Test handleNonActiveList from DM
+let sentText = '';
+let sentMentions = [];
+const mockConn = {
+    sendMessage: async (jid, payload) => {
+        sentText = payload.text || '';
+        sentMentions = payload.mentions || [];
+        return { key: { id: 'test_msg_id' } };
+    },
+    groupParticipantsUpdate: async (groupJid, participants, action) => {
+        console.log(`Mock: update group ${groupJid} participants ${participants} -> ${action}`);
+        if (groupJid !== targetGroupId) {
+            throw new Error(`Kick was attempted on ${groupJid} instead of target group ${targetGroupId}`);
+        }
+    }
+};
 
-// 4. Verify activity in OTHER group is ignored
-markUserActive(otherGroupId, '923001111111@s.whatsapp.net', 'reaction');
-current = getInactiveMembers(targetGroupId);
-if (current.inactiveMembers.length !== 2) throw new Error('Activity from other group affected target group!');
-console.log('✅ Activity isolation verified.');
+const mockReply = async (msg) => {
+    sentText = msg;
+};
 
-// 5. Verify activity in TARGET group removes inactive member
-markUserActive(targetGroupId, '923001111111@s.whatsapp.net', 'reaction');
-current = getInactiveMembers(targetGroupId);
-if (current.inactiveMembers.length !== 1) throw new Error('Activity in target group failed to remove member');
-console.log('✅ Target group activity tracking verified.');
+async function runTests() {
+    // 3a. handleNonActiveList from DM
+    await handleNonActiveList(mockConn, privateDmJid, mockReply);
+    if (!sentText.includes('DANIEWATCH GROUP INACTIVE MEMBERS LIST')) {
+        throw new Error('handleNonActiveList in DM failed to generate proper response');
+    }
+    console.log('✅ handleNonActiveList executed from DM successfully.');
 
-// Clean up
-delete data[targetGroupId];
-delete data.targetGroupJid;
-saveInactiveData(data);
+    // 3b. handleKickNonActive from DM (kick 1 member)
+    await handleKickNonActive(mockConn, privateDmJid, ['1'], mockReply);
+    const postKickFetch = getInactiveMembers(privateDmJid);
+    if (postKickFetch.inactiveMembers.length !== 1) {
+        throw new Error('handleKickNonActive from DM failed to remove kicked user!');
+    }
+    console.log('✅ handleKickNonActive executed from DM and updated target group successfully.');
 
-console.log('🎉 Target Group Lock unit test passed successfully!');
+    // Clean up test data
+    const finalData = loadInactiveData();
+    delete finalData[targetGroupId];
+    delete finalData.targetGroupJid;
+    saveInactiveData(finalData);
+
+    console.log('🎉 All Inactive Tracker DM + Group unit tests passed successfully!');
+}
+
+runTests().catch(err => {
+    console.error('❌ Test failed:', err);
+    process.exit(1);
+});

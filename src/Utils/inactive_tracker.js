@@ -64,7 +64,7 @@ function gitPushSync() {
 }
 
 /**
- * Gets the current target group JID (if locked)
+ * Gets the current target group JID (if set)
  */
 function getTargetGroupJid() {
     const data = loadInactiveData();
@@ -85,24 +85,24 @@ function lockTargetGroup(groupId) {
  * Initializes tracking for the Daniewatch group by fetching all members and excluding admins & bot
  */
 async function initGroupTracker(conn, groupId) {
-    if (!groupId || !groupId.endsWith('@g.us')) return null;
-
     const data = loadInactiveData();
+    let targetGroupId = data.targetGroupJid;
 
-    // Lock permanently to the first group initialized (or configured)
-    if (!data.targetGroupJid) {
+    if (groupId && groupId.endsWith('@g.us')) {
+        targetGroupId = groupId;
         data.targetGroupJid = groupId;
-    } else if (data.targetGroupJid !== groupId) {
-        const lockedName = data[data.targetGroupJid]?.groupName || 'Daniewatch Group';
-        throw new Error(`Inactive tracker is permanently locked to *${lockedName}* (${data.targetGroupJid}).`);
+    }
+
+    if (!targetGroupId || !targetGroupId.endsWith('@g.us')) {
+        throw new Error('Daniewatch target group is not configured yet. Please run *.resettracker* inside your Daniewatch group first to set the target group.');
     }
 
     try {
-        const metadata = await conn.groupMetadata(groupId);
+        const metadata = await conn.groupMetadata(targetGroupId);
         const botJid = conn.user?.id ? conn.user.id.split(':')[0] + '@s.whatsapp.net' : '';
 
-        if (!data[groupId]) {
-            data[groupId] = {
+        if (!data[targetGroupId]) {
+            data[targetGroupId] = {
                 groupName: metadata.subject || 'Daniewatch Group',
                 lastReset: Date.now(),
                 inactiveMembers: []
@@ -122,14 +122,15 @@ async function initGroupTracker(conn, groupId) {
             }
         }
 
-        data[groupId].groupName = metadata.subject || 'Daniewatch Group';
-        data[groupId].lastReset = Date.now();
-        data[groupId].inactiveMembers = inactiveJids;
+        data[targetGroupId].groupName = metadata.subject || 'Daniewatch Group';
+        data[targetGroupId].lastReset = Date.now();
+        data[targetGroupId].inactiveMembers = inactiveJids;
 
         saveInactiveData(data);
         gitPushSync();
 
         return {
+            targetGroupJid: targetGroupId,
             groupName: metadata.subject || 'Daniewatch Group',
             totalMembers: metadata.participants.length,
             trackedInactive: inactiveJids.length
@@ -172,16 +173,15 @@ function markUserActive(groupId, userJid, reason = 'activity') {
  */
 function getInactiveMembers(groupId) {
     const data = loadInactiveData();
-    const targetGroup = data.targetGroupJid || groupId;
+    const targetGroup = data.targetGroupJid || (groupId && groupId.endsWith('@g.us') ? groupId : null);
 
-    if (data.targetGroupJid && groupId !== data.targetGroupJid) {
-        return { locked: true, targetGroupJid: data.targetGroupJid, targetGroupName: data[data.targetGroupJid]?.groupName || 'Daniewatch Group' };
-    }
-
-    if (!data[targetGroup] || !Array.isArray(data[targetGroup].inactiveMembers)) {
+    if (!targetGroup || !data[targetGroup] || !Array.isArray(data[targetGroup].inactiveMembers)) {
         return null;
     }
-    return data[targetGroup];
+
+    const groupData = { ...data[targetGroup] };
+    groupData.targetGroupJid = targetGroup;
+    return groupData;
 }
 
 /**

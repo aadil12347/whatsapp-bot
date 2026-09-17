@@ -23,11 +23,10 @@ function formatJidToPhone(jid) {
 /**
  * Handles the .resettracker command to initialize group member tracking for Daniewatch group
  */
+/**
+ * Handles the .resettracker command to initialize group member tracking for Daniewatch group
+ */
 async function handleResetTracker(conn, from, reply) {
-    if (!from || !from.endsWith('@g.us')) {
-        return reply('❌ This command can only be used inside a WhatsApp Group.');
-    }
-
     try {
         await reply('🔄 Initializing member activity tracker for Daniewatch Group...');
         const result = await initGroupTracker(conn, from);
@@ -41,12 +40,12 @@ async function handleResetTracker(conn, from, reply) {
             `👥 Group: *${result.groupName}*\n` +
             `👥 Total Group Members: *${result.totalMembers}*\n` +
             `📊 Regular Members Tracked (Admins Excluded): *${result.trackedInactive}*\n\n` +
-            `🔒 *Permanently locked to this Daniewatch group.*\n\n` +
+            `🔒 *Target group configured for tracking.*\n\n` +
             `*How it works:*\n` +
-            `• When members read group messages or react with emojis, they are automatically marked active.\n` +
-            `• Type *.nonactive* anytime to view remaining inactive members.\n` +
-            `• Type *.listinactive* to download a TXT file of all inactive members with phone numbers.\n` +
-            `• Type *.kicknonactive <amount>* to remove them safely.`
+            `• When members read group messages or react with emojis in Daniewatch group, they are automatically marked active.\n` +
+            `• Type *.nonactive* anytime in group or DM to view remaining inactive members.\n` +
+            `• Type *.listinactive* anytime in group or DM to download a TXT file of all inactive members with phone numbers.\n` +
+            `• Type *.kicknonactive <amount>* anytime in group or DM to remove them safely.`
         );
     } catch (err) {
         console.error('[InactiveCmd] resettracker error:', err.message);
@@ -58,25 +57,18 @@ async function handleResetTracker(conn, from, reply) {
  * Handles the .nonactive command to list inactive group members
  */
 async function handleNonActiveList(conn, from, reply) {
-    if (!from || !from.endsWith('@g.us')) {
-        return reply('❌ This command can only be used inside a WhatsApp Group.');
-    }
-
     const trackerData = getInactiveMembers(from);
-    if (trackerData && trackerData.locked) {
-        return reply(`⚠️ Inactive tracker is configured permanently for *${trackerData.targetGroupName}* only.`);
-    }
 
     if (!trackerData) {
         return reply(
-            `⚠️ *Daniewatch Group tracker is not active for this group yet.*\n\n` +
-            `Please run *.resettracker* inside your Daniewatch group to start tracking activity!`
+            `⚠️ *Daniewatch Group tracker is not active yet.*\n\n` +
+            `Please run *.resettracker* inside your Daniewatch group once to start tracking activity!`
         );
     }
 
     const list = trackerData.inactiveMembers || [];
     if (list.length === 0) {
-        return reply('🎉 *All tracked members in Daniewatch group are active!* (No inactive members found)');
+        return reply(`🎉 *All tracked members in ${trackerData.groupName || 'Daniewatch'} group are active!* (No inactive members found)`);
     }
 
     let text = `📊 *DANIEWATCH GROUP INACTIVE MEMBERS LIST*\n\n`;
@@ -108,28 +100,27 @@ async function handleNonActiveList(conn, from, reply) {
  * Handles the .kicknonactive command to kick specified number of inactive members
  */
 async function handleKickNonActive(conn, from, args, reply) {
-    if (!from || !from.endsWith('@g.us')) {
-        return reply('❌ This command can only be used inside a WhatsApp Group.');
-    }
-
     const trackerData = getInactiveMembers(from);
-    if (trackerData && trackerData.locked) {
-        return reply(`⚠️ Inactive tracker is configured permanently for *${trackerData.targetGroupName}* only.`);
+
+    if (!trackerData || !trackerData.targetGroupJid) {
+        return reply('❌ Daniewatch group tracker is not active yet. Run *.resettracker* inside your Daniewatch group first.');
     }
 
+    const targetGroupJid = trackerData.targetGroupJid;
     const amountInput = parseInt(args[0] || '1', 10);
     if (isNaN(amountInput) || amountInput <= 0) {
         return reply('⚠️ Please specify a valid positive number. Example: *.kicknonactive 5*');
     }
 
-    if (!trackerData || !Array.isArray(trackerData.inactiveMembers) || trackerData.inactiveMembers.length === 0) {
+    if (!Array.isArray(trackerData.inactiveMembers) || trackerData.inactiveMembers.length === 0) {
         return reply('❌ No inactive members found to kick. Run *.nonactive* or *.resettracker* first.');
     }
 
     const targetJids = trackerData.inactiveMembers.slice(0, amountInput);
     const totalToKick = targetJids.length;
+    const groupName = trackerData.groupName || 'Daniewatch Group';
 
-    await reply(`⏳ *Starting safe cleanup of ${totalToKick} inactive member(s) from Daniewatch Group...*\nEach member will be removed one-by-one with a random 5–10 second delay.`);
+    await reply(`⏳ *Starting safe cleanup of ${totalToKick} inactive member(s) from ${groupName}...*\nEach member will be removed one-by-one with a random 5–10 second delay.`);
 
     const kickedSuccessfully = [];
     const failedKicks = [];
@@ -137,8 +128,8 @@ async function handleKickNonActive(conn, from, args, reply) {
     for (let i = 0; i < targetJids.length; i++) {
         const jid = targetJids[i];
         try {
-            console.log(`[InactiveCmd] Kicking inactive member ${i + 1}/${totalToKick}: ${jid}`);
-            await conn.groupParticipantsUpdate(from, [jid], 'remove');
+            console.log(`[InactiveCmd] Kicking inactive member ${i + 1}/${totalToKick}: ${jid} from group ${targetGroupJid}`);
+            await conn.groupParticipantsUpdate(targetGroupJid, [jid], 'remove');
             kickedSuccessfully.push(jid);
         } catch (err) {
             console.error(`[InactiveCmd] Failed to kick ${jid}:`, err.message);
@@ -155,10 +146,11 @@ async function handleKickNonActive(conn, from, args, reply) {
 
     // Update tracking data to remove successfully kicked members
     if (kickedSuccessfully.length > 0) {
-        removeKickedUsers(from, kickedSuccessfully);
+        removeKickedUsers(targetGroupJid, kickedSuccessfully);
     }
 
     let summaryText = `✅ *Cleanup Complete!*\n\n`;
+    summaryText += `👥 Group: *${groupName}*\n`;
     summaryText += `🟢 Successfully removed: *${kickedSuccessfully.length}*\n`;
     if (failedKicks.length > 0) {
         summaryText += `❌ Failed removals: *${failedKicks.length}*\n`;
@@ -172,14 +164,7 @@ async function handleKickNonActive(conn, from, args, reply) {
  * Handles the .listinactive command to generate and send a downloadable TXT file
  */
 async function handleDownloadInactiveList(conn, from, reply, mek) {
-    if (!from || !from.endsWith('@g.us')) {
-        return reply('❌ This command can only be used inside a WhatsApp Group.');
-    }
-
     const trackerData = getInactiveMembers(from);
-    if (trackerData && trackerData.locked) {
-        return reply(`⚠️ Inactive tracker is configured permanently for *${trackerData.targetGroupName}* only.`);
-    }
 
     if (!trackerData) {
         return reply('⚠️ Daniewatch group tracker is not active yet. Please run *.resettracker* inside your Daniewatch group first!');
@@ -187,14 +172,14 @@ async function handleDownloadInactiveList(conn, from, reply, mek) {
 
     const list = trackerData.inactiveMembers || [];
     if (list.length === 0) {
-        return reply('🎉 All tracked members in Daniewatch group are active! No inactive members to export.');
+        return reply(`🎉 All tracked members in ${trackerData.groupName || 'Daniewatch'} group are active! No inactive members to export.`);
     }
 
     let fileContent = `=================================================\n`;
     fileContent += `       DANIEWATCH INACTIVE MEMBERS EXPORT LIST   \n`;
     fileContent += `=================================================\n`;
     fileContent += `Group Name: ${trackerData.groupName || 'Daniewatch'}\n`;
-    fileContent += `Group ID: ${from}\n`;
+    fileContent += `Group ID: ${trackerData.targetGroupJid || from}\n`;
     fileContent += `Total Inactive Members: ${list.length}\n`;
     fileContent += `Export Timestamp: ${new Date().toLocaleString()}\n`;
     fileContent += `=================================================\n\n`;
