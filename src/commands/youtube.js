@@ -61,7 +61,18 @@ async function convertYtMedia(ytUrl, audioBitrate, videoQuality, format) {
     }
 
     // ── Engine 2: Fallback to System / Local yt-dlp ──
-    const ytdlpCandidates = ['yt-dlp', '/usr/local/bin/yt-dlp', '/home/runner/.local/bin/yt-dlp'];
+    const isWin = process.platform === 'win32';
+    const binName = isWin ? 'yt-dlp.exe' : 'yt-dlp';
+    const ytdlpCandidates = [
+        path.join(process.cwd(), binName),
+        path.join(process.cwd(), 'yt-dlp'),
+        path.join(__dirname, '..', '..', binName),
+        path.join(__dirname, '..', '..', 'yt-dlp'),
+        'yt-dlp',
+        '/usr/local/bin/yt-dlp',
+        '/usr/bin/yt-dlp',
+        '/home/runner/.local/bin/yt-dlp'
+    ];
     const isAudio = (format === 'mp3' || format === 'm4a');
     const ext = isAudio ? 'm4a' : 'mp4';
     const tempYtdlp = path.join(os.tmpdir(), `yt_dlp_${Date.now()}_${Math.random().toString(36).substr(2, 5)}.${ext}`);

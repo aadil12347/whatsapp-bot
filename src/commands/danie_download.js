@@ -6287,39 +6287,109 @@ DANIE_COMMANDS['csong'] = async (conn, mek, from, senderJid, args, reply) => {
 };
 DANIE_COMMANDS['csongdl'] = DANIE_COMMANDS['csong'];
 
-// Helper: Locate yt-dlp binary across platforms
+// Helper: Locate yt-dlp binary across platforms (Windows, Linux, GitHub Actions containers, macOS)
 function getYtDlpBin() {
+    const isWin = process.platform === 'win32';
+    const binName = isWin ? 'yt-dlp.exe' : 'yt-dlp';
+
     const candidates = [
-        path.join(process.cwd(), 'yt-dlp.exe'),
+        path.join(process.cwd(), binName),
         path.join(process.cwd(), 'yt-dlp'),
-        path.join(__dirname, '..', '..', 'yt-dlp.exe'),
+        path.join(process.cwd(), 'yt-dlp.exe'),
+        path.join(__dirname, '..', '..', binName),
         path.join(__dirname, '..', '..', 'yt-dlp'),
-        'yt-dlp.exe',
-        'yt-dlp',
+        path.join(__dirname, '..', '..', 'yt-dlp.exe'),
+        path.join(os.homedir ? os.homedir() : '/root', '.local', 'bin', 'yt-dlp'),
         '/usr/local/bin/yt-dlp',
         '/usr/bin/yt-dlp',
-        '/home/runner/.local/bin/yt-dlp'
+        '/home/runner/.local/bin/yt-dlp',
+        binName,
+        'yt-dlp'
     ];
+
     for (const bin of candidates) {
-        if (fs.existsSync(bin)) return bin;
+        if (fs.existsSync(bin)) {
+            if (!isWin) {
+                try { fs.chmodSync(bin, 0o755); } catch (_) {}
+            }
+            return bin;
+        }
     }
-    return 'yt-dlp';
+
+    // Check system PATH
+    try {
+        const checkCmd = isWin ? `where ${binName}` : `which yt-dlp`;
+        const foundPath = require('child_process').execSync(checkCmd, { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim().split('\n')[0];
+        if (foundPath && fs.existsSync(foundPath)) {
+            if (!isWin) {
+                try { fs.chmodSync(foundPath, 0o755); } catch (_) {}
+            }
+            return foundPath;
+        }
+    } catch (_) {}
+
+    return binName;
 }
 
-// Helper: Download Facebook Media with 3 engines (native yt-dlp, Ruhend fbdl, & fb-downloader)
+// Helper: Ensure yt-dlp binary exists & auto-download if running in fresh GitHub Actions / Docker container
+async function ensureYtDlpBinary() {
+    const bin = getYtDlpBin();
+    const isWin = process.platform === 'win32';
+
+    if (fs.existsSync(bin)) {
+        if (!isWin) {
+            try { fs.chmodSync(bin, 0o755); } catch (_) {}
+        }
+        return bin;
+    }
+
+    const targetFile = path.join(process.cwd(), isWin ? 'yt-dlp.exe' : 'yt-dlp');
+    const downloadUrl = isWin
+        ? 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe'
+        : 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp';
+
+    console.log(`[YtDlpAutoInstall] Binary missing in environment. Auto-downloading latest yt-dlp binary for ${process.platform}...`);
+    try {
+        const fetch = require('node-fetch');
+        const res = await fetch(downloadUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        if (res.ok) {
+            const fileStream = fs.createWriteStream(targetFile);
+            await new Promise((resolve, reject) => {
+                res.body.pipe(fileStream);
+                res.body.on('error', reject);
+                fileStream.on('finish', resolve);
+            });
+            if (fs.existsSync(targetFile) && fs.statSync(targetFile).size > 100000) {
+                if (!isWin) {
+                    fs.chmodSync(targetFile, 0o755);
+                }
+                console.log(`[YtDlpAutoInstall] Successfully installed yt-dlp binary to ${targetFile}`);
+                return targetFile;
+            }
+        }
+    } catch (err) {
+        console.warn(`[YtDlpAutoInstall] Download failed: ${err.message}`);
+    }
+
+    return bin;
+}
+
+
+// Helper: Download Facebook Media with 3 engines (native yt-dlp, FDown, & OpenGraph HTML scraper)
 async function downloadFacebookMedia(url) {
     const fetch = require('node-fetch');
     const util = require('util');
     const execPromise = util.promisify(require('child_process').exec);
+    const cheerio = require('cheerio');
 
     const cleanUrl = url.trim();
     const tempFile = path.join(os.tmpdir(), `fb_${Date.now()}_${Math.random().toString(36).substring(2, 6)}.mp4`);
-    const bin = getYtDlpBin();
+    const bin = await ensureYtDlpBinary();
 
-    // Engine 1: Native yt-dlp (Most reliable for FB reels, videos, stories, watch links)
+    // Engine 1: Native yt-dlp with --js-runtimes node & web player client
     try {
         console.log(`[Facebook] Trying native yt-dlp (${bin}) for: ${cleanUrl}`);
-        const cmd = `"${bin}" --no-playlist --no-check-certificates --socket-timeout 30 -f "b/bv*+ba/best" -o "${tempFile}" "${cleanUrl}"`;
+        const cmd = `"${bin}" --js-runtimes node --no-playlist --no-check-certificates --socket-timeout 30 -f "b/bv*+ba/best" -o "${tempFile}" "${cleanUrl}"`;
         await execPromise(cmd, { timeout: 120000 });
         if (fs.existsSync(tempFile) && fs.statSync(tempFile).size > 1000) {
             return {
@@ -6332,37 +6402,52 @@ async function downloadFacebookMedia(url) {
         try { if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile); } catch (_) {}
     }
 
-    // Engine 2: Ruhend Scraper fbdl
+    // Engine 2: FDown / FBDown Form Scraper
     try {
-        console.log(`[Facebook] Trying Ruhend fbdl...`);
-        const { fbdl } = require('ruhend-scraper');
-        const result = await fbdl(cleanUrl);
-        if (result && (result.video || result.hd || result.sd || (result.data && result.data.length > 0))) {
-            const vUrl = result.video || result.hd || result.sd || (result.data && result.data[0] ? result.data[0].url : null);
-            if (vUrl) {
-                return {
-                    videoUrl: vUrl,
-                    title: result.title || 'Facebook Video'
-                };
-            }
-        }
-    } catch (err) {
-        console.warn(`[Facebook] Engine 2 (Ruhend) failed: ${err.message}`);
-    }
-
-    // Engine 3: @xaviabot/fb-downloader fallback
-    try {
-        console.log(`[Facebook] Trying @xaviabot/fb-downloader fallback...`);
-        const fbdlPkg = require('@xaviabot/fb-downloader');
-        const result = await fbdlPkg(cleanUrl);
-        if (result && (result.hd || result.sd)) {
+        console.log(`[Facebook] Trying FDown Scraper...`);
+        const res = await fetch('https://fdown.net/download.php', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            },
+            body: new URLSearchParams({ URLfb: cleanUrl })
+        });
+        const html = await res.text();
+        const $ = cheerio.load(html);
+        const hdUrl = $('#hdlink').attr('href') || $('#sdlink').attr('href');
+        if (hdUrl && hdUrl.startsWith('http')) {
             return {
-                videoUrl: result.hd || result.sd,
-                title: result.title || 'Facebook Video'
+                videoUrl: hdUrl,
+                title: 'Facebook Video'
             };
         }
     } catch (err) {
-        console.warn(`[Facebook] Engine 3 (fb-downloader) failed: ${err.message}`);
+        console.warn(`[Facebook] Engine 2 (FDown) failed: ${err.message}`);
+    }
+
+    // Engine 3: OpenGraph HTML Video Scraper
+    try {
+        console.log(`[Facebook] Trying OpenGraph HTML Scraper...`);
+        const res = await fetch(cleanUrl, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36'
+            }
+        });
+        const html = await res.text();
+        const $ = cheerio.load(html);
+        let ogVideo = $('meta[property="og:video"]').attr('content') || 
+                      $('meta[property="og:video:secure_url"]').attr('content') ||
+                      $('meta[property="og:video:url"]').attr('content');
+        if (ogVideo) {
+            ogVideo = ogVideo.replace(/&amp;/g, '&');
+            return {
+                videoUrl: ogVideo,
+                title: $('meta[property="og:title"]').attr('content') || 'Facebook Video'
+            };
+        }
+    } catch (err) {
+        console.warn(`[Facebook] Engine 3 (OpenGraph) failed: ${err.message}`);
     }
 
     throw new Error('Could not extract video from this Facebook URL.');
@@ -6396,19 +6481,22 @@ DANIE_COMMANDS['fb'] = async (conn, mek, from, senderJid, args, reply) => {
     }
 };
 DANIE_COMMANDS['fbdl'] = DANIE_COMMANDS['fb'];
+DANIE_COMMANDS['facebook'] = DANIE_COMMANDS['fb'];
 
-// Helper: Download Instagram Media with 3 engines (API, Ruhend, & native yt-dlp)
+// Helper: Download Instagram Media with 3 engines (TikWM, Ruhend, & native yt-dlp)
 async function downloadInstagramMedia(url) {
     const fetch = require('node-fetch');
     const util = require('util');
     const execPromise = util.promisify(require('child_process').exec);
 
-    // Engine 1: TikWM / Indown API
+    const cleanUrl = url.trim();
+
+    // Engine 1: TikWM / Universal API
     try {
         const res = await fetch('https://www.tikwm.com/api/', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({ url: url.trim(), hd: 1 })
+            body: new URLSearchParams({ url: cleanUrl, hd: 1 })
         });
         const data = await res.json();
         if (data && data.data && (data.data.play || data.data.hdplay)) {
@@ -6422,7 +6510,7 @@ async function downloadInstagramMedia(url) {
     // Engine 2: Ruhend Scraper igdl
     try {
         const { igdl } = require('ruhend-scraper');
-        const result = await igdl(url.trim());
+        const result = await igdl(cleanUrl);
         if (result && result.data && result.data.length > 0 && result.data[0].url) {
             return {
                 videoUrl: result.data[0].url,
@@ -6431,23 +6519,21 @@ async function downloadInstagramMedia(url) {
         }
     } catch (_) {}
 
-    // Engine 3: Native yt-dlp Instagram Video Extractor
+    // Engine 3: Native yt-dlp Instagram Extractor with --js-runtimes node
     const tempFile = path.join(os.tmpdir(), `ig_${Date.now()}_${Math.random().toString(36).substring(2, 6)}.mp4`);
-    const ytdlpCandidates = ['yt-dlp', '/usr/local/bin/yt-dlp', '/home/runner/.local/bin/yt-dlp'];
-    for (const bin of ytdlpCandidates) {
-        try {
-            console.log(`[Instagram] Trying native ${bin} for reel extraction...`);
-            const cmd = `${bin} --no-playlist --no-check-certificates --socket-timeout 30 -f "b/bv*+ba" -o "${tempFile}" "${url.trim()}"`;
-            await execPromise(cmd, { timeout: 120000 });
-            if (fs.existsSync(tempFile) && fs.statSync(tempFile).size > 1000) {
-                return {
-                    filePath: tempFile,
-                    title: 'Instagram Video'
-                };
-            }
-        } catch (_) {
-            try { if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile); } catch (_) {}
+    const bin = await ensureYtDlpBinary();
+    try {
+        console.log(`[Instagram] Trying native yt-dlp (${bin})...`);
+        const cmd = `"${bin}" --js-runtimes node --no-playlist --no-check-certificates --socket-timeout 30 -f "b/bv*+ba/best" -o "${tempFile}" "${cleanUrl}"`;
+        await execPromise(cmd, { timeout: 120000 });
+        if (fs.existsSync(tempFile) && fs.statSync(tempFile).size > 1000) {
+            return {
+                filePath: tempFile,
+                title: 'Instagram Video'
+            };
         }
+    } catch (_) {
+        try { if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile); } catch (_) {}
     }
 
     throw new Error('Could not extract media from this Instagram URL.');
@@ -6484,39 +6570,46 @@ DANIE_COMMANDS['ig'] = async (conn, mek, from, senderJid, args, reply) => {
 // Helper: Download TikTok Media via TikWM & Ruhend fallback
 async function downloadTikTokMedia(url) {
     const fetch = require('node-fetch');
+    const util = require('util');
+    const execPromise = util.promisify(require('child_process').exec);
+    const cleanUrl = url.trim();
+
     // Engine 1: TikWM API
     try {
         const res = await fetch('https://www.tikwm.com/api/', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({ url: url.trim(), hd: 1 })
+            body: new URLSearchParams({ url: cleanUrl, hd: 1 })
         });
         const data = await res.json();
         if (data && data.data && (data.data.play || data.data.hdplay)) {
             return {
                 videoUrl: data.data.hdplay || data.data.play,
                 title: data.data.title || 'TikTok Video',
-                author: data.data.author ? data.data.author.nickname : 'TikTok Creator',
-                music: data.data.music
+                author: data.data.author ? data.data.author.nickname : 'TikTok Creator'
             };
         }
     } catch (e1) {
         console.error('[TikTok TikWM Error]:', e1.message);
     }
 
-    // Engine 2: Ruhend Scraper Fallback
+    // Engine 2: Native yt-dlp with --js-runtimes node
+    const tempFile = path.join(os.tmpdir(), `tk_${Date.now()}_${Math.random().toString(36).substring(2, 6)}.mp4`);
+    const bin = await ensureYtDlpBinary();
     try {
-        const { tiktokdl } = require('ruhend-scraper');
-        const result = await tiktokdl(url.trim());
-        if (result && (result.video || result.play)) {
+        console.log(`[TikTok] Trying native yt-dlp (${bin})...`);
+        const cmd = `"${bin}" --js-runtimes node --no-playlist --no-check-certificates --socket-timeout 30 -f "b/bv*+ba/best" -o "${tempFile}" "${cleanUrl}"`;
+        await execPromise(cmd, { timeout: 120000 });
+        if (fs.existsSync(tempFile) && fs.statSync(tempFile).size > 1000) {
             return {
-                videoUrl: result.video || result.play,
-                title: result.title || 'TikTok Video',
-                author: result.author || 'TikTok Creator'
+                filePath: tempFile,
+                title: 'TikTok Video',
+                author: 'TikTok Creator'
             };
         }
     } catch (e2) {
-        console.error('[TikTok Ruhend Error]:', e2.message);
+        console.error('[TikTok yt-dlp Error]:', e2.message);
+        try { if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile); } catch (_) {}
     }
 
     throw new Error('Could not extract TikTok video from link.');
@@ -6542,7 +6635,7 @@ DANIE_COMMANDS['tiktok'] = async (conn, mek, from, senderJid, args, reply) => {
     }
 };
 
-// Helper: Download Twitter/X Media with 3 engines (yt-dlp, VxTwitter API, & Cobalt fallback)
+// Helper: Download Twitter/X Media with 3 engines (FxTwitter API, yt-dlp with --js-runtimes node, & VxTwitter API)
 async function downloadTwitterMedia(url) {
     const fetch = require('node-fetch');
     const util = require('util');
@@ -6550,12 +6643,42 @@ async function downloadTwitterMedia(url) {
 
     const cleanUrl = url.trim();
     const tempFile = path.join(os.tmpdir(), `tw_${Date.now()}_${Math.random().toString(36).substring(2, 6)}.mp4`);
-    const bin = getYtDlpBin();
+    const bin = await ensureYtDlpBinary();
+    const tweetId = cleanUrl.match(/status\/(\d+)/)?.[1];
 
-    // Engine 1: Native yt-dlp (Primary & Most reliable for Twitter/X)
+    // Engine 1: FxTwitter API
+    if (tweetId) {
+        try {
+            console.log(`[Twitter/X] Trying FxTwitter API for tweet ${tweetId}...`);
+            const res = await fetch(`https://api.fxtwitter.com/status/${tweetId}`, {
+                headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+            });
+            const data = await res.json();
+            if (data && data.tweet && data.tweet.media) {
+                const media = data.tweet.media;
+                let videoUrl = null;
+                if (media.videos && media.videos.length > 0) {
+                    videoUrl = media.videos[0].url;
+                } else if (media.all && media.all.length > 0) {
+                    const foundVideo = media.all.find(m => m.type === 'video' || m.type === 'gif');
+                    if (foundVideo) videoUrl = foundVideo.url;
+                }
+                if (videoUrl) {
+                    return {
+                        videoUrl: videoUrl,
+                        title: data.tweet.text || 'Twitter/X Video'
+                    };
+                }
+            }
+        } catch (err) {
+            console.warn(`[Twitter/X] Engine 1 (FxTwitter) failed: ${err.message}`);
+        }
+    }
+
+    // Engine 2: Native yt-dlp with --js-runtimes node
     try {
         console.log(`[Twitter/X] Trying native yt-dlp (${bin}) for: ${cleanUrl}`);
-        const cmd = `"${bin}" --no-playlist --no-check-certificates --socket-timeout 30 -f "b/bv*+ba/best" -o "${tempFile}" "${cleanUrl}"`;
+        const cmd = `"${bin}" --js-runtimes node --no-playlist --no-check-certificates --socket-timeout 30 -f "b/bv*+ba/best" -o "${tempFile}" "${cleanUrl}"`;
         await execPromise(cmd, { timeout: 120000 });
         if (fs.existsSync(tempFile) && fs.statSync(tempFile).size > 1000) {
             return {
@@ -6564,17 +6687,16 @@ async function downloadTwitterMedia(url) {
             };
         }
     } catch (err) {
-        console.warn(`[Twitter/X] Engine 1 (yt-dlp) failed: ${err.message}`);
+        console.warn(`[Twitter/X] Engine 2 (yt-dlp) failed: ${err.message}`);
         try { if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile); } catch (_) {}
     }
 
-    // Engine 2: VxTwitter API
-    try {
-        console.log(`[Twitter/X] Trying VxTwitter API...`);
-        const tweetId = cleanUrl.match(/status\/(\d+)/)?.[1];
-        if (tweetId) {
-            const vxRes = await fetch(`https://api.vxtwitter.com/Twitter/status/${tweetId}`);
-            const vxData = await vxRes.json();
+    // Engine 3: VxTwitter API
+    if (tweetId) {
+        try {
+            console.log(`[Twitter/X] Trying VxTwitter API for tweet ${tweetId}...`);
+            const res = await fetch(`https://api.vxtwitter.com/status/${tweetId}`);
+            const vxData = await res.json();
             if (vxData && vxData.media_extended && vxData.media_extended.length > 0) {
                 const media = vxData.media_extended.find(m => m.type === 'video' || m.type === 'gif');
                 if (media && media.url) {
@@ -6584,31 +6706,9 @@ async function downloadTwitterMedia(url) {
                     };
                 }
             }
+        } catch (err) {
+            console.warn(`[Twitter/X] Engine 3 (VxTwitter) failed: ${err.message}`);
         }
-    } catch (err) {
-        console.warn(`[Twitter/X] Engine 2 (VxTwitter) failed: ${err.message}`);
-    }
-
-    // Engine 3: Cobalt API fallback
-    try {
-        console.log(`[Twitter/X] Trying Cobalt API fallback...`);
-        const cobRes = await fetch('https://co.wuk.sh/api/json', {
-            method: 'POST',
-            headers: {
-                'Accept': 'application/json',
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ url: cleanUrl })
-        });
-        const cobData = await cobRes.json();
-        if (cobData && cobData.url) {
-            return {
-                videoUrl: cobData.url,
-                title: 'Twitter/X Video'
-            };
-        }
-    } catch (err) {
-        console.warn(`[Twitter/X] Engine 3 (Cobalt) failed: ${err.message}`);
     }
 
     throw new Error('Could not extract video from this Twitter/X URL.');
@@ -6654,7 +6754,7 @@ DANIE_COMMANDS['xdl'] = DANIE_COMMANDS['twitter'];
 // .tk alias
 DANIE_COMMANDS['tk'] = DANIE_COMMANDS['tiktok'];
 
-// Helper: Download YouTube Media (Video / Audio) via cnv.cx API direct stream (same as .p trailer) with yt-dlp fallbacks
+// Helper: Download YouTube Media (Video / Audio) via native yt-dlp (--js-runtimes node) with cnv.cx API fallbacks
 async function downloadYouTubeMediaHelper(queryOrUrl, isAudio = false) {
     let videoInfo = null;
     let targetUrl = queryOrUrl.trim();
@@ -6687,13 +6787,44 @@ async function downloadYouTubeMediaHelper(queryOrUrl, isAudio = false) {
     const views = videoInfo ? videoInfo.views : '';
     const thumbnail = videoInfo ? videoInfo.thumbnail : '';
 
-    const format = isAudio ? 'mp3' : 'mp4';
     const ext = isAudio ? 'mp3' : 'mp4';
     const tempFile = path.join(os.tmpdir(), `yt_${Date.now()}_${Math.random().toString(36).substring(2, 6)}.${ext}`);
 
-    // Engine 1 (Primary): Use cnv.cx direct stream resolver (SAME METHOD AS .p TRAILER DOWNLOAD)
+    // Engine 1 (Primary & Highest Quality): Native yt-dlp with --js-runtimes node
+    const util = require('util');
+    const execPromise = util.promisify(require('child_process').exec);
+    const bin = await ensureYtDlpBinary();
+    const formatFlag = isAudio ? '-f "ba/140/251/best"' : '-f "18/b/bv*+ba"';
+    const commonFlags = '--js-runtimes node --no-playlist --no-check-certificates --socket-timeout 30';
+
     try {
-        console.log(`[YouTubeHelper] Primary Engine: Resolving YouTube media using cnv.cx API...`);
+        console.log(`[YouTubeHelper] Primary Engine: Native yt-dlp (${bin}) for "${title}"...`);
+        const cmd = `"${bin}" ${commonFlags} ${formatFlag} -o "${tempFile}" "${targetUrl}"`;
+        await execPromise(cmd, { timeout: 120000 });
+
+        if (fs.existsSync(tempFile) && fs.statSync(tempFile).size > 1000) {
+            if (!isAudio) {
+                try { await remuxFileToFaststart(tempFile); } catch (_) {}
+            }
+            return {
+                filePath: tempFile,
+                title,
+                timestamp,
+                views,
+                thumbnail,
+                targetUrl,
+                mimetype: isAudio ? "audio/mp4" : "video/mp4"
+            };
+        }
+    } catch (ytdlpErr) {
+        console.warn(`[YouTubeHelper] Primary yt-dlp engine failed: ${ytdlpErr.message}`);
+        try { if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile); } catch (_) {}
+    }
+
+    // Engine 2 (Fallback): cnv.cx API direct stream resolver
+    try {
+        console.log(`[YouTubeHelper] Fallback Engine: Resolving YouTube media using cnv.cx API...`);
+        const format = isAudio ? 'mp3' : 'mp4';
         const directVideoUrl = await downloadYoutubeVideoUrl(targetUrl, '720', format);
         if (directVideoUrl) {
             console.log(`[YouTubeHelper] Direct media URL resolved: ${directVideoUrl}. Downloading stream...`);
@@ -6718,8 +6849,7 @@ async function downloadYouTubeMediaHelper(queryOrUrl, isAudio = false) {
 
                 if (fs.existsSync(tempRawPath) && fs.statSync(tempRawPath).size > 1000) {
                     if (!isAudio) {
-                        console.log(`[YouTubeHelper] Applying faststart MP4 remux for video...`);
-                        await remuxFileToFaststart(tempRawPath);
+                        try { await remuxFileToFaststart(tempRawPath); } catch (_) {}
                         return {
                             filePath: tempRawPath,
                             title,
@@ -6730,22 +6860,6 @@ async function downloadYouTubeMediaHelper(queryOrUrl, isAudio = false) {
                             mimetype: 'video/mp4'
                         };
                     } else {
-                        try {
-                            execSync(`ffmpeg -y -i "${tempRawPath}" -vn -c:a libmp3lame -b:a 128k "${tempFile}"`, { stdio: 'ignore' });
-                            if (fs.existsSync(tempFile) && fs.statSync(tempFile).size > 1000) {
-                                try { if (fs.existsSync(tempRawPath)) fs.unlinkSync(tempRawPath); } catch (_) {}
-                                return {
-                                    filePath: tempFile,
-                                    title,
-                                    timestamp,
-                                    views,
-                                    thumbnail,
-                                    targetUrl,
-                                    mimetype: 'audio/mpeg'
-                                };
-                            }
-                        } catch (_) {}
-
                         return {
                             filePath: tempRawPath,
                             title,
@@ -6760,55 +6874,7 @@ async function downloadYouTubeMediaHelper(queryOrUrl, isAudio = false) {
             }
         }
     } catch (cnvErr) {
-        console.warn(`[YouTubeHelper] Primary cnv.cx API strategy failed: ${cnvErr.message}`);
-    }
-
-    // Engine 2 (Fallback): System / Local yt-dlp binaries
-    const util = require('util');
-    const execPromise = util.promisify(require('child_process').exec);
-    const ytdlpLocalBin = path.join(__dirname, '..', '..', 'yt-dlp.exe');
-    const ytdlpCandidates = [
-        'yt-dlp',
-        '/usr/local/bin/yt-dlp',
-        '/home/runner/.local/bin/yt-dlp',
-    ];
-    if (fs.existsSync(ytdlpLocalBin)) {
-        ytdlpCandidates.push(`"${ytdlpLocalBin}"`);
-    }
-
-    const formatFlag = isAudio ? '-f "140/251/ba/b"' : '-f "18/b/bv*+ba"';
-    const commonFlags = '--js-runtimes node --no-playlist --no-check-certificates --socket-timeout 30';
-
-    for (const bin of ytdlpCandidates) {
-        try {
-            console.log(`[YouTubeHelper] Fallback: Trying ${bin} for "${title}"...`);
-            const strategies = [
-                '--extractor-args "youtube:player_client=android"',
-                '--extractor-args "youtube:player_client=web"',
-                '',
-            ];
-
-            for (const strategy of strategies) {
-                try {
-                    const cmd = `${bin} ${commonFlags} ${strategy} ${formatFlag} -o "${tempFile}" "${targetUrl}"`;
-                    await execPromise(cmd, { timeout: 120000 });
-
-                    if (fs.existsSync(tempFile) && fs.statSync(tempFile).size > 1000) {
-                        return {
-                            filePath: tempFile,
-                            title,
-                            timestamp,
-                            views,
-                            thumbnail,
-                            targetUrl,
-                            mimetype: isAudio ? "audio/mp4" : "video/mp4"
-                        };
-                    }
-                } catch (_) {
-                    try { if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile); } catch (_) {}
-                }
-            }
-        } catch (_) {}
+        console.warn(`[YouTubeHelper] Fallback cnv.cx API strategy failed: ${cnvErr.message}`);
     }
 
     throw new Error("Failed to download YouTube media. All engines failed.");
