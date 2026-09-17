@@ -4627,40 +4627,107 @@ DANIE_COMMANDS['help'] = async (conn, mek, from, senderJid, args, reply) => {
     } catch(e) {}
 
     const helpText =
-        `╭─── 📖 *COMMAND HELP* 📖 ───╮\n\n` +
+        `╭─── 📖 *DANIEWATCH BOT COMMAND MENU* 📖 ───╮\n` +
+        `│\n` +
+        `│ 🤖 *Engine:* DanieWatch Automation Core\n` +
+        `│ ⚡ *Status:* Online & Operational\n` +
+        `│ 💡 *Tip:* Send any direct URL or movie link anytime!\n` +
+        `╰───────────────────────────────╯\n\n` +
 
-        `┌─❒ 🎬 *Movie & Series Search*\n` +
-        `│ • \`.sv <query>\` — Search VegaMovies\n` +
-        `│ • \`.sr <query>\` — Search RogMovies\n` +
-        `│ • \`.sh <query>\` — Search HDHub4u\n` +
-        `│ • \`.si <query>\` — Search StreamIMDB\n` +
-        `│ • \`.se <url>\` — Auto-download Nexdrive/VCloud series\n` +
-        `│ • \`.p <tmdb> = <link>\` — Download movie with TMDB poster\n` +
-        `│ • \`.d <link>\` — Direct link auto-downloader\n` +
-        `└───────────────\n\n` +
+        `┌─── 🎬 *MOVIES & SERIES FLOW* ───┐\n` +
+        `│ • \`.search <query>\` ➔ Smart AI search across all sites\n` +
+        `│   _Use:_ \`.search Avengers Endgame\`\n` +
+        `│ • \`.sv <query>\` ➔ Search VegaMovies database\n` +
+        `│   _Use:_ \`.sv Batman\`\n` +
+        `│ • \`.sr <query>\` ➔ Search RogMovies database\n` +
+        `│   _Use:_ \`.sr Inception\`\n` +
+        `│ • \`.sh <query>\` ➔ Search HDHub4u database\n` +
+        `│   _Use:_ \`.sh Interstellar\`\n` +
+        `│ • \`.si <query>\` ➔ Search StreamIMDB database\n` +
+        `│   _Use:_ \`.si Breaking Bad\`\n` +
+        `│ • \`.se <url>\` ➔ Extract & auto-download Nexdrive/VCloud series\n` +
+        `│   _Use:_ \`.se https://nexdrive.fit/...\`\n` +
+        `│ • \`.p <tmdb> = <url>\` ➔ Download with TMDB poster & metadata\n` +
+        `│   _Use:_ \`.p 299536 = https://...\`\n` +
+        `│ • \`.d <url>\` ➔ Direct link fast video downloader\n` +
+        `│   _Use:_ \`.d https://site.com/video.mp4\`\n` +
+        `│ • \`.confirm <num>\` ➔ Select & confirm item from search results\n` +
+        `│   _Use:_ \`.confirm 1\`\n` +
+        `└───────────────────────────────┘\n\n` +
 
-        `┌─❒ 🎵 *Music & Social Downloader*\n` +
-        `│ • \`.song <name/url>\` — Download YouTube Music MP3\n` +
-        `│ • \`.video <name/url>\` — Download YouTube Video MP4\n` +
-        `│ • \`.tiktok <url>\` — Download TikTok Video\n` +
-        `│ • \`.ig <url>\` — Download Instagram Reel/Video\n` +
-        `│ • \`.fb <url>\` — Download Facebook Video\n` +
-        `│ • \`.twitter <url>\` — Download Twitter/X Media\n` +
-        `└───────────────\n\n` +
+        `┌─── 🎵 *MUSIC & SOCIAL MEDIA FLOW* ───┐\n` +
+        `│ • \`.song <title/url>\` ➔ Download YouTube Music MP3 (Alias: \`.ytm\`)\n` +
+        `│   _Use:_ \`.song Shape of You\`\n` +
+        `│ • \`.video <title/url>\` ➔ Download YouTube Video MP4 (Alias: \`.yt\`)\n` +
+        `│   _Use:_ \`.video https://youtu.be/...\`\n` +
+        `│ • \`.ig <url>\` ➔ Download Instagram Reels & Posts (Alias: \`.insta\`)\n` +
+        `│   _Use:_ \`.ig https://instagram.com/p/...\`\n` +
+        `│ • \`.fb <url>\` ➔ Download Facebook Video (Alias: \`.facebook\`)\n` +
+        `│   _Use:_ \`.fb https://fb.watch/...\`\n` +
+        `│ • \`.tk <url>\` ➔ Download TikTok Video without watermark (Alias: \`.tiktok\`)\n` +
+        `│   _Use:_ \`.tk https://tiktok.com/@...\`\n` +
+        `│ • \`.x <url>\` ➔ Download Twitter/X Media Video (Alias: \`.twitter\`)\n` +
+        `│   _Use:_ \`.x https://x.com/...\`\n` +
+        `└───────────────────────────────┘\n\n` +
 
-        `┌─❒ ⚙️ *Queue & System Control*\n` +
-        `│ • \`.alive\` — Check Bot Status & Specs\n` +
-        `│ • \`.config\` — Configure Receiver Group/Private Chat\n` +
-        `│ • \`.status\` / \`.que\` — View Task Queue Status\n` +
-        `│ • \`.c\` / \`.cancel\` — Cancel all tasks & reset queue\n` +
-        `│ • \`.qdel <num>\` — Remove item from queue\n` +
-        `│ • \`.qedit <num> <cmd>\` — Update queued command\n` +
-        `│ • \`.allow <phone>\` — Add Allowed User\n` +
-        `│ • \`.disallow <phone>\` — Remove Allowed User\n` +
-        `│ • \`.allowed\` — View Allowed Users List\n` +
-        `└───────────────\n\n` +
+        `┌─── 📋 *RELEASE & QUEUE FLOW* ───┐\n` +
+        `│ • \`.createlist\` ➔ Create daily release checklist (Alias: \`.daily\`, \`.list\`)\n` +
+        `│   _Use:_ \`.createlist\`\n` +
+        `│ • \`.7days\` ➔ View 7-day release history & archives (Alias: \`.archive\`)\n` +
+        `│   _Use:_ \`.7days\`\n` +
+        `│ • \`.listque\` ➔ View pending release queue (Alias: \`.quelist\`)\n` +
+        `│   _Use:_ \`.listque\`\n` +
+        `│ • \`.status\` ➔ View active download queue status (Alias: \`.que\`, \`.dlstatus\`)\n` +
+        `│   _Use:_ \`.status\`\n` +
+        `│ • \`.qdel <num>\` ➔ Remove specific item from download queue\n` +
+        `│   _Use:_ \`.qdel 2\`\n` +
+        `│ • \`.qedit <num> <cmd>\` ➔ Update queued item command\n` +
+        `│   _Use:_ \`.qedit 1 .d https://...\`\n` +
+        `│ • \`.c\` ➔ Cancel all active downloads & reset queue (Alias: \`.cancel\`)\n` +
+        `│   _Use:_ \`.c\`\n` +
+        `└───────────────────────────────┘\n\n` +
 
-        `🚀 _Send any direct link to auto-download!_`;
+        `┌─── 👥 *INACTIVE TRACKER FLOW* ───┐\n` +
+        `│ • \`.resettracker\` ➔ Init/reset Daniewatch activity tracker (Alias: \`.initinactive\`)\n` +
+        `│   _Use:_ \`.resettracker\`\n` +
+        `│ • \`.nonactive\` ➔ View list of inactive members (Alias: \`.inactive\`)\n` +
+        `│   _Use:_ \`.nonactive\`\n` +
+        `│ • \`.listinactive\` ➔ Export TXT file of inactive members with phones\n` +
+        `│   _Use:_ \`.listinactive\`\n` +
+        `│ • \`.kicknonactive <n>\` ➔ Kick N inactive members with safe delays\n` +
+        `│   _Use:_ \`.kicknonactive 5\`\n` +
+        `└───────────────────────────────┘\n\n` +
+
+        `┌─── 🛡️ *GROUP SECURITY & PROTECTION* ───┐\n` +
+        `│ • \`.antilink\` ➔ Manage Anti-Link protection (add/remove/list/clear)\n` +
+        `│   _Use:_ \`.antilink\`\n` +
+        `│ • \`.antispam\` ➔ Manage Anti-Spam protection (add/remove/list/clear)\n` +
+        `│   _Use:_ \`.antispam\`\n` +
+        `└───────────────────────────────┘\n\n` +
+
+        `┌─── ⚙️ *BOT CONFIG & ACCESS CONTROL* ───┐\n` +
+        `│ • \`.alive\` ➔ Check bot status, uptime & system specs\n` +
+        `│   _Use:_ \`.alive\`\n` +
+        `│ • \`.config\` ➔ Configure destination group or DM delivery\n` +
+        `│   _Use:_ \`.config\`\n` +
+        `│ • \`.setgroup [1-3]\` ➔ Set target destination group number\n` +
+        `│   _Use:_ \`.setgroup 1\`\n` +
+        `│ • \`.jid\` ➔ Show current chat JID (Alias: \`.groupid\`)\n` +
+        `│   _Use:_ \`.jid\`\n` +
+        `│ • \`.domain\` ➔ View/configure target domain filters (Alias: \`.domains\`)\n` +
+        `│   _Use:_ \`.domain\`\n` +
+        `│ • \`.allow <phone>\` ➔ Grant bot command access to a phone number\n` +
+        `│   _Use:_ \`.allow +923001234567\`\n` +
+        `│ • \`.disallow <phone>\` ➔ Revoke bot command access from a phone number\n` +
+        `│   _Use:_ \`.disallow +923001234567\`\n` +
+        `│ • \`.allowed\` ➔ List all authorized bot users\n` +
+        `│   _Use:_ \`.allowed\`\n` +
+        `│ • \`.help\` ➔ Show this command help menu (Alias: \`.menu\`, \`.commands\`)\n` +
+        `│   _Use:_ \`.help\`\n` +
+        `└───────────────────────────────┘\n\n` +
+
+        `🚀 *DanieWatch Automation Engine*\n` +
+        `_Send any direct link or video URL directly to auto-download!_`;
 
     const logoPath = path.join(__dirname, '..', '..', 'assets', 'daniewatch_logo.png');
     if (fs.existsSync(logoPath)) {
@@ -4674,6 +4741,9 @@ DANIE_COMMANDS['help'] = async (conn, mek, from, senderJid, args, reply) => {
     }
     await reply(helpText);
 };
+DANIE_COMMANDS['menu'] = DANIE_COMMANDS['help'];
+DANIE_COMMANDS['commands'] = DANIE_COMMANDS['help'];
+DANIE_COMMANDS['h'] = DANIE_COMMANDS['help'];
 DANIE_COMMANDS['sv'] = async (conn, mek, from, senderJid, args, reply) => {
     await searchCommandHandler(conn, mek, from, senderJid, args, reply, 'vegamovies');
 };
@@ -7267,6 +7337,22 @@ DANIE_COMMANDS['kicknonactive'] = async (conn, mek, from, senderJid, args, reply
 DANIE_COMMANDS['kickinactive'] = DANIE_COMMANDS['kicknonactive'];
 DANIE_COMMANDS['removeinactive'] = DANIE_COMMANDS['kicknonactive'];
 
+cmd({
+    pattern: 'help',
+    alias: ['menu', 'commands', 'h'],
+    react: '📖',
+    desc: 'Show all bot commands with descriptions, usage, and categorized flows',
+    category: 'general',
+    use: '.help',
+    filename: __filename
+}, async (conn, mek, m, { from }) => {
+    const reply = async (textMsg) => conn.sendMessage(from, { text: textMsg }, { quoted: mek });
+    const senderJid = m.sender || mek.sender || from;
+    if (typeof DANIE_COMMANDS['help'] === 'function') {
+        await DANIE_COMMANDS['help'](conn, mek, from, senderJid, '', reply);
+    }
+});
+
 // Export initUpsertListener, globalTaskQueue, isTaskRunning, and downloadCommandHandler
 module.exports.initUpsertListener = initUpsertListener;
 module.exports.globalTaskQueue = globalTaskQueue;
@@ -7274,4 +7360,5 @@ module.exports.isTaskRunning = isTaskRunning;
 module.exports.downloadCommandHandler = downloadCommandHandler;
 module.exports.pCommandHandler = pCommandHandler;
 module.exports.DANIE_COMMANDS = DANIE_COMMANDS;
+
 
