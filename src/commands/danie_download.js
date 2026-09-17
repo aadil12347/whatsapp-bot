@@ -488,7 +488,7 @@ function generateVideoThumbnailBuffer(videoPath) {
     return null;
 }
 
-async function extractArchive(archivePath, targetDir, hintExtOrFilename = '') {
+async function extractArchive(archivePath, targetDir, hintExtOrFilename = '', abortSignal = null) {
     if (!fs.existsSync(targetDir)) {
         fs.mkdirSync(targetDir, { recursive: true });
     }
@@ -507,20 +507,40 @@ async function extractArchive(archivePath, targetDir, hintExtOrFilename = '') {
     const is7zOrOther = ['.7z', '.tar', '.gz', '.tgz', '.z01', '.001', '.iso', '.wim'].includes(ext) || 
                         combinedName.includes('.7z') || combinedName.includes('.tar') || combinedName.includes('.gz');
 
-    console.log(`[DanieDownload] Extracting archive: "${path.basename(archivePath)}" (detected ext: "${ext}", size: ${(fileSize / 1024 / 1024).toFixed(1)} MB)...`);
+    // 10 minutes timeout for extraction to prevent infinite hangs on corrupted archives
+    const EXTRACT_TIMEOUT_MS = 10 * 60 * 1000;
+    const execOpts = { maxBuffer: 1024 * 1024 * 50, timeout: EXTRACT_TIMEOUT_MS };
+
+    console.log(`[DanieDownload] Extracting archive: "${path.basename(archivePath)}" (detected ext: "${ext}", size: ${(fileSize / 1024 / 1024).toFixed(1)} MB, timeout: ${EXTRACT_TIMEOUT_MS / 1000}s)...`);
+
+    // Helper: wrap extraction in abort-aware promise
+    const extractWithAbort = (extractionPromise) => {
+        if (!abortSignal) return extractionPromise;
+        return Promise.race([
+            extractionPromise,
+            new Promise((_, reject) => {
+                if (abortSignal.aborted) return reject(new Error('Aborted'));
+                abortSignal.addEventListener('abort', () => reject(new Error('Aborted')), { once: true });
+            })
+        ]);
+    };
 
     // 1. ZIP Extraction
     if (isZip) {
         try {
             console.log('[DanieDownload] Extracting ZIP via native system unzip...');
-            await execAsync(`unzip -o -q "${archivePath}" -d "${targetDir}"`, { maxBuffer: 1024 * 1024 * 50 });
+            await extractWithAbort(execAsync(`unzip -o -q "${archivePath}" -d "${targetDir}"`, execOpts));
             return true;
         } catch (unzipErr) {
+            if (unzipErr.message === 'Aborted') throw unzipErr;
+            if (unzipErr.killed) throw new Error(`ZIP extraction timed out after ${EXTRACT_TIMEOUT_MS / 1000}s. Archive may be corrupted or too large.`);
             console.warn('[DanieDownload] Native system unzip unavailable or failed, trying 7z...');
             try {
-                await execAsync(`7z x -y -o"${targetDir}" "${archivePath}"`, { maxBuffer: 1024 * 1024 * 50 });
+                await extractWithAbort(execAsync(`7z x -y -o"${targetDir}" "${archivePath}"`, execOpts));
                 return true;
             } catch (err7z) {
+                if (err7z.message === 'Aborted') throw err7z;
+                if (err7z.killed) throw new Error(`ZIP extraction (7z) timed out after ${EXTRACT_TIMEOUT_MS / 1000}s. Archive may be corrupted or too large.`);
                 if (fileSize < TWO_GIB) {
                     try {
                         console.log('[DanieDownload] 7z unavailable, falling back to adm-zip...');
@@ -541,14 +561,18 @@ async function extractArchive(archivePath, targetDir, hintExtOrFilename = '') {
     if (isRar) {
         try {
             console.log('[DanieDownload] Extracting RAR via system unrar...');
-            await execAsync(`unrar x -o+ "${archivePath}" "${targetDir}/"`, { maxBuffer: 1024 * 1024 * 50 });
+            await extractWithAbort(execAsync(`unrar x -o+ "${archivePath}" "${targetDir}/"`, execOpts));
             return true;
         } catch (err) {
+            if (err.message === 'Aborted') throw err;
+            if (err.killed) throw new Error(`RAR extraction timed out after ${EXTRACT_TIMEOUT_MS / 1000}s. Archive may be corrupted or too large.`);
             try {
                 console.log('[DanieDownload] System unrar failed, trying 7z (async)...');
-                await execAsync(`7z x -y -o"${targetDir}" "${archivePath}"`, { maxBuffer: 1024 * 1024 * 50 });
+                await extractWithAbort(execAsync(`7z x -y -o"${targetDir}" "${archivePath}"`, execOpts));
                 return true;
             } catch (err7z) {
+                if (err7z.message === 'Aborted') throw err7z;
+                if (err7z.killed) throw new Error(`RAR extraction (7z) timed out after ${EXTRACT_TIMEOUT_MS / 1000}s. Archive may be corrupted or too large.`);
                 console.error('[DanieDownload] unrar extraction failed:', err.message);
                 throw new Error(`Failed to extract RAR archive. Error: ${err.message}`);
             }
@@ -559,9 +583,11 @@ async function extractArchive(archivePath, targetDir, hintExtOrFilename = '') {
     if (is7zOrOther) {
         try {
             console.log(`[DanieDownload] Extracting ${ext || 'archive'} via 7z...`);
-            await execAsync(`7z x -y -o"${targetDir}" "${archivePath}"`, { maxBuffer: 1024 * 1024 * 50 });
+            await extractWithAbort(execAsync(`7z x -y -o"${targetDir}" "${archivePath}"`, execOpts));
             return true;
         } catch (err) {
+            if (err.message === 'Aborted') throw err;
+            if (err.killed) throw new Error(`${ext} extraction timed out after ${EXTRACT_TIMEOUT_MS / 1000}s. Archive may be corrupted or too large.`);
             console.error(`[DanieDownload] 7z extraction failed for ${ext}:`, err.message);
             throw new Error(`Failed to extract ${ext} archive. Error: ${err.message}`);
         }
@@ -570,9 +596,11 @@ async function extractArchive(archivePath, targetDir, hintExtOrFilename = '') {
     // Universal Fallback: Attempt 7z extraction regardless of extension
     try {
         console.log(`[DanieDownload] Attempting universal 7z extraction for unknown format "${ext}"...`);
-        await execAsync(`7z x -y -o"${targetDir}" "${archivePath}"`, { maxBuffer: 1024 * 1024 * 50 });
+        await extractWithAbort(execAsync(`7z x -y -o"${targetDir}" "${archivePath}"`, execOpts));
         return true;
     } catch (univErr) {
+        if (univErr.message === 'Aborted') throw univErr;
+        if (univErr.killed) throw new Error(`Archive extraction timed out after ${EXTRACT_TIMEOUT_MS / 1000}s. Archive may be corrupted or too large.`);
         // Fallback for zip files without extension
         if (fileSize < TWO_GIB) {
             try {
@@ -891,11 +919,24 @@ async function downloadFileWithResume(url, tempFilePath, customHeaders = {}, abo
                 });
                 response.data.on('data', (chunk) => {
                     downloadedBytes += chunk.length;
+                    // Check abort signal on every chunk to immediately stop download on cancel
+                    if (abortSignal && abortSignal.aborted) {
+                        response.data.destroy();
+                        writer.destroy();
+                        reject(new Error('Aborted'));
+                    }
                 });
                 if (abortSignal) {
+                    if (abortSignal.aborted) {
+                        response.data.destroy();
+                        writer.destroy();
+                        return reject(new Error('Aborted'));
+                    }
                     abortSignal.addEventListener('abort', () => {
+                        response.data.destroy();
+                        writer.destroy();
                         reject(new Error('Aborted'));
-                    });
+                    }, { once: true });
                 }
             });
 
@@ -1070,6 +1111,7 @@ class TaskQueueManager {
         this.queue = [];
         this.activeTask = null;
         this.isProcessing = false;
+        this._cancelGeneration = 0;  // Incremented on every cancelAll() to guard against race conditions
     }
 
     add(task) {
@@ -1100,6 +1142,7 @@ class TaskQueueManager {
         if (this.isProcessing || this.queue.length === 0) return;
 
         this.isProcessing = true;
+        const myGeneration = this._cancelGeneration;  // Snapshot: if cancel happens mid-task, generation will differ
         const task = this.queue.shift();
         startSocketKeepAlive(task?.conn);
         
@@ -1124,16 +1167,25 @@ class TaskQueueManager {
                 console.error(`[QueueManager] Task failed with error: "${task.description}" -> ${err.message}`);
             }
         } finally {
-            this.activeTask = null;
-            this.isProcessing = false;
-            if (this.queue.length === 0) {
-                stopSocketKeepAlive();
+            // Only clean up and continue if no cancel happened during this task's execution.
+            // If cancelAll() was called, it already reset state — we must NOT re-trigger processNext
+            // because that would pick up tasks from a new batch and overlap with new user commands.
+            if (this._cancelGeneration === myGeneration) {
+                this.activeTask = null;
+                this.isProcessing = false;
+                if (this.queue.length === 0) {
+                    stopSocketKeepAlive();
+                }
+                setImmediate(() => this.processNext());
+            } else {
+                console.log(`[QueueManager] Cancel detected during task execution (gen ${myGeneration} -> ${this._cancelGeneration}). Not continuing old chain.`);
             }
-            setImmediate(() => this.processNext());
         }
     }
 
     cancelAll(senderJid) {
+        // Increment generation so any in-flight processNext() knows it was cancelled
+        this._cancelGeneration++;
         const count = this.queue.length;
         this.queue = [];
 
@@ -1151,6 +1203,9 @@ class TaskQueueManager {
             } catch (e) {}
             this.activeTask = null;
         }
+        // Reset processing state so new tasks can start fresh
+        this.isProcessing = false;
+        stopSocketKeepAlive();
         return { count, activeAborted };
     }
 
@@ -1212,11 +1267,20 @@ class TaskQueueManager {
         let activeStr = 'None';
         if (this.activeTask) {
             activeStr = `⚡ *[PROCESSING]* ${this.activeTask.description}`;
+            if (this.activeTask.linkUrl) {
+                activeStr += `\n       🔗 ${this.activeTask.linkUrl}`;
+            }
         }
 
         let pendingStr = 'No pending items in queue.';
         if (this.queue.length > 0) {
-            pendingStr = this.queue.map((t, idx) => `  \`${idx + 1}\`   ${t.description}`).join('\n\n');
+            pendingStr = this.queue.map((t, idx) => {
+                let line = `  \`${idx + 1}\`   ${t.description}`;
+                if (t.linkUrl) {
+                    line += `\n       🔗 ${t.linkUrl}`;
+                }
+                return line;
+            }).join('\n\n');
         }
 
         return `📋 *Task Queue Status*\n\n` +
@@ -1248,6 +1312,140 @@ function getCleanFileNameFromUrl(urlStr) {
         }
     } catch (_) {}
     return 'Media File';
+}
+
+/**
+ * Fetches a human-readable title for a URL before adding it to the queue.
+ * For TMDB URLs: extracts title from URL slug (instant, no API call).
+ * For download links: tries URL path, HEAD Content-Disposition, and HTML <title>.
+ * Returns { title, url } where title is the best available name.
+ */
+async function fetchLinkTitle(rawInput) {
+    if (!rawInput) return { title: 'Media File', url: '' };
+
+    // Parse multiple items - use first URL found
+    const items = parseQueryToItems(rawInput);
+    const firstItem = items[0] || rawInput;
+    const { customFilename, url } = parseDownloadItem(firstItem);
+
+    // If user already gave a custom name, use that
+    if (customFilename && !customFilename.startsWith('http')) {
+        return { title: customFilename, url };
+    }
+
+    const targetUrl = url || rawInput.trim();
+    if (!targetUrl.startsWith('http')) return { title: rawInput.substring(0, 60), url: targetUrl };
+
+    // TMDB URL: extract title from URL slug (instant, no network)
+    const tmdbMatch = targetUrl.match(/themoviedb\.org\/(movie|tv)\/(\d+)(?:[\-/]([^?#]+))?/i);
+    if (tmdbMatch) {
+        const slug = tmdbMatch[3] || '';
+        if (slug) {
+            // Convert URL slug "the-dark-knight" -> "The Dark Knight"
+            const titleFromSlug = decodeURIComponent(slug)
+                .replace(/[-_]/g, ' ')
+                .replace(/\b\w/g, c => c.toUpperCase())
+                .trim();
+            return { title: `🎬 ${titleFromSlug}`, url: targetUrl };
+        }
+        return { title: `🎬 TMDB #${tmdbMatch[2]} (${tmdbMatch[1]})`, url: targetUrl };
+    }
+
+    // Try to extract filename from URL path/params (no network)
+    try {
+        const parsedUrl = new URL(targetUrl);
+
+        // Check response-content-disposition or filename query param
+        const rcdParam = parsedUrl.searchParams.get('response-content-disposition') || parsedUrl.searchParams.get('filename');
+        if (rcdParam) {
+            const cdMatch = rcdParam.match(/filename\*=(?:UTF-8''|utf-8'')([^;\n"']+)/i)
+                         || rcdParam.match(/filename="([^"]+)"/i)
+                         || rcdParam.match(/filename=([^;\n"'\s]+)/i)
+                         || [null, rcdParam];
+            if (cdMatch && cdMatch[1]) {
+                const paramName = decodeURIComponent(cdMatch[1].trim());
+                if (paramName && paramName.includes('.') && paramName.length > 3) {
+                    return { title: cleanFileName(paramName), url: targetUrl };
+                }
+            }
+        }
+
+        // Check URL pathname for recognizable filename
+        const urlPath = parsedUrl.pathname;
+        const urlFile = urlPath.substring(urlPath.lastIndexOf('/') + 1);
+        if (urlFile && urlFile.includes('.') && urlFile.length > 3 && !/^(index|download|d|file|get)\./i.test(urlFile)) {
+            return { title: cleanFileName(decodeURIComponent(urlFile)), url: targetUrl };
+        }
+    } catch (_) {}
+
+    // Lightweight HEAD request to get Content-Disposition filename
+    try {
+        const parsedHeadUrl = new URL(targetUrl);
+        const headResponse = await axios.head(targetUrl, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Accept': '*/*',
+                'Referer': parsedHeadUrl.origin + '/'
+            },
+            httpsAgent: browserHttpsAgent,
+            timeout: 8000,
+            maxRedirects: 5,
+            validateStatus: (s) => s >= 200 && s < 400
+        });
+        const headCD = (headResponse.headers && headResponse.headers['content-disposition']) || '';
+        if (headCD) {
+            const cdMatch = headCD.match(/filename\*=(?:UTF-8''|utf-8'')([^;\n"']+)/i)
+                         || headCD.match(/filename="([^"]+)"/i)
+                         || headCD.match(/filename=([^;\n"'\s]+)/i);
+            if (cdMatch && cdMatch[1]) {
+                const headFilename = decodeURIComponent(cdMatch[1].trim());
+                if (headFilename && headFilename.length > 1) {
+                    return { title: cleanFileName(headFilename), url: targetUrl };
+                }
+            }
+        }
+        // Check final redirect URL for filename
+        const finalUrl = headResponse.request?.res?.responseUrl || headResponse.config?.url || '';
+        if (finalUrl && finalUrl !== targetUrl) {
+            try {
+                const finalPath = new URL(finalUrl).pathname;
+                const finalFile = finalPath.substring(finalPath.lastIndexOf('/') + 1);
+                if (finalFile && finalFile.includes('.') && finalFile.length > 3) {
+                    return { title: cleanFileName(decodeURIComponent(finalFile)), url: targetUrl };
+                }
+            } catch (_) {}
+        }
+    } catch (_) {}
+
+    // Last resort: lightweight GET to read HTML <title> (first 16KB only)
+    try {
+        const getResponse = await axios.get(targetUrl, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+            httpsAgent: browserHttpsAgent,
+            timeout: 8000,
+            maxRedirects: 5,
+            responseType: 'arraybuffer',
+            maxContentLength: 16384,  // Only read first 16KB
+            validateStatus: (s) => s >= 200 && s < 400
+        });
+        const htmlSample = Buffer.from(getResponse.data).toString('utf8').substring(0, 16000);
+        const titleMatch = htmlSample.match(/<title[^>]*>([^<]+)<\/title>/i);
+        if (titleMatch && titleMatch[1]) {
+            let pageTitle = titleMatch[1].trim()
+                .replace(/\s*[\|\-–—]\s*(Download|Free|Watch|Online|HD|Full|Movie|Series).*/i, '')
+                .trim();
+            if (pageTitle.length > 3 && pageTitle.length < 120) {
+                return { title: pageTitle, url: targetUrl };
+            }
+        }
+    } catch (_) {}
+
+    // Fallback: use domain + path  
+    try {
+        const u = new URL(targetUrl);
+        return { title: `${u.hostname}${u.pathname.substring(0, 30)}`, url: targetUrl };
+    } catch (_) {}
+    return { title: 'Media File', url: targetUrl };
 }
 
 async function sendTmdbPosterAndTrailer(conn, targets, title, mediaType = 'movie', seasonNum = null) {
@@ -1806,7 +2004,7 @@ function initUpsertListener(conn) {
                     'sv', 'sr', 'sh', 'si', 'se', 'seextract', 'serieslinks', 'nexdrive', 'vcloudlinks',
                     'alive', 'allow', 'disallow', 'addowner', 'delowner', 'addsudo', 'delsudo', 'owners', 'allowed', 'sudolist', 'config', 'setgroup', 'dlstatus', 'dlconfig', 'downloadstatus',
                     'c', 'cancel', 'clearqueue', 'cancelall', 'que', 'queue', 'q', 'qstatus',
-                    'd', 'p', 's', 'status', 'progress',
+                    'd', 'p',
                     'jid', 'groupid',
                     'createlist', 'list', 'todaylist', 'todayrelease', 'daily', 'create',
                     'history', 'weeklist', '7days', 'archive',
@@ -3035,7 +3233,7 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
                 await reply(`📥 Archive detected: *${tempFilename}* (${sizeInMB} MB). Extracting files...`);
                 const targetDir = path.join(__dirname, 'extracted_' + Date.now());
                 try {
-                    await extractArchive(tempFilePath, targetDir, tempFilename || ext);
+                    await extractArchive(tempFilePath, targetDir, tempFilename || ext, abortSignal);
 
                     if (abortSignal && abortSignal.aborted) {
                         throw new Error('Aborted');
@@ -3303,27 +3501,7 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
     }
 }
 
-async function sendStickyStatusUpdate(conn, from, currentStatusMsg, textMsg, isMajorPhaseChange = false) {
-    try {
-        if (isMajorPhaseChange && currentStatusMsg && currentStatusMsg.key) {
-            try {
-                await conn.sendMessage(from, { delete: currentStatusMsg.key });
-            } catch (_) {}
-            return await conn.sendMessage(from, { text: textMsg });
-        } else if (currentStatusMsg && currentStatusMsg.key) {
-            try {
-                return await conn.sendMessage(from, { text: textMsg, edit: currentStatusMsg.key });
-            } catch (editErr) {
-                return await conn.sendMessage(from, { text: textMsg });
-            }
-        } else {
-            return await conn.sendMessage(from, { text: textMsg });
-        }
-    } catch (_) {
-        return null;
-    }
-}
-
+// Minimal globalProgressState stub — used internally by StreamIMDB inline progress edits only
 let globalProgressState = {
     active: false,
     fileName: '',
@@ -3335,84 +3513,6 @@ let globalProgressState = {
     phaseText: 'Idle',
     statusMsg: null
 };
-
-async function handlePullDownStatus(conn, mek, from, reply) {
-    // Delete previous sticky status message
-    if (globalProgressState.statusMsg && globalProgressState.statusMsg.key) {
-        try {
-            await conn.sendMessage(globalProgressState.statusMsg.from || from, { delete: globalProgressState.statusMsg.key });
-        } catch (_) {}
-        globalProgressState.statusMsg = null;
-    }
-
-    const pendingCount = globalTaskQueue ? globalTaskQueue.queue.length : 0;
-    const isTaskRunning = globalTaskQueue && globalTaskQueue.activeTask;
-    const settings = loadSettings();
-    const uptime = formatUptime(process.uptime());
-    const memUsed = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1);
-
-    let statusText =
-        `╭─── 📊 *DANIEWATCH PULLDOWN STATUS* 📊 ───╮\n\n`;
-
-    // System info
-    statusText +=
-        `┌─❒ *System Overview*\n` +
-        `│ ⏱️ *Uptime:* ${uptime}\n` +
-        `│ 🧠 *Memory:* ${memUsed} MB\n` +
-        `└───────────────\n\n`;
-
-    // Active task
-    if (globalProgressState.active && globalProgressState.percentage < 100) {
-        statusText +=
-            `┌─❒ *Active Download*\n` +
-            `│ 🎬 *File:* ${globalProgressState.fileName}\n` +
-            (globalProgressState.quality ? `│ 💾 *Quality:* ${globalProgressState.quality}\n` : '') +
-            `│ 📊 *Progress:* ${globalProgressState.downloadedMB} MB / ~${globalProgressState.totalEstMB} MB (${globalProgressState.percentage}%)\n` +
-            `│ ⚡ *Speed:* ${globalProgressState.speedMBs} MB/s\n` +
-            `└───────────────\n\n`;
-    } else if (isTaskRunning) {
-        statusText +=
-            `┌─❒ *Active Task*\n` +
-            `│ ⚡ ${globalTaskQueue.activeTask.description || 'Processing...'}\n` +
-            `│ 🔄 *Phase:* ${globalProgressState.phaseText || 'In Progress'}\n` +
-            `└───────────────\n\n`;
-    } else {
-        statusText += `💡 *No active tasks running.*\n\n`;
-    }
-
-    // Queue
-    if (pendingCount > 0) {
-        statusText += `┌─❒ *Pending Queue (${pendingCount})*\n`;
-        globalTaskQueue.queue.forEach((t, idx) => {
-            statusText += `│   \`${idx + 1}\` • ${t.description}\n`;
-        });
-        statusText += `└───────────────\n\n`;
-    } else {
-        statusText += `📋 *Queue:* Empty\n\n`;
-    }
-
-    // Config
-    let targetSummary = 'Self (Private Chat)';
-    if (settings.targets && settings.targets.length > 0) {
-        targetSummary = settings.targets.map(t => {
-            const icon = t.type === 'group' ? '👥' : '👤';
-            return `${icon} ${t.name}`;
-        }).join(', ');
-    } else if (settings.mode === 'group' && settings.groupName) {
-        targetSummary = `👥 ${settings.groupName}`;
-    }
-    statusText +=
-        `┌─❒ *Active Config*\n` +
-        `│ ⚙️ *Mode:* ${settings.mode === 'group' ? '👥 Group' : '👤 Private'}\n` +
-        `│ 🎯 *Targets:* ${targetSummary}\n` +
-        `└───────────────\n\n`;
-
-    statusText += '_Send \`.s\` anytime to refresh. Use \`.c\` to cancel all._';
-    const sent = await reply(statusText);
-    if (sent && sent.key) {
-        globalProgressState.statusMsg = { key: sent.key, from };
-    }
-}
 
 async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal = null, activeDownloadRef = null) {
     console.log("=== P COMMAND TRIGGERED ===");
@@ -3427,18 +3527,8 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
             );
         }
 
-        let statusMsg = null;
-        globalProgressState.statusMsg = null;
-        globalProgressState.active = true;
-        globalProgressState.phaseText = 'Fetching TMDB metadata';
-
         const updatePStatus = async (textMsg) => {
-            globalProgressState.phaseText = textMsg.replace(/[*_]/g, '');
-            if (globalProgressState.statusMsg && globalProgressState.statusMsg.key) {
-                try {
-                    await conn.sendMessage(globalProgressState.statusMsg.from || from, { text: textMsg, edit: globalProgressState.statusMsg.key });
-                } catch (_) {}
-            }
+            try { await reply(textMsg); } catch (_) {}
         };
 
         const items = q.split(',').map(item => item.trim()).filter(Boolean);
@@ -3735,20 +3825,7 @@ cmd({
     await pCommandHandler(conn, mek, from, senderJid, q, reply);
 });
 
-cmd({
-    pattern: 's',
-    alias: ['status', 'progress'],
-    react: '',
-    desc: 'Pulls down the active download progress card to the bottom of the chat, deleting the old message higher up.',
-    category: 'download',
-    use: '.s',
-    filename: __filename
-}, async (conn, mek, m, { from }) => {
-    const reply = async (textMsg) => {
-        return conn.sendMessage(from, { text: textMsg }, { quoted: mek });
-    };
-    await handlePullDownStatus(conn, mek, from, reply);
-});
+// .status / .s / .progress command removed per user request
 
 // =========================================================================
 //  .groupid  unchanged from original
@@ -3817,11 +3894,7 @@ cmd({
 //  REGISTER DIRECT COMMAND HANDLERS
 //  These bypass the obfuscated framework entirely via messages.upsert
 // =========================================================================
-DANIE_COMMANDS['s'] = async (conn, mek, from, senderJid, args, reply) => {
-    await handlePullDownStatus(conn, mek, from, reply);
-};
-DANIE_COMMANDS['status'] = DANIE_COMMANDS['s'];
-DANIE_COMMANDS['progress'] = DANIE_COMMANDS['s'];
+// .s / .status / .progress commands removed per user request
 
 const { handleAiSearchCommand, pendingConfirmations } = require('./ai_search');
 
@@ -4283,10 +4356,22 @@ DANIE_COMMANDS['d'] = async (conn, mek, from, senderJid, args, reply) => {
     if (!args || !args.trim()) {
         return reply('❌ Please provide a download link!\n*Example:* \`.d https://example.com/file.mp4\`');
     }
-    const cleanName = getCleanFileNameFromUrl(args);
+
+    // Fetch proper title for queue display (async but fast — uses URL parsing, HEAD, HTML title)
+    let linkTitle = 'Media File';
+    let displayUrl = args.trim();
+    try {
+        const fetched = await fetchLinkTitle(args);
+        linkTitle = fetched.title || 'Media File';
+        displayUrl = fetched.url || args.trim();
+    } catch (_) {
+        linkTitle = getCleanFileNameFromUrl(args);
+    }
+
     const task = {
         type: 'd_command',
-        description: `📥 Download: *${cleanName}*`,
+        description: `📥 *${linkTitle}*`,
+        linkUrl: displayUrl.length > 80 ? displayUrl.substring(0, 77) + '...' : displayUrl,
         commandText: `.d ${args}`,
         senderJid,
         from,
@@ -4296,7 +4381,7 @@ DANIE_COMMANDS['d'] = async (conn, mek, from, senderJid, args, reply) => {
     };
     const queuedTask = globalTaskQueue.add(task);
     if (globalTaskQueue.activeTask && globalTaskQueue.activeTask.id !== queuedTask.id) {
-        await reply(`📥 *Task Added to Queue* (Position #${globalTaskQueue.queue.length}):\n📌 *${cleanName}*`);
+        await reply(`📥 *Task Added to Queue* (Position #${globalTaskQueue.queue.length}):\n📌 *${linkTitle}*\n🔗 ${displayUrl.length > 80 ? displayUrl.substring(0, 77) + '...' : displayUrl}`);
     }
 };
 
@@ -4304,15 +4389,26 @@ DANIE_COMMANDS['p'] = async (conn, mek, from, senderJid, args, reply) => {
     if (!args || !args.trim()) {
         return reply('❌ Please provide a TMDB link and download url(s)!\n*Example:* \`.p https://themoviedb.org/movie/123 = https://link.com\`');
     }
-    const parts = args.split('=');
-    const tmdbUrl = parts[0]?.trim() || '';
-    let pLabel = tmdbUrl;
-    if (tmdbUrl.length > 60) {
-        pLabel = tmdbUrl.substring(0, 57) + '...';
+
+    // Extract TMDB title from the URL for professional queue display
+    let pLabel = '';
+    let displayUrl = '';
+    try {
+        const fetched = await fetchLinkTitle(args);
+        pLabel = fetched.title || '';
+        displayUrl = fetched.url || '';
+    } catch (_) {}
+
+    if (!pLabel) {
+        const parts = args.split('=');
+        const tmdbUrl = parts[0]?.trim() || '';
+        pLabel = tmdbUrl.length > 60 ? tmdbUrl.substring(0, 57) + '...' : tmdbUrl;
     }
+
     const task = {
         type: 'p_command',
-        description: `🎬 Post Task: ${pLabel}`,
+        description: `🎬 Post: *${pLabel}*`,
+        linkUrl: displayUrl.length > 80 ? displayUrl.substring(0, 77) + '...' : displayUrl,
         commandText: `.p ${args}`,
         senderJid,
         from,
@@ -4322,7 +4418,7 @@ DANIE_COMMANDS['p'] = async (conn, mek, from, senderJid, args, reply) => {
     };
     const queuedTask = globalTaskQueue.add(task);
     if (globalTaskQueue.activeTask && globalTaskQueue.activeTask.id !== queuedTask.id) {
-        await reply(`🎬 *Task Added to Queue* (Position #${globalTaskQueue.queue.length}):\n📌 ${pLabel}`);
+        await reply(`🎬 *Task Added to Queue* (Position #${globalTaskQueue.queue.length}):\n📌 *${pLabel}*${displayUrl ? '\n🔗 ' + (displayUrl.length > 80 ? displayUrl.substring(0, 77) + '...' : displayUrl) : ''}`);
     }
 };
 
@@ -4340,17 +4436,11 @@ DANIE_COMMANDS['c'] = async (conn, mek, from, senderJid, args, reply) => {
 
     const { count, activeAborted } = globalTaskQueue.cancelAll(senderJid);
 
+    // Reset internal progress state
     globalProgressState.active = false;
-    globalProgressState.fileName = '';
-    globalProgressState.quality = '';
-    globalProgressState.downloadedMB = 0;
-    globalProgressState.totalEstMB = 0;
-    globalProgressState.speedMBs = 0;
-    globalProgressState.percentage = 0;
-    globalProgressState.phaseText = 'Idle';
     globalProgressState.statusMsg = null;
 
-    globalTaskQueue.isProcessing = false;
+    // Note: isProcessing is now reset inside cancelAll() itself — no manual override needed
 
     try {
         const cmdDir = __dirname;
