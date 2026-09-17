@@ -170,6 +170,16 @@ async function connectToWA() {
                 console.error('[DanieWatch] Failed to init listener:', err.message);
             }
 
+            // ── INACTIVE TRACKER: Initialize read receipt & reaction tracker listeners ──
+            try {
+                const tracker = require('./src/Utils/inactive_tracker');
+                if (tracker.setupTrackerListeners) {
+                    tracker.setupTrackerListeners(conn);
+                }
+            } catch (err) {
+                console.error('[InactiveTracker] Failed to init tracker listeners:', err.message);
+            }
+
             // Upload fresh session to Supabase after successful connection
             try {
                 await uploadSessionToSupabase(SESSION_DIR);

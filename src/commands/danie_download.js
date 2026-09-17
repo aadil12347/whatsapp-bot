@@ -7186,6 +7186,87 @@ DANIE_COMMANDS['antispam'] = async (conn, mek, from, senderJid, args, reply) => 
 DANIE_COMMANDS['aspam'] = DANIE_COMMANDS['antispam'];
 DANIE_COMMANDS['spamprotect'] = DANIE_COMMANDS['antispam'];
 
+// ── Inactive Member Tracker Commands ──
+const { handleResetTracker, handleNonActiveList, handleKickNonActive, handleDownloadInactiveList } = require('./inactive_cmd');
+
+cmd({
+    pattern: 'resettracker',
+    alias: ['initinactive', 'resetinactive'],
+    react: '🔄',
+    desc: 'Initialize or reset inactive member tracking for the group',
+    category: 'group',
+    use: '.resettracker',
+    filename: __filename
+}, async (conn, mek, m, { from }) => {
+    const reply = async (textMsg) => conn.sendMessage(from, { text: textMsg }, { quoted: mek });
+    await handleResetTracker(conn, from, reply);
+});
+
+cmd({
+    pattern: 'nonactive',
+    alias: ['inactive', 'checkinactive', 'nonactives'],
+    react: '📊',
+    desc: 'View list of inactive members in the group',
+    category: 'group',
+    use: '.nonactive',
+    filename: __filename
+}, async (conn, mek, m, { from }) => {
+    const reply = async (textMsg) => conn.sendMessage(from, { text: textMsg }, { quoted: mek });
+    await handleNonActiveList(conn, from, reply);
+});
+
+cmd({
+    pattern: 'listinactive',
+    alias: ['downloadinactive', 'exportinactive'],
+    react: '📄',
+    desc: 'Download TXT file listing inactive members with phone numbers',
+    category: 'group',
+    use: '.listinactive',
+    filename: __filename
+}, async (conn, mek, m, { from }) => {
+    const reply = async (textMsg) => conn.sendMessage(from, { text: textMsg }, { quoted: mek });
+    await handleDownloadInactiveList(conn, from, reply, mek);
+});
+
+cmd({
+    pattern: 'kicknonactive',
+    alias: ['kickinactive', 'removeinactive'],
+    react: '🚪',
+    desc: 'Kick specified amount of inactive members with safe random delays',
+    category: 'group',
+    use: '.kicknonactive <amount>',
+    filename: __filename
+}, async (conn, mek, m, { from, q }) => {
+    const reply = async (textMsg) => conn.sendMessage(from, { text: textMsg }, { quoted: mek });
+    const args = q ? q.trim().split(/\s+/) : [];
+    await handleKickNonActive(conn, from, args, reply);
+});
+
+DANIE_COMMANDS['resettracker'] = async (conn, mek, from, senderJid, args, reply) => {
+    await handleResetTracker(conn, from, reply);
+};
+DANIE_COMMANDS['initinactive'] = DANIE_COMMANDS['resettracker'];
+DANIE_COMMANDS['resetinactive'] = DANIE_COMMANDS['resettracker'];
+
+DANIE_COMMANDS['nonactive'] = async (conn, mek, from, senderJid, args, reply) => {
+    await handleNonActiveList(conn, from, reply);
+};
+DANIE_COMMANDS['inactive'] = DANIE_COMMANDS['nonactive'];
+DANIE_COMMANDS['checkinactive'] = DANIE_COMMANDS['nonactive'];
+DANIE_COMMANDS['nonactives'] = DANIE_COMMANDS['nonactive'];
+
+DANIE_COMMANDS['listinactive'] = async (conn, mek, from, senderJid, args, reply) => {
+    await handleDownloadInactiveList(conn, from, reply, mek);
+};
+DANIE_COMMANDS['downloadinactive'] = DANIE_COMMANDS['listinactive'];
+DANIE_COMMANDS['exportinactive'] = DANIE_COMMANDS['listinactive'];
+
+DANIE_COMMANDS['kicknonactive'] = async (conn, mek, from, senderJid, args, reply) => {
+    await handleKickNonActive(conn, from, args, reply);
+};
+DANIE_COMMANDS['kickinactive'] = DANIE_COMMANDS['kicknonactive'];
+DANIE_COMMANDS['removeinactive'] = DANIE_COMMANDS['kicknonactive'];
+
 // Export initUpsertListener, globalTaskQueue, isTaskRunning, and downloadCommandHandler
 module.exports.initUpsertListener = initUpsertListener;
 module.exports.globalTaskQueue = globalTaskQueue;
