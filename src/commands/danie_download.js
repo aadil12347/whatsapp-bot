@@ -1582,6 +1582,37 @@ function clearGroupPostTracker() {
     _groupPostTracker.clear();
 }
 
+// =========================================================================
+//  GROUP SHORTCUTS — single-letter shortcuts for fast group targeting
+//  Usage: .p i <link>  or  .d e <link>
+//  The letter is stripped from args and the task targets that specific group
+// =========================================================================
+const GROUP_SHORTCUTS = {
+    'i': { jid: '120363430644087019@g.us', name: 'Indian' },
+    'c': { jid: '120363430641048682@g.us', name: 'Cartoons & Anime' },
+    'e': { jid: '120363293975939631@g.us', name: 'English' },
+    'k': { jid: '120363427775512697@g.us', name: 'Korean & Chinese' },
+    'l': { jid: '120363431694190416@g.us', name: 'Latest 2026' }
+};
+
+/**
+ * Checks if args start with a group shortcut letter.
+ * Returns { shortcut: { jid, name }, remainingArgs } or null if no shortcut.
+ */
+function extractGroupShortcut(args) {
+    if (!args || !args.trim()) return null;
+    const trimmed = args.trim();
+    // Match: single letter followed by a space then the rest
+    const match = trimmed.match(/^([a-z])\s+(.+)$/i);
+    if (!match) return null;
+    const letter = match[1].toLowerCase();
+    const remaining = match[2].trim();
+    if (GROUP_SHORTCUTS[letter] && remaining) {
+        return { shortcut: GROUP_SHORTCUTS[letter], remainingArgs: remaining };
+    }
+    return null;
+}
+
 // Our command prefix
 const PREFIX = '.';
 
@@ -2670,31 +2701,30 @@ function isOwner(senderJid, mek = null) {
     return false;
 }
 
-// Parse download command item (supports "=", space separation, or no name)
+// Parse download command item — extracts URL only (no custom filename renaming)
 function parseDownloadItem(item) {
     let customFilename = null;
     let url = item.trim();
 
+    // Only use '=' separator for TMDB-style parsing (left part is a TMDB URL)
     const firstEqIdx = item.indexOf('=');
     if (firstEqIdx !== -1) {
         const leftPart = item.substring(0, firstEqIdx).trim();
         const rightPart = item.substring(firstEqIdx + 1).trim();
         
-        // If the left part does NOT start with a URL protocol, it is the custom filename
-        if (!leftPart.startsWith('http://') && !leftPart.startsWith('https://')) {
+        // If the left part is a TMDB URL, preserve it as customFilename for .p command metadata
+        if (/themoviedb\.org/i.test(leftPart)) {
             customFilename = leftPart;
             url = rightPart;
-        }
-    } else {
-        const lastSpaceIdx = item.lastIndexOf(' ');
-        if (lastSpaceIdx !== -1) {
-            const lastWord = item.substring(lastSpaceIdx + 1).trim();
-            if (lastWord.startsWith('http://') || lastWord.startsWith('https://')) {
-                customFilename = item.substring(0, lastSpaceIdx).trim();
-                url = lastWord;
-            }
+        } else if (leftPart.startsWith('http://') || leftPart.startsWith('https://')) {
+            // Both sides are URLs — use left as URL
+            url = leftPart;
+        } else {
+            // Non-URL left part — ignore it (no file renaming), just use the right as URL
+            url = rightPart;
         }
     }
+    // No space-based filename extraction — just use the whole thing as URL
     return { customFilename, url };
 }
 
@@ -4590,31 +4620,44 @@ DANIE_COMMANDS['downloadstatus'] = DANIE_COMMANDS['dlstatus'];
 
 DANIE_COMMANDS['d'] = async (conn, mek, from, senderJid, args, reply) => {
     if (!args || !args.trim()) {
-        return reply('❌ Please provide a download link!\n*Example:* \`.d https://example.com/file.mp4\`');
+        return reply('❌ Please provide a download link!\n*Example:* \`.d https://example.com/file.mp4\`\n\n*Group shortcuts:* \`.d i link\` \`.d e link\` \`.d c link\` \`.d k link\` \`.d l link\`');
     }
 
-    // Fetch proper title for queue display (async but fast — uses URL parsing, HEAD, HTML title)
+    // Check for group shortcut letter (e.g. .d i link, .d e link)
+    let shortcutGroup = null;
+    let effectiveArgs = args.trim();
+    const shortcutResult = extractGroupShortcut(args);
+    if (shortcutResult) {
+        shortcutGroup = shortcutResult.shortcut;
+        effectiveArgs = shortcutResult.remainingArgs;
+    }
+
+    // Fetch proper title for queue display
     let linkTitle = 'Media File';
-    let displayUrl = args.trim();
+    let displayUrl = effectiveArgs;
     try {
-        const fetched = await fetchLinkTitle(args);
+        const fetched = await fetchLinkTitle(effectiveArgs);
         linkTitle = fetched.title || 'Media File';
-        displayUrl = fetched.url || args.trim();
+        displayUrl = fetched.url || effectiveArgs;
     } catch (_) {
-        linkTitle = getCleanFileNameFromUrl(args);
+        linkTitle = getCleanFileNameFromUrl(effectiveArgs);
     }
 
-    // Capture current target group name for queue display
+    // Determine target group: shortcut overrides global config
     let currentGroupName = '';
-    try {
-        const curSettings = loadSettings();
-        if (curSettings.targets && curSettings.targets.length > 0) {
-            const grpTarget = curSettings.targets.find(t => t.type === 'group');
-            if (grpTarget) currentGroupName = grpTarget.name;
-        } else if (curSettings.mode === 'group' && curSettings.groupName) {
-            currentGroupName = curSettings.groupName;
-        }
-    } catch (_) {}
+    if (shortcutGroup) {
+        currentGroupName = shortcutGroup.name;
+    } else {
+        try {
+            const curSettings = loadSettings();
+            if (curSettings.targets && curSettings.targets.length > 0) {
+                const grpTarget = curSettings.targets.find(t => t.type === 'group');
+                if (grpTarget) currentGroupName = grpTarget.name;
+            } else if (curSettings.mode === 'group' && curSettings.groupName) {
+                currentGroupName = curSettings.groupName;
+            }
+        } catch (_) {}
+    }
 
     const task = {
         type: 'd_command',
@@ -4625,7 +4668,28 @@ DANIE_COMMANDS['d'] = async (conn, mek, from, senderJid, args, reply) => {
         senderJid,
         from,
         executeFn: async (signal, ref) => {
-            await downloadCommandHandler(conn, mek, from, senderJid, args, reply, signal, ref);
+            // If shortcut group specified, temporarily switch settings for this task
+            let originalSettings = null;
+            if (shortcutGroup) {
+                originalSettings = loadSettings();
+                const tempSettings = {
+                    mode: 'group',
+                    groupJid: shortcutGroup.jid,
+                    groupName: shortcutGroup.name,
+                    privateJid: '',
+                    privateName: '',
+                    targets: [{ jid: shortcutGroup.jid, name: shortcutGroup.name, type: 'group' }]
+                };
+                saveSettings(tempSettings);
+            }
+            try {
+                await downloadCommandHandler(conn, mek, from, senderJid, effectiveArgs, reply, signal, ref);
+            } finally {
+                // Restore original settings after task completes (if shortcut was used)
+                if (originalSettings) {
+                    saveSettings(originalSettings);
+                }
+            }
         }
     };
     const queuedTask = globalTaskQueue.add(task);
@@ -4637,35 +4701,48 @@ DANIE_COMMANDS['d'] = async (conn, mek, from, senderJid, args, reply) => {
 
 DANIE_COMMANDS['p'] = async (conn, mek, from, senderJid, args, reply) => {
     if (!args || !args.trim()) {
-        return reply('❌ Please provide a TMDB link and download url(s)!\n*Example:* \`.p https://themoviedb.org/movie/123 = https://link.com\`');
+        return reply('❌ Please provide a TMDB link and download url(s)!\n*Example:* \`.p https://themoviedb.org/movie/123 = https://link.com\`\n\n*Group shortcuts:* \`.p i link\` \`.p e link\` \`.p c link\` \`.p k link\` \`.p l link\`');
+    }
+
+    // Check for group shortcut letter (e.g. .p i link, .p e link)
+    let shortcutGroup = null;
+    let effectiveArgs = args.trim();
+    const shortcutResult = extractGroupShortcut(args);
+    if (shortcutResult) {
+        shortcutGroup = shortcutResult.shortcut;
+        effectiveArgs = shortcutResult.remainingArgs;
     }
 
     // Extract TMDB title from the URL for professional queue display
     let pLabel = '';
     let displayUrl = '';
     try {
-        const fetched = await fetchLinkTitle(args);
+        const fetched = await fetchLinkTitle(effectiveArgs);
         pLabel = fetched.title || '';
         displayUrl = fetched.url || '';
     } catch (_) {}
 
     if (!pLabel) {
-        const parts = args.split('=');
+        const parts = effectiveArgs.split('=');
         const tmdbUrl = parts[0]?.trim() || '';
         pLabel = tmdbUrl.length > 60 ? tmdbUrl.substring(0, 57) + '...' : tmdbUrl;
     }
 
-    // Capture current target group name for queue display
+    // Determine target group: shortcut overrides global config
     let currentGroupName = '';
-    try {
-        const curSettings = loadSettings();
-        if (curSettings.targets && curSettings.targets.length > 0) {
-            const grpTarget = curSettings.targets.find(t => t.type === 'group');
-            if (grpTarget) currentGroupName = grpTarget.name;
-        } else if (curSettings.mode === 'group' && curSettings.groupName) {
-            currentGroupName = curSettings.groupName;
-        }
-    } catch (_) {}
+    if (shortcutGroup) {
+        currentGroupName = shortcutGroup.name;
+    } else {
+        try {
+            const curSettings = loadSettings();
+            if (curSettings.targets && curSettings.targets.length > 0) {
+                const grpTarget = curSettings.targets.find(t => t.type === 'group');
+                if (grpTarget) currentGroupName = grpTarget.name;
+            } else if (curSettings.mode === 'group' && curSettings.groupName) {
+                currentGroupName = curSettings.groupName;
+            }
+        } catch (_) {}
+    }
 
     const task = {
         type: 'p_command',
@@ -4676,7 +4753,28 @@ DANIE_COMMANDS['p'] = async (conn, mek, from, senderJid, args, reply) => {
         senderJid,
         from,
         executeFn: async (signal, ref) => {
-            await pCommandHandler(conn, mek, from, senderJid, args, reply, signal, ref);
+            // If shortcut group specified, temporarily switch settings for this task
+            let originalSettings = null;
+            if (shortcutGroup) {
+                originalSettings = loadSettings();
+                const tempSettings = {
+                    mode: 'group',
+                    groupJid: shortcutGroup.jid,
+                    groupName: shortcutGroup.name,
+                    privateJid: '',
+                    privateName: '',
+                    targets: [{ jid: shortcutGroup.jid, name: shortcutGroup.name, type: 'group' }]
+                };
+                saveSettings(tempSettings);
+            }
+            try {
+                await pCommandHandler(conn, mek, from, senderJid, effectiveArgs, reply, signal, ref);
+            } finally {
+                // Restore original settings after task completes (if shortcut was used)
+                if (originalSettings) {
+                    saveSettings(originalSettings);
+                }
+            }
         }
     };
     const queuedTask = globalTaskQueue.add(task);
