@@ -2728,7 +2728,6 @@ function parseDownloadItem(item) {
     let customFilename = null;
     let url = item.trim();
 
-    // Only use '=' separator for TMDB-style parsing (left part is a TMDB URL)
     const firstEqIdx = item.indexOf('=');
     if (firstEqIdx !== -1) {
         const leftPart = item.substring(0, firstEqIdx).trim();
@@ -2738,17 +2737,18 @@ function parseDownloadItem(item) {
         if (/themoviedb\.org/i.test(leftPart)) {
             customFilename = leftPart;
             url = rightPart;
-        } else if (leftPart.startsWith('http://') || leftPart.startsWith('https://')) {
-            // Both sides are URLs — use left as URL
-            url = leftPart;
-        } else {
-            // Non-URL left part — ignore it (no file renaming), just use the right as URL
+        } else if (!leftPart.startsWith('http://') && !leftPart.startsWith('https://')) {
+            // Non-URL left part is the custom filename, right part is the URL
+            customFilename = leftPart;
             url = rightPart;
         }
+        // If the left part starts with http(s), the '=' is part of the URL's query string
+        // (e.g. pre-signed R2/S3 URLs with X-Amz-Algorithm=, X-Amz-Signature=, etc.)
+        // Do NOT split — preserve the full original URL intact.
     }
-    // No space-based filename extraction — just use the whole thing as URL
     return { customFilename, url };
 }
+
 
 // =========================================================================
 //  .config   Interactive owner-only configuration wizard
