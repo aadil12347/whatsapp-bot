@@ -52,6 +52,7 @@ class _ResolutionModalState extends State<ResolutionModal> {
 
   // Copy indicator state
   bool _isCopied = false;
+  String? _copiedGroupLetter;
 
   @override
   void initState() {
@@ -259,23 +260,60 @@ class _ResolutionModalState extends State<ResolutionModal> {
       await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
     } catch (_) {}
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Row(
-            children: [
-              Icon(Icons.play_circle_rounded, color: AppTheme.champagne, size: 20),
-              SizedBox(width: 10),
-              Text('Link copied & opening player...',
-                  style: TextStyle(color: AppTheme.champagne, fontWeight: FontWeight.w700, fontSize: 13)),
-            ],
-          ),
-          backgroundColor: AppTheme.emeraldInk,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          duration: const Duration(seconds: 2),
-        ),
-      );
+      _showCenteredToast('Link copied & sharing...');
     }
+  }
+
+  void _shareLink() {
+    if (_resolvedUrls.isEmpty) return;
+    final url = ResolverService.applyPixeldrainWorkerProxy(_resolvedUrls.first);
+    Clipboard.setData(ClipboardData(text: url));
+    const MethodChannel('com.daniewatch/share')
+        .invokeMethod('shareText', {'text': url});
+  }
+
+  void _showCenteredToast(String message) {
+    final overlay = Overlay.of(context);
+    late OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (context) => Positioned(
+        bottom: 40,
+        left: 40,
+        right: 40,
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            decoration: BoxDecoration(
+              color: AppTheme.emeraldInk,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppTheme.champagne.withOpacity(0.4)),
+              boxShadow: [
+                BoxShadow(
+                  color: AppTheme.offBlack.withOpacity(0.5),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.check_circle_rounded, color: AppTheme.champagne, size: 18),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(message,
+                      style: const TextStyle(color: AppTheme.champagne, fontWeight: FontWeight.w700, fontSize: 13, decoration: TextDecoration.none)),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    overlay.insert(entry);
+    Future.delayed(const Duration(seconds: 1), () => entry.remove());
   }
 
   // ── GROUP SHORTCUT BUTTONS ──
@@ -290,26 +328,11 @@ class _ResolutionModalState extends State<ResolutionModal> {
   void _copyGroupCommand(String prefix, String letter, String label, String args) {
     final command = '$prefix $letter $args';
     Clipboard.setData(ClipboardData(text: command));
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const Icon(Icons.check_circle_rounded, color: AppTheme.champagne, size: 20),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                'Copied $prefix command for $label!',
-                style: const TextStyle(color: AppTheme.champagne, fontWeight: FontWeight.w700, fontSize: 13),
-              ),
-            ),
-          ],
-        ),
-        backgroundColor: AppTheme.emeraldInk,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        duration: const Duration(seconds: 2),
-      ),
-    );
+    setState(() => _copiedGroupLetter = letter);
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (mounted) setState(() => _copiedGroupLetter = null);
+    });
+    _showCenteredToast('Copied $prefix for $label!');
   }
 
   Widget _buildGroupShortcutButtons({
@@ -320,24 +343,29 @@ class _ResolutionModalState extends State<ResolutionModal> {
       spacing: 6,
       runSpacing: 6,
       children: _groupShortcuts.map((g) {
+        final letter = g['letter']!;
+        final isCopied = _copiedGroupLetter == letter;
         return GestureDetector(
-          onTap: () => _copyGroupCommand(commandPrefix, g['letter']!, g['label']!, commandArgs),
-          child: Container(
+          onTap: () => _copyGroupCommand(commandPrefix, letter, g['label']!, commandArgs),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             decoration: BoxDecoration(
-              color: AppTheme.emeraldInk,
+              color: isCopied ? AppTheme.champagne : AppTheme.emeraldInk,
               borderRadius: BorderRadius.circular(8),
               border: Border.all(color: AppTheme.champagne.withOpacity(0.4)),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(g['emoji']!, style: const TextStyle(fontSize: 12)),
+                isCopied
+                    ? Icon(Icons.check_rounded, color: AppTheme.offBlack, size: 14)
+                    : Text(g['emoji']!, style: const TextStyle(fontSize: 12)),
                 const SizedBox(width: 4),
                 Text(
                   g['label']!,
-                  style: const TextStyle(
-                    color: AppTheme.champagne,
+                  style: TextStyle(
+                    color: isCopied ? AppTheme.offBlack : AppTheme.champagne,
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
                   ),
@@ -747,24 +775,30 @@ class _ResolutionModalState extends State<ResolutionModal> {
           ),
           const SizedBox(height: 10),
 
-          // Title Display
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: AppTheme.offBlack.withOpacity(0.6),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: AppTheme.champagne.withOpacity(0.2)),
-            ),
-            child: Text(
-              displayTitle,
-              style: const TextStyle(
-                color: AppTheme.champagne,
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
+          // Title Display — tap to copy .p command
+          GestureDetector(
+            onTap: () {
+              Clipboard.setData(ClipboardData(text: command));
+              _showCenteredToast('TMDB .p command copied!');
+            },
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: AppTheme.offBlack.withOpacity(0.6),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppTheme.champagne.withOpacity(0.2)),
               ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
+              child: Text(
+                displayTitle,
+                style: const TextStyle(
+                  color: AppTheme.champagne,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
           ),
           const SizedBox(height: 10),
@@ -1010,24 +1044,24 @@ class _ResolutionModalState extends State<ResolutionModal> {
         const SizedBox(height: 14),
 
         if (rawUrls.isNotEmpty) ...[
-          // ACTION BUTTONS — Copy (raw link) & Play (open in video player)
+          // ACTION BUTTONS — Copy (.d command) & Share (open with any app)
           Row(
             children: [
               Expanded(
                 child: _actionButton(
                   icon: _isCopied ? Icons.check_circle_rounded : Icons.copy_rounded,
-                  label: _isCopied ? 'Copied!' : 'Copy',
+                  label: _isCopied ? 'Copied!' : 'Copy .d',
                   color: AppTheme.emeraldInk,
-                  onTap: () => _copyToClipboard(rawUrls),
+                  onTap: () => _copyToClipboard('.d $rawUrls'),
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: _actionButton(
-                  icon: Icons.play_circle_filled_rounded,
-                  label: 'Play',
+                  icon: Icons.open_in_new_rounded,
+                  label: 'Share / Play',
                   color: AppTheme.emeraldInk,
-                  onTap: _playVideo,
+                  onTap: _shareLink,
                 ),
               ),
             ],
@@ -1035,34 +1069,40 @@ class _ResolutionModalState extends State<ResolutionModal> {
 
           const SizedBox(height: 16),
 
-          // RESOLVED LINK(S) DISPLAY — Word-wrapped, no horizontal scroll
+          // RESOLVED LINK(S) DISPLAY — Tap to copy raw link
           const Text('Resolved Link(s):',
               style: TextStyle(
                   color: AppTheme.champagne,
                   fontSize: 13,
                   fontWeight: FontWeight.w700)),
           const SizedBox(height: 8),
-          Container(
-            constraints: const BoxConstraints(minHeight: 40, maxHeight: 120),
-            width: double.infinity,
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: AppTheme.offBlack,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: AppTheme.champagne.withOpacity(0.4), width: 1.2),
-            ),
-            child: Scrollbar(
-              thumbVisibility: true,
-              child: SingleChildScrollView(
-                scrollDirection: Axis.vertical,
-                child: SelectableText(
-                  _generateDisplayMessage(),
-                  style: const TextStyle(
-                    color: AppTheme.champagne,
-                    fontSize: 13,
-                    fontFamily: 'monospace',
-                    fontWeight: FontWeight.w600,
-                    height: 1.6,
+          GestureDetector(
+            onTap: () {
+              Clipboard.setData(ClipboardData(text: rawUrls));
+              _showCenteredToast('Raw link copied!');
+            },
+            child: Container(
+              constraints: const BoxConstraints(minHeight: 40, maxHeight: 120),
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: AppTheme.offBlack,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: AppTheme.champagne.withOpacity(0.4), width: 1.2),
+              ),
+              child: Scrollbar(
+                thumbVisibility: true,
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.vertical,
+                  child: SelectableText(
+                    _generateDisplayMessage(),
+                    style: const TextStyle(
+                      color: AppTheme.champagne,
+                      fontSize: 13,
+                      fontFamily: 'monospace',
+                      fontWeight: FontWeight.w600,
+                      height: 1.6,
+                    ),
                   ),
                 ),
               ),
