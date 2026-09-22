@@ -860,6 +860,28 @@ async function downloadFileWithResume(url, tempFilePath, customHeaders = {}, abo
     };
     const headers = { ...defaultHeaders, ...customHeaders };
 
+    // Pre-signed S3/R2/cloud storage URLs reject browser-impersonation headers (Sec-Fetch-*, Origin, etc.)
+    // Strip them to avoid HTTP 400 errors from Cloudflare R2, AWS S3, Backblaze B2, etc.
+    const isPresignedCloud = /X-Amz-Signature=/i.test(url) ||
+                             /cloudflarestorage\.com/i.test(parsedUrl.hostname) ||
+                             /\.r2\.dev/i.test(parsedUrl.hostname) ||
+                             /s3[\.\-].*amazonaws\.com/i.test(parsedUrl.hostname) ||
+                             /storage\.googleapis\.com/i.test(parsedUrl.hostname) ||
+                             /\.backblazeb2\.com/i.test(parsedUrl.hostname);
+    if (isPresignedCloud) {
+        delete headers['Sec-Ch-Ua'];
+        delete headers['Sec-Ch-Ua-Mobile'];
+        delete headers['Sec-Ch-Ua-Platform'];
+        delete headers['Sec-Fetch-Dest'];
+        delete headers['Sec-Fetch-Mode'];
+        delete headers['Sec-Fetch-Site'];
+        delete headers['Upgrade-Insecure-Requests'];
+        delete headers['Origin'];
+        delete headers['Referer'];
+        headers['Accept'] = '*/*';
+        console.log('[DanieDownload] Pre-signed cloud URL detected — stripped browser-specific headers to avoid 400 errors.');
+    }
+
     if (parsedUrl.hostname.includes('pixeldrain.com') && process.env.PIXELDRAIN_API_KEY) {
         headers['Authorization'] = 'Basic ' + Buffer.from(':' + process.env.PIXELDRAIN_API_KEY.trim()).toString('base64');
     }
@@ -3609,7 +3631,7 @@ async function downloadCommandHandler(conn, mek, from, senderJid, q, reply, abor
         }
 
     } catch (error) {
-        if ((abortSignal && abortSignal.aborted) || (signal && signal.aborted) || error.message === 'Aborted' || error.name === 'AbortError' || (error.message && error.message.toLowerCase().includes('aborted'))) {
+        if ((abortSignal && abortSignal.aborted) || error.message === 'Aborted' || error.name === 'AbortError' || (error.message && error.message.toLowerCase().includes('aborted'))) {
             console.log('[DanieDownload] Download task aborted silently.');
             throw new Error('Aborted');
         }
@@ -3941,7 +3963,14 @@ cmd({
         return conn.sendMessage(from, { text: textMsg }, { quoted: mek });
     };
     const senderJid = m.sender || mek.sender || from;
-    await downloadCommandHandler(conn, mek, from, senderJid, q, reply);
+    // Delegate to DANIE_COMMANDS['d'] which properly handles group shortcuts (.d e link),
+    // task queuing, and link title fetching. Falls back to direct handler if DANIE_COMMANDS
+    // hasn't been populated yet (should never happen at runtime).
+    if (typeof DANIE_COMMANDS['d'] === 'function') {
+        await DANIE_COMMANDS['d'](conn, mek, from, senderJid, q, reply);
+    } else {
+        await downloadCommandHandler(conn, mek, from, senderJid, q, reply);
+    }
 });
 
 cmd({
@@ -3956,7 +3985,14 @@ cmd({
         return conn.sendMessage(from, { text: textMsg }, { quoted: mek });
     };
     const senderJid = m.sender || mek.sender || from;
-    await pCommandHandler(conn, mek, from, senderJid, q, reply);
+    // Delegate to DANIE_COMMANDS['p'] which properly handles group shortcuts (.p e link),
+    // task queuing, and link title fetching. Falls back to direct handler if DANIE_COMMANDS
+    // hasn't been populated yet (should never happen at runtime).
+    if (typeof DANIE_COMMANDS['p'] === 'function') {
+        await DANIE_COMMANDS['p'](conn, mek, from, senderJid, q, reply);
+    } else {
+        await pCommandHandler(conn, mek, from, senderJid, q, reply);
+    }
 });
 
 // .status / .s / .progress command removed per user request
