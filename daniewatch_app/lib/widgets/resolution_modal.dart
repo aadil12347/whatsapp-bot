@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../models/download_link.dart';
 import '../services/scraper_service.dart';
 import '../services/resolver_service.dart';
@@ -33,7 +34,6 @@ class _ResolutionModalState extends State<ResolutionModal> {
   // TMDB resolution state
   bool _loadingTmdb = true;
   TmdbResult? _tmdbResult;
-  bool _tmdbCopied = false;
 
   // Episode selection state
   bool _fetchingEpisodes = false;
@@ -190,31 +190,23 @@ class _ResolutionModalState extends State<ResolutionModal> {
     }
   }
 
-  /// Generate the WhatsApp .d command message: .d link1, link2, ...
-  String _generateWhatsAppMessage() {
+  /// Get raw resolved URLs as comma-separated text (no .d prefix)
+  String _getRawUrlsText() {
     if (_resolvedUrls.isNotEmpty) {
       final converted = _resolvedUrls.map((url) => ResolverService.applyPixeldrainWorkerProxy(url)).toList();
-      return '.d ${converted.join(', ')}';
+      return converted.join(', ');
     }
     return '';
   }
 
-  /// Format command for display in preview box (wrapped, readable)
+  /// Format URLs for display in preview box (wrapped, readable, no prefix)
   String _generateDisplayMessage() {
     if (_resolvedUrls.isNotEmpty) {
       final converted = _resolvedUrls.map((url) => ResolverService.applyPixeldrainWorkerProxy(url)).toList();
       if (converted.length == 1) {
-        return '.d ${converted.first}';
+        return converted.first;
       }
-      // Multi-episode: show each link on a new line for readability
-      final buffer = StringBuffer('.d ');
-      for (int i = 0; i < converted.length; i++) {
-        buffer.write(converted[i]);
-        if (i < converted.length - 1) {
-          buffer.write(',\n');
-        }
-      }
-      return buffer.toString();
+      return converted.join('\n');
     }
     return '';
   }
@@ -242,7 +234,7 @@ class _ResolutionModalState extends State<ResolutionModal> {
             Icon(Icons.check_circle_rounded, color: AppTheme.champagne, size: 20),
             SizedBox(width: 10),
             Text(
-              'WhatsApp Command Copied to Clipboard!',
+              'Link Copied to Clipboard!',
               style: TextStyle(
                 color: AppTheme.champagne,
                 fontWeight: FontWeight.w700,
@@ -259,12 +251,103 @@ class _ResolutionModalState extends State<ResolutionModal> {
     );
   }
 
-  void _shareToWhatsApp() {
-    final msg = _generateWhatsAppMessage();
-    if (msg.isNotEmpty) {
-      const MethodChannel('com.daniewatch/share')
-          .invokeMethod('shareText', {'text': msg});
+  Future<void> _playVideo() async {
+    if (_resolvedUrls.isEmpty) return;
+    final url = ResolverService.applyPixeldrainWorkerProxy(_resolvedUrls.first);
+    Clipboard.setData(ClipboardData(text: url));
+    try {
+      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    } catch (_) {}
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Row(
+            children: [
+              Icon(Icons.play_circle_rounded, color: AppTheme.champagne, size: 20),
+              SizedBox(width: 10),
+              Text('Link copied & opening player...',
+                  style: TextStyle(color: AppTheme.champagne, fontWeight: FontWeight.w700, fontSize: 13)),
+            ],
+          ),
+          backgroundColor: AppTheme.emeraldInk,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          duration: const Duration(seconds: 2),
+        ),
+      );
     }
+  }
+
+  // ── GROUP SHORTCUT BUTTONS ──
+  static const List<Map<String, String>> _groupShortcuts = [
+    {'letter': 'i', 'label': 'Indian', 'emoji': '🇮🇳'},
+    {'letter': 'c', 'label': 'Anime', 'emoji': '🎭'},
+    {'letter': 'e', 'label': 'English', 'emoji': '🇬🇧'},
+    {'letter': 'k', 'label': 'Korean', 'emoji': '🇰🇷'},
+    {'letter': 'l', 'label': 'Latest', 'emoji': '🆕'},
+  ];
+
+  void _copyGroupCommand(String prefix, String letter, String label, String args) {
+    final command = '$prefix $letter $args';
+    Clipboard.setData(ClipboardData(text: command));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.check_circle_rounded, color: AppTheme.champagne, size: 20),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Copied $prefix command for $label!',
+                style: const TextStyle(color: AppTheme.champagne, fontWeight: FontWeight.w700, fontSize: 13),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: AppTheme.emeraldInk,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  Widget _buildGroupShortcutButtons({
+    required String commandPrefix,
+    required String commandArgs,
+  }) {
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: _groupShortcuts.map((g) {
+        return GestureDetector(
+          onTap: () => _copyGroupCommand(commandPrefix, g['letter']!, g['label']!, commandArgs),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: AppTheme.emeraldInk,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppTheme.champagne.withOpacity(0.4)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(g['emoji']!, style: const TextStyle(fontSize: 12)),
+                const SizedBox(width: 4),
+                Text(
+                  g['label']!,
+                  style: const TextStyle(
+                    color: AppTheme.champagne,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }).toList(),
+    );
   }
 
   /// Extract size snippet like 1.2GB or 470MB from link text
@@ -573,45 +656,6 @@ class _ResolutionModalState extends State<ResolutionModal> {
     );
   }
 
-  void _copyTmdbToClipboard(String command) {
-    Clipboard.setData(ClipboardData(text: command));
-    setState(() {
-      _tmdbCopied = true;
-    });
-    Future.delayed(const Duration(seconds: 3), () {
-      if (mounted) {
-        setState(() {
-          _tmdbCopied = false;
-        });
-      }
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Row(
-          children: [
-            Icon(Icons.check_circle_rounded, color: AppTheme.champagne, size: 20),
-            SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                'TMDB Command Copied! (.p <tmdb_url>)',
-                style: TextStyle(
-                  color: AppTheme.champagne,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 13,
-                ),
-              ),
-            ),
-          ],
-        ),
-        backgroundColor: AppTheme.emeraldInk,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        duration: const Duration(seconds: 3),
-      ),
-    );
-  }
-
   Widget _buildTmdbCard() {
     if (_loadingTmdb) {
       return Container(
@@ -703,62 +747,31 @@ class _ResolutionModalState extends State<ResolutionModal> {
           ),
           const SizedBox(height: 10),
 
-          // Command Box displaying post title + Copy Button (Tapping copies .p link to clipboard)
-          GestureDetector(
-            onTap: () => _copyTmdbToClipboard(command),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                color: AppTheme.offBlack.withOpacity(0.6),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: AppTheme.champagne.withOpacity(0.2)),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      displayTitle,
-                      style: const TextStyle(
-                        color: AppTheme.champagne,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: _tmdbCopied ? AppTheme.champagne : AppTheme.emeraldInk,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: AppTheme.champagne.withOpacity(0.3)),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          _tmdbCopied ? Icons.check_rounded : Icons.copy_rounded,
-                          color: _tmdbCopied ? AppTheme.offBlack : AppTheme.champagne,
-                          size: 14,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          _tmdbCopied ? 'Copied!' : 'Copy',
-                          style: TextStyle(
-                            color: _tmdbCopied ? AppTheme.offBlack : AppTheme.champagne,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
+          // Title Display
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: AppTheme.offBlack.withOpacity(0.6),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppTheme.champagne.withOpacity(0.2)),
             ),
+            child: Text(
+              displayTitle,
+              style: const TextStyle(
+                color: AppTheme.champagne,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(height: 10),
+          // Group shortcut buttons for .p command
+          _buildGroupShortcutButtons(
+            commandPrefix: '.p',
+            commandArgs: command.startsWith('.p ') ? command.substring(3) : command,
           ),
         ],
       ),
@@ -971,7 +984,7 @@ class _ResolutionModalState extends State<ResolutionModal> {
   }
 
   Widget _buildResolvedResult(ScrollController scrollController) {
-    final whatsappMsg = _generateWhatsAppMessage();
+    final rawUrls = _getRawUrlsText();
 
     return ListView(
       controller: scrollController,
@@ -996,60 +1009,25 @@ class _ResolutionModalState extends State<ResolutionModal> {
         ),
         const SizedBox(height: 14),
 
-        // Resolved Status Header Container - High contrast Emerald Ink background with Champagne text!
-        Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: AppTheme.emeraldInk,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: AppTheme.champagne.withOpacity(0.4)),
-            boxShadow: [
-              BoxShadow(
-                color: AppTheme.offBlack.withOpacity(0.3),
-                blurRadius: 6,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Row(
-            children: [
-              const Icon(Icons.check_circle_rounded,
-                  color: AppTheme.champagne, size: 20),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  'Resolved ${_resolvedUrls.length} Direct Link(s) via ${_resolvedServerName ?? "VCloud"}',
-                  style: const TextStyle(
-                      color: AppTheme.champagne,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w800),
-                ),
-              ),
-            ],
-          ),
-        ),
-
-        const SizedBox(height: 16),
-
-        if (whatsappMsg.isNotEmpty) ...[
-          // ACTION BUTTONS (Copy Command & Share) — Strictly 4-color palette!
+        if (rawUrls.isNotEmpty) ...[
+          // ACTION BUTTONS — Copy (raw link) & Play (open in video player)
           Row(
             children: [
               Expanded(
                 child: _actionButton(
                   icon: _isCopied ? Icons.check_circle_rounded : Icons.copy_rounded,
-                  label: _isCopied ? 'Command Copied!' : 'Copy Command',
+                  label: _isCopied ? 'Copied!' : 'Copy',
                   color: AppTheme.emeraldInk,
-                  onTap: () => _copyToClipboard(whatsappMsg),
+                  onTap: () => _copyToClipboard(rawUrls),
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: _actionButton(
-                  icon: Icons.share_rounded,
-                  label: 'Share',
+                  icon: Icons.play_circle_filled_rounded,
+                  label: 'Play',
                   color: AppTheme.emeraldInk,
-                  onTap: _shareToWhatsApp,
+                  onTap: _playVideo,
                 ),
               ),
             ],
@@ -1057,15 +1035,16 @@ class _ResolutionModalState extends State<ResolutionModal> {
 
           const SizedBox(height: 16),
 
-          // WHATSAPP BOT COMMAND PREVIEW BOX — High contrast & Crystal Clear Readability!
-          const Text('WhatsApp Bot Command:',
+          // RESOLVED LINK(S) DISPLAY — Word-wrapped, no horizontal scroll
+          const Text('Resolved Link(s):',
               style: TextStyle(
                   color: AppTheme.champagne,
                   fontSize: 13,
                   fontWeight: FontWeight.w700)),
           const SizedBox(height: 8),
           Container(
-            constraints: const BoxConstraints(minHeight: 100, maxHeight: 350),
+            constraints: const BoxConstraints(minHeight: 40, maxHeight: 120),
+            width: double.infinity,
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
               color: AppTheme.offBlack,
@@ -1076,21 +1055,26 @@ class _ResolutionModalState extends State<ResolutionModal> {
               thumbVisibility: true,
               child: SingleChildScrollView(
                 scrollDirection: Axis.vertical,
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: SelectableText(
-                    _generateDisplayMessage(),
-                    style: const TextStyle(
-                      color: AppTheme.champagne,
-                      fontSize: 13,
-                      fontFamily: 'monospace',
-                      fontWeight: FontWeight.w600,
-                      height: 1.6,
-                    ),
+                child: SelectableText(
+                  _generateDisplayMessage(),
+                  style: const TextStyle(
+                    color: AppTheme.champagne,
+                    fontSize: 13,
+                    fontFamily: 'monospace',
+                    fontWeight: FontWeight.w600,
+                    height: 1.6,
                   ),
                 ),
               ),
             ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // GROUP SHORTCUT BUTTONS — copy .d <letter> <links>
+          _buildGroupShortcutButtons(
+            commandPrefix: '.d',
+            commandArgs: rawUrls,
           ),
         ],
       ],
