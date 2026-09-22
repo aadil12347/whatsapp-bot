@@ -754,6 +754,101 @@ async function shutdownSync() {
     }
 }
 
+// ─── Per-Group Filtering ────────────────────────────────────────
+
+/**
+ * Loads today's daily releases filtered to a specific group JID.
+ * @param {string} groupJid - Group JID to filter by
+ * @returns {Array} releases for that group today
+ */
+function loadDailyReleasesForGroup(groupJid) {
+    const todayItems = loadDailyReleases();
+    if (!groupJid) return todayItems;
+    return todayItems.filter(item => item.groupJid === groupJid);
+}
+
+/**
+ * Returns a Map of groupJid -> releases[] for all groups that received
+ * .p command posts today. Only includes groups (JIDs ending with @g.us).
+ * @returns {Map<string, Array>} Map of groupJid -> release items
+ */
+function getGroupsWithReleasesToday() {
+    const items = loadDailyReleases();
+    const groupMap = new Map();
+    for (const item of items) {
+        if (item.groupJid && item.groupJid.endsWith('@g.us')) {
+            if (!groupMap.has(item.groupJid)) {
+                groupMap.set(item.groupJid, []);
+            }
+            groupMap.get(item.groupJid).push(item);
+        }
+    }
+    return groupMap;
+}
+
+/**
+ * Formats a daily release list for a SPECIFIC group only.
+ * Only includes releases whose groupJid matches.
+ * @param {string} groupJid - Group JID to filter by
+ * @param {string} [groupName] - Optional group display name
+ * @returns {string} Formatted WhatsApp message
+ */
+function formatDailyReleaseListForGroup(groupJid, groupName = '') {
+    const items = loadDailyReleasesForGroup(groupJid);
+
+    // Sort chronologically: oldest first → latest last
+    items.sort((a, b) => a.timestamp - b.timestamp);
+
+    // Deduplicate by title+season (case-insensitive)
+    const seen = new Set();
+    const uniqueItems = items.filter(item => {
+        const key = `${item.title.toLowerCase()}_${(item.season || '').toLowerCase()}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+
+    const dateStr = getCycleDateString();
+
+    const movies = uniqueItems.filter(i => !i.isSeries);
+    const series = uniqueItems.filter(i => i.isSeries);
+    const totalCount = uniqueItems.length;
+
+    let text = `┌─ ✨ *DANIEWATCH DAILY* ✨ ─┐\n` +
+               `📅 *Date:* \`${dateStr}\`\n` +
+               `─────────────────────\n\n`;
+
+    if (movies.length > 0) {
+        text += `🎬 *MOVIES TODAY* (${movies.length}):\n`;
+        movies.forEach((m, idx) => {
+            const yrStr = m.year && m.year !== 'N/A' ? ` (${m.year})` : '';
+            text += `${idx + 1}. *${m.title}*${yrStr}\n`;
+        });
+        text += `\n`;
+    }
+
+    if (series.length > 0) {
+        text += `🎬 *SERIES TODAY* (${series.length}):\n`;
+        series.forEach((s, idx) => {
+            const yrStr = s.year && s.year !== 'N/A' ? ` (${s.year})` : '';
+            const sLabel = s.season ? ` - *${s.season}*` : '';
+            text += `${idx + 1}. *${s.title}*${yrStr}${sLabel}\n`;
+        });
+        text += `\n`;
+    }
+
+    if (totalCount === 0) {
+        text += `💡 *No releases uploaded yet today.*\n\n`;
+    }
+
+    text += `─────────────────────\n` +
+            `🔥 *Total Today:* *${totalCount}*\n` +
+            `🍿 *Enjoy watching @all*\n\n` +
+            `👑 *『 𝑫𝑨𝑵𝑰𝑬𝑾𝑨𝑻𝑪𝑯 』* 👑`;
+
+    return text;
+}
+
 module.exports = {
     getDailyCutoffTime,
     getCycleDateString,
@@ -773,6 +868,10 @@ module.exports = {
     getLastSentMessage,
     setLastSentMessage,
     clearLastSentMessage,
+    // Per-group filtering
+    loadDailyReleasesForGroup,
+    getGroupsWithReleasesToday,
+    formatDailyReleaseListForGroup,
     // Supabase sync
     initReleasesFromSupabase,
     flushReleasesToSupabase,

@@ -1264,11 +1264,28 @@ class TaskQueueManager {
     }
 
     getStatus() {
+        // Show current active group target
+        let currentGroupStr = '';
+        try {
+            const curSettings = loadSettings();
+            if (curSettings.targets && curSettings.targets.length > 0) {
+                const grpTargets = curSettings.targets.filter(t => t.type === 'group');
+                if (grpTargets.length > 0) {
+                    currentGroupStr = `\n👥 *Active Group:* ${grpTargets.map(t => `*${t.name}*`).join(', ')}`;
+                }
+            } else if (curSettings.mode === 'group' && curSettings.groupName) {
+                currentGroupStr = `\n👥 *Active Group:* *${curSettings.groupName}*`;
+            }
+        } catch (_) {}
+
         let activeStr = 'None';
         if (this.activeTask) {
             activeStr = `⚡ *[PROCESSING]* ${this.activeTask.description}`;
             if (this.activeTask.linkUrl) {
                 activeStr += `\n       🔗 ${this.activeTask.linkUrl}`;
+            }
+            if (this.activeTask.targetGroupName) {
+                activeStr += `\n       👥 → *${this.activeTask.targetGroupName}*`;
             }
         }
 
@@ -1279,11 +1296,14 @@ class TaskQueueManager {
                 if (t.linkUrl) {
                     line += `\n       🔗 ${t.linkUrl}`;
                 }
+                if (t.targetGroupName) {
+                    line += `\n       👥 → *${t.targetGroupName}*`;
+                }
                 return line;
             }).join('\n\n');
         }
 
-        return `📋 *Task Queue Status*\n\n` +
+        return `📋 *Task Queue Status*${currentGroupStr}\n\n` +
                `*Currently Processing:*\n${activeStr}\n\n` +
                `*Pending in Queue (${this.queue.length}):*\n${pendingStr}\n\n` +
                `_Use \`.c\` to cancel all, \`.qdel <num>\` to remove an item, or \`.qedit <num> <new_cmd>\` to update._`;
@@ -1487,6 +1507,31 @@ async function sendTmdbPosterAndTrailer(conn, targets, title, mediaType = 'movie
 }
 
 const globalTaskQueue = new TaskQueueManager();
+
+// =========================================================================
+//  GROUP POST TRACKER — tracks which groups received .p posts this session
+//  Used by .qlist to send per-group release lists
+//  Map<groupJid, Array<{ title, year, season, isSeries, timestamp }>>
+// =========================================================================
+const _groupPostTracker = new Map();
+
+function trackGroupPost(groupJid, releaseInfo) {
+    if (!groupJid || !groupJid.endsWith('@g.us')) return;
+    if (!_groupPostTracker.has(groupJid)) {
+        _groupPostTracker.set(groupJid, []);
+    }
+    _groupPostTracker.get(groupJid).push({
+        title: releaseInfo.title || 'Unknown',
+        year: releaseInfo.year || 'N/A',
+        season: releaseInfo.season || null,
+        isSeries: !!releaseInfo.isSeries,
+        timestamp: Date.now()
+    });
+}
+
+function clearGroupPostTracker() {
+    _groupPostTracker.clear();
+}
 
 // Our command prefix
 const PREFIX = '.';
@@ -3594,6 +3639,16 @@ async function pCommandHandler(conn, mek, from, senderJid, q, reply, abortSignal
             console.warn('[DanieDownload] Daily releases auto-track error:', releaseErr.message);
         }
 
+        // Track this post for per-group .qlist
+        try {
+            trackGroupPost(destJid, {
+                title: tmdb.title,
+                year: tmdb.year,
+                season: specifiedSeason ? `S${String(specifiedSeason).padStart(2, '0')}` : null,
+                isSeries: mediaType === 'tv'
+            });
+        } catch (_) {}
+
         // 1. Format details message
         let seasonText = '';
         let episodeText = '';
@@ -3994,10 +4049,67 @@ DANIE_COMMANDS['config'] = async (conn, mek, from, senderJid, args, reply) => {
         subject: g.subject || 'Unknown Group'
     }));
 
+    // ── FAST QUEUE-BASED GROUP SWITCHING ──
+    // If args is a pure number (e.g. `.config 4`), queue a group-switch task
+    const argText = (args || '').trim();
+    const argNum = parseInt(argText, 10);
+    if (argText && !isNaN(argNum) && argNum >= 1 && argNum <= groups.length && /^\d+$/.test(argText)) {
+        const chosen = groups[argNum - 1];
+        const chosenJid = cleanJid(chosen.jid);
+        const chosenName = chosen.subject;
+
+        // If queue is empty and no active task, apply switch immediately (no queuing needed)
+        if (!globalTaskQueue.activeTask && globalTaskQueue.queue.length === 0) {
+            const newSettings = {
+                mode: 'group',
+                groupJid: chosenJid,
+                groupName: chosenName,
+                privateJid: '',
+                privateName: '',
+                targets: [{ jid: chosenJid, name: chosenName, type: 'group' }]
+            };
+            saveSettings(newSettings);
+            delete pendingConfig[cleanSender];
+            return reply(`✅ *Group switched to:* 👥 *${chosenName}*\n\`${chosenJid}\`\n\n_All .p and .d commands will now send to this group._`);
+        }
+
+        // Queue is busy — add a config-switch task to the queue
+        const configTask = {
+            type: 'config_switch',
+            description: `🔀 Group Switch → *${chosenName}*`,
+            targetGroupName: chosenName,
+            commandText: `.config ${argText}`,
+            senderJid,
+            from,
+            conn,
+            executeFn: async (signal, ref) => {
+                // Apply the group switch when this task is processed
+                const newSettings = {
+                    mode: 'group',
+                    groupJid: chosenJid,
+                    groupName: chosenName,
+                    privateJid: '',
+                    privateName: '',
+                    targets: [{ jid: chosenJid, name: chosenName, type: 'group' }]
+                };
+                saveSettings(newSettings);
+                console.log(`[QueueManager] Config switch applied: Group → ${chosenName} (${chosenJid})`);
+                try {
+                    await reply(`✅ *Group switched to:* 👥 *${chosenName}*\n\`${chosenJid}\`\n\n_Subsequent tasks will send to this group._`);
+                } catch (_) {}
+            }
+        };
+
+        const queuedTask = globalTaskQueue.add(configTask);
+        delete pendingConfig[cleanSender];
+        return reply(`🔀 *Group Switch Queued* (Position #${globalTaskQueue.queue.length}):\n👥 *${chosenName}*\n_Will switch after pending tasks complete._`);
+    }
+
+    // ── INTERACTIVE CONFIG (no number arg or non-numeric arg) ──
     pendingConfig[cleanSender] = { step: 'combined_config', groups, messageId: null };
 
-    if (args && args.trim()) {
-        return handleConfigReply(conn, mek, null, senderJid, args.trim(), reply);
+    if (argText && !/^\d+$/.test(argText)) {
+        return handleConfigReply(conn, mek, null, senderJid, argText, reply);
     }
 
     const current = loadSettings();
@@ -4016,7 +4128,10 @@ DANIE_COMMANDS['config'] = async (conn, mek, from, senderJid, args, reply) => {
     let groupListText = '';
     if (groups.length > 0) {
         groups.forEach((g, i) => {
-            groupListText += `│   \`${i + 1}\` • 👥 ${g.subject}\n`;
+            // Mark the currently active group with a ✅
+            const isActive = current.targets && current.targets.some(t => cleanJid(t.jid) === cleanJid(g.jid));
+            const activeMarker = isActive ? ' ✅' : '';
+            groupListText += `│   \`${i + 1}\` • 👥 ${g.subject}${activeMarker}\n`;
         });
     } else {
         groupListText = '│   _No active groups found._\n';
@@ -4031,6 +4146,7 @@ DANIE_COMMANDS['config'] = async (conn, mek, from, senderJid, args, reply) => {
         `${groupListText}` +
         `└───────────────\n\n` +
         `💡 *How to Set Receivers:*\n` +
+        `  • \`.config 4\` — Quick-switch to group #4 (queued if busy)\n` +
         `  • Reply with group number(s) (e.g. \`1\`, \`1, 2\`, \`1-3\`, or \`all\`)\n` +
         `  • Reply with phone number(s) in international format (e.g. \`923013068663\`)\n` +
         `  • Combine both! (e.g. \`1, +923013068663\`)\n` +
@@ -4215,20 +4331,91 @@ DANIE_COMMANDS['archive'] = DANIE_COMMANDS['history'];
 
 DANIE_COMMANDS['listque'] = async (conn, mek, from, senderJid, args, reply) => {
     const task = {
-        description: `📋 Send Release List (End of Queue)`,
+        description: `📋 Send Per-Group Release Lists (End of Queue)`,
         commandText: '.listque',
         isListQue: true,
         conn,
         executeFn: async (signal, ref) => {
-            if (typeof DANIE_COMMANDS['createlist'] === 'function') {
-                await DANIE_COMMANDS['createlist'](conn, mek, from, senderJid, '', reply);
+            // ── PER-GROUP RELEASE LIST DISPATCH ──
+            // Find all groups that received .p posts today and send each group its own list
+            try {
+                const { getGroupsWithReleasesToday, formatDailyReleaseListForGroup } = require('../Utils/daily_releases');
+                const groupsMap = getGroupsWithReleasesToday();
+
+                if (groupsMap.size === 0) {
+                    await reply('📋 *No groups received .p posts today.* No release lists to send.');
+                    return;
+                }
+
+                let sentCount = 0;
+                let groupSummaries = [];
+
+                for (const [groupJid, releases] of groupsMap) {
+                    try {
+                        // Get group name from metadata
+                        let groupName = groupJid;
+                        try {
+                            const metadata = await conn.groupMetadata(groupJid);
+                            groupName = metadata.subject || groupJid;
+                        } catch (_) {
+                            // Try loading from settings as fallback
+                            const curSettings = loadSettings();
+                            const target = (curSettings.targets || []).find(t => t.jid === groupJid);
+                            if (target) groupName = target.name;
+                        }
+
+                        // Format the release list for this specific group
+                        const listMsg = formatDailyReleaseListForGroup(groupJid, groupName);
+
+                        // Fetch all group participants for @all mention
+                        let allJids = [];
+                        try {
+                            const metadata = await conn.groupMetadata(groupJid);
+                            if (metadata && metadata.participants) {
+                                allJids = metadata.participants.map(p => p.id);
+                            }
+                        } catch (_) {}
+
+                        // Send to the group with @all mentions (no pinning)
+                        await conn.sendMessage(groupJid, {
+                            text: listMsg,
+                            mentions: allJids
+                        });
+
+                        sentCount++;
+                        groupSummaries.push(`  👥 *${groupName}* — ${releases.length} post(s)`);
+                        console.log(`[QList] Sent per-group release list to ${groupName} (${groupJid}) with ${releases.length} posts, ${allJids.length} mentions`);
+
+                        // Small delay between groups to avoid rate limiting
+                        if (groupsMap.size > 1) {
+                            await new Promise(r => setTimeout(r, 2000));
+                        }
+                    } catch (groupErr) {
+                        console.error(`[QList] Failed to send list to group ${groupJid}:`, groupErr.message);
+                        groupSummaries.push(`  ❌ *${groupJid}* — Failed: ${groupErr.message}`);
+                    }
+                }
+
+                // Send confirmation to private chat
+                let confirmMsg = `╭─── 📋 *PER-GROUP LISTS SENT* 📋 ───╮\n\n`;
+                confirmMsg += `✅ Sent release lists to *${sentCount}/${groupsMap.size}* group(s):\n\n`;
+                confirmMsg += groupSummaries.join('\n');
+                confirmMsg += `\n\n╰───────────────────╯`;
+                await reply(confirmMsg);
+
+            } catch (qlistErr) {
+                console.error('[QList] Per-group release list error:', qlistErr.message);
+                // Fallback to legacy single-group createlist
+                if (typeof DANIE_COMMANDS['createlist'] === 'function') {
+                    await DANIE_COMMANDS['createlist'](conn, mek, from, senderJid, '', reply);
+                }
             }
         }
     };
 
     const queuedTask = globalTaskQueue.add(task);
     if (globalTaskQueue.activeTask && globalTaskQueue.activeTask.id !== queuedTask.id) {
-        await reply(`📋 *Release List Queued at End of Queue* (Position #${globalTaskQueue.queue.length}):\n_Will send list automatically after all pending downloads/posts finish._`);
+        await reply(`📋 *Per-Group Release Lists Queued at End of Queue* (Position #${globalTaskQueue.queue.length}):\n_Will send separate lists to each group that received .p posts after all pending tasks finish._`);
     }
 };
 DANIE_COMMANDS['quelist'] = DANIE_COMMANDS['listque'];
@@ -4368,10 +4555,23 @@ DANIE_COMMANDS['d'] = async (conn, mek, from, senderJid, args, reply) => {
         linkTitle = getCleanFileNameFromUrl(args);
     }
 
+    // Capture current target group name for queue display
+    let currentGroupName = '';
+    try {
+        const curSettings = loadSettings();
+        if (curSettings.targets && curSettings.targets.length > 0) {
+            const grpTarget = curSettings.targets.find(t => t.type === 'group');
+            if (grpTarget) currentGroupName = grpTarget.name;
+        } else if (curSettings.mode === 'group' && curSettings.groupName) {
+            currentGroupName = curSettings.groupName;
+        }
+    } catch (_) {}
+
     const task = {
         type: 'd_command',
         description: `📥 *${linkTitle}*`,
         linkUrl: displayUrl.length > 80 ? displayUrl.substring(0, 77) + '...' : displayUrl,
+        targetGroupName: currentGroupName || undefined,
         commandText: `.d ${args}`,
         senderJid,
         from,
@@ -4381,7 +4581,8 @@ DANIE_COMMANDS['d'] = async (conn, mek, from, senderJid, args, reply) => {
     };
     const queuedTask = globalTaskQueue.add(task);
     if (globalTaskQueue.activeTask && globalTaskQueue.activeTask.id !== queuedTask.id) {
-        await reply(`📥 *Task Added to Queue* (Position #${globalTaskQueue.queue.length}):\n📌 *${linkTitle}*\n🔗 ${displayUrl.length > 80 ? displayUrl.substring(0, 77) + '...' : displayUrl}`);
+        const groupLabel = currentGroupName ? `\n👥 → *${currentGroupName}*` : '';
+        await reply(`📥 *Task Added to Queue* (Position #${globalTaskQueue.queue.length}):\n📌 *${linkTitle}*\n🔗 ${displayUrl.length > 80 ? displayUrl.substring(0, 77) + '...' : displayUrl}${groupLabel}`);
     }
 };
 
@@ -4405,10 +4606,23 @@ DANIE_COMMANDS['p'] = async (conn, mek, from, senderJid, args, reply) => {
         pLabel = tmdbUrl.length > 60 ? tmdbUrl.substring(0, 57) + '...' : tmdbUrl;
     }
 
+    // Capture current target group name for queue display
+    let currentGroupName = '';
+    try {
+        const curSettings = loadSettings();
+        if (curSettings.targets && curSettings.targets.length > 0) {
+            const grpTarget = curSettings.targets.find(t => t.type === 'group');
+            if (grpTarget) currentGroupName = grpTarget.name;
+        } else if (curSettings.mode === 'group' && curSettings.groupName) {
+            currentGroupName = curSettings.groupName;
+        }
+    } catch (_) {}
+
     const task = {
         type: 'p_command',
         description: `🎬 Post: *${pLabel}*`,
         linkUrl: displayUrl.length > 80 ? displayUrl.substring(0, 77) + '...' : displayUrl,
+        targetGroupName: currentGroupName || undefined,
         commandText: `.p ${args}`,
         senderJid,
         from,
@@ -4418,7 +4632,8 @@ DANIE_COMMANDS['p'] = async (conn, mek, from, senderJid, args, reply) => {
     };
     const queuedTask = globalTaskQueue.add(task);
     if (globalTaskQueue.activeTask && globalTaskQueue.activeTask.id !== queuedTask.id) {
-        await reply(`🎬 *Task Added to Queue* (Position #${globalTaskQueue.queue.length}):\n📌 *${pLabel}*${displayUrl ? '\n🔗 ' + (displayUrl.length > 80 ? displayUrl.substring(0, 77) + '...' : displayUrl) : ''}`);
+        const groupLabel = currentGroupName ? `\n👥 → *${currentGroupName}*` : '';
+        await reply(`🎬 *Task Added to Queue* (Position #${globalTaskQueue.queue.length}):\n📌 *${pLabel}*${displayUrl ? '\n🔗 ' + (displayUrl.length > 80 ? displayUrl.substring(0, 77) + '...' : displayUrl) : ''}${groupLabel}`);
     }
 };
 
@@ -4439,6 +4654,9 @@ DANIE_COMMANDS['c'] = async (conn, mek, from, senderJid, args, reply) => {
     // Reset internal progress state
     globalProgressState.active = false;
     globalProgressState.statusMsg = null;
+
+    // Clear per-group post tracker
+    clearGroupPostTracker();
 
     // Note: isProcessing is now reset inside cancelAll() itself — no manual override needed
 
