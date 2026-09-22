@@ -273,47 +273,7 @@ class _ResolutionModalState extends State<ResolutionModal> {
   }
 
   void _showCenteredToast(String message) {
-    final overlay = Overlay.of(context);
-    late OverlayEntry entry;
-    entry = OverlayEntry(
-      builder: (context) => Positioned(
-        bottom: 40,
-        left: 40,
-        right: 40,
-        child: Material(
-          color: Colors.transparent,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            decoration: BoxDecoration(
-              color: AppTheme.emeraldInk,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppTheme.champagne.withOpacity(0.4)),
-              boxShadow: [
-                BoxShadow(
-                  color: AppTheme.offBlack.withOpacity(0.5),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.check_circle_rounded, color: AppTheme.champagne, size: 18),
-                const SizedBox(width: 8),
-                Flexible(
-                  child: Text(message,
-                      style: const TextStyle(color: AppTheme.champagne, fontWeight: FontWeight.w700, fontSize: 13, decoration: TextDecoration.none)),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-    overlay.insert(entry);
-    Future.delayed(const Duration(seconds: 1), () => entry.remove());
+    // Toast removed — tick animation on buttons is sufficient feedback
   }
 
   // ── GROUP SHORTCUT BUTTONS ──
