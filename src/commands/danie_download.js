@@ -1258,8 +1258,57 @@ class TaskQueueManager {
                 executeFn
             };
             return { success: true, item: this.queue[num - 1] };
+        } else if (cmdName === 'config') {
+            // Allow editing a config_switch task in the queue
+            const groupNum = parseInt(cmdArgs, 10);
+            if (isNaN(groupNum) || groupNum < 1) {
+                return { error: `Invalid group number. Use: .qedit ${index} .config <group_number>` };
+            }
+            // We can't resolve group name here without async, so store a placeholder
+            // The actual group resolution happens at execution time
+            const oldTask = this.queue[num - 1];
+            const newExecuteFn = async (signal, ref) => {
+                // Resolve group at execution time using safeFetchParticipatingGroups
+                let groupsObj = {};
+                try {
+                    groupsObj = await conn.groupFetchAllParticipating();
+                } catch (_) {}
+                const groups = Object.values(groupsObj).map(g => ({
+                    jid: g.id,
+                    subject: g.subject || 'Unknown Group'
+                }));
+                if (groupNum > groups.length) {
+                    try { await reply(`❌ Group #${groupNum} not found. Only ${groups.length} group(s) available.`); } catch (_) {}
+                    return;
+                }
+                const chosen = groups[groupNum - 1];
+                const chosenJid = chosen.jid.replace(/:.*@/, '@');
+                const chosenName = chosen.subject;
+                const newSettings = {
+                    mode: 'group',
+                    groupJid: chosenJid,
+                    groupName: chosenName,
+                    privateJid: '',
+                    privateName: '',
+                    targets: [{ jid: chosenJid, name: chosenName, type: 'group' }]
+                };
+                saveSettings(newSettings);
+                console.log(`[QueueManager] Config switch applied (edited): Group → ${chosenName} (${chosenJid})`);
+                try {
+                    await reply(`✅ *Group switched to:* 👥 *${chosenName}*\n\n_Subsequent tasks will send to this group._`);
+                } catch (_) {}
+            };
+            this.queue[num - 1] = {
+                ...oldTask,
+                type: 'config_switch',
+                description: `🔀 Group Switch → *Group #${groupNum}*`,
+                targetGroupName: `Group #${groupNum}`,
+                commandText: `.config ${cmdArgs}`,
+                executeFn: newExecuteFn
+            };
+            return { success: true, item: this.queue[num - 1] };
         } else {
-            return { error: `Currently, only .p or .d commands can be updated in queue.` };
+            return { error: `Only .p, .d, or .config commands can be updated in queue.` };
         }
     }
 
@@ -2847,7 +2896,7 @@ async function handleConfigReply(conn, mek, m, senderJid, text, reply) {
     let resText = `╭─── ⚙️ *CONFIG SAVED* ⚙️ ───╮\n\n✅ Saved *${selectedTargets.length}* target receiver(s) for Upload & Auto-Forwarding:\n\n`;
     settings.targets.forEach((t, idx) => {
         const icon = t.type === 'group' ? '👥' : '👤';
-        resText += `  ${idx + 1}. ${icon} *${t.name}* (${t.jid})\n`;
+        resText += `  ${idx + 1}. ${icon} *${t.name}*\n`;
     });
     return reply(resText.trim());
 }
@@ -4070,7 +4119,7 @@ DANIE_COMMANDS['config'] = async (conn, mek, from, senderJid, args, reply) => {
             };
             saveSettings(newSettings);
             delete pendingConfig[cleanSender];
-            return reply(`✅ *Group switched to:* 👥 *${chosenName}*\n\`${chosenJid}\`\n\n_All .p and .d commands will now send to this group._`);
+            return reply(`✅ *Group switched to:* 👥 *${chosenName}*\n\n_All .p and .d commands will now send to this group._`);
         }
 
         // Queue is busy — add a config-switch task to the queue
@@ -4095,7 +4144,7 @@ DANIE_COMMANDS['config'] = async (conn, mek, from, senderJid, args, reply) => {
                 saveSettings(newSettings);
                 console.log(`[QueueManager] Config switch applied: Group → ${chosenName} (${chosenJid})`);
                 try {
-                    await reply(`✅ *Group switched to:* 👥 *${chosenName}*\n\`${chosenJid}\`\n\n_Subsequent tasks will send to this group._`);
+                    await reply(`✅ *Group switched to:* 👥 *${chosenName}*\n\n_Subsequent tasks will send to this group._`);
                 } catch (_) {}
             }
         };
