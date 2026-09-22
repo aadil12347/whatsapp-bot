@@ -4639,27 +4639,41 @@ DANIE_COMMANDS['p'] = async (conn, mek, from, senderJid, args, reply) => {
 
 // Queue Control Commands
 DANIE_COMMANDS['c'] = async (conn, mek, from, senderJid, args, reply) => {
+    // ═══════════════════════════════════════════════════════════════
+    //  NUCLEAR CANCEL — kills every process, clears every state
+    // ═══════════════════════════════════════════════════════════════
+
+    // 1. Clear ALL pending interaction states
     Object.keys(pendingSearch).forEach(k => delete pendingSearch[k]);
     Object.keys(pendingConfig).forEach(k => delete pendingConfig[k]);
+    Object.keys(pendingGroupSelection).forEach(k => delete pendingGroupSelection[k]);
+    Object.keys(pendingHistory).forEach(k => delete pendingHistory[k]);
+    Object.keys(pendingDomainSelection).forEach(k => delete pendingDomainSelection[k]);
+    pendingGroupConfirmations.clear();
 
-    // Clear AI Search pending confirmation states
+    // 2. Clear AI Search pending confirmation states
     try {
-        const { pendingPreConfirmations, pendingPostSelections } = require('./ai_search');
+        const { pendingPreConfirmations, pendingPostSelections, pendingConfirmations } = require('./ai_search');
         if (pendingPreConfirmations) pendingPreConfirmations.clear();
         if (pendingPostSelections) pendingPostSelections.clear();
+        if (pendingConfirmations) pendingConfirmations.clear();
     } catch (_) {}
 
+    // 3. Cancel entire queue — abort active task + clear all pending
     const { count, activeAborted } = globalTaskQueue.cancelAll(senderJid);
 
-    // Reset internal progress state
+    // 4. Reset internal progress state
     globalProgressState.active = false;
     globalProgressState.statusMsg = null;
+    globalProgressState.totalEstMB = 0;
+    globalProgressState.speedMBs = 0;
+    globalProgressState.percentage = 0;
+    globalProgressState.phaseText = 'Idle';
 
-    // Clear per-group post tracker
+    // 5. Clear per-group post tracker
     clearGroupPostTracker();
 
-    // Note: isProcessing is now reset inside cancelAll() itself — no manual override needed
-
+    // 6. Clean temporary files
     try {
         const cmdDir = __dirname;
         const tmpFiles = fs.readdirSync(cmdDir).filter(f => f.startsWith('tmp_') || f.startsWith('extracted_'));
@@ -4677,10 +4691,11 @@ DANIE_COMMANDS['c'] = async (conn, mek, from, senderJid, args, reply) => {
         }
     } catch (_) {}
 
-    let msg = `╭─── 🛑 *OPERATIONS CANCELLED* 🛑 ───╮\n\n`;
-    if (activeAborted) msg += `⚡ Aborted active download task.\n`;
+    let msg = `╭─── 🛑 *ALL OPERATIONS CANCELLED* 🛑 ───╮\n\n`;
+    if (activeAborted) msg += `⚡ Aborted active running task.\n`;
     if (count > 0) msg += `📋 Cleared *${count}* pending queued task(s).\n`;
-    msg += `🤖 Cleared all AI Search & Pre-Confirmation sessions.\n`;
+    msg += `🤖 Cleared all AI Search & confirmation sessions.\n`;
+    msg += `🔀 Cleared all pending config/group/history sessions.\n`;
     msg += `🔄 Reset all progress states.\n`;
     msg += `🧹 Cleaned temporary files.\n\n`;
     msg += `🚀 _Bot is in fresh idle state. Ready for new commands!_`;
