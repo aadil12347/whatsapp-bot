@@ -353,10 +353,6 @@ function stopSocketKeepAlive() {
         clearInterval(_activeKeepAliveTimer);
         _activeKeepAliveTimer = null;
     }
-    const activeConn = _connInstance;
-    if (activeConn && typeof activeConn.sendPresenceUpdate === 'function') {
-        activeConn.sendPresenceUpdate('unavailable').catch(() => {});
-    }
 }
 
 async function waitForConnectionReady(conn, maxWaitMs = 15000) {
@@ -1806,12 +1802,6 @@ function initUpsertListener(conn) {
                     _botSentMessageIds.delete(firstKey);
                 }
             }
-            // Anti-Ban: Immediately return presence to offline (unavailable) so bot never stays online
-            try {
-                if (typeof conn.sendPresenceUpdate === 'function') {
-                    conn.sendPresenceUpdate('unavailable').catch(() => {});
-                }
-            } catch (_) {}
             return sentMsg;
         };
     }
@@ -1936,27 +1926,15 @@ function initUpsertListener(conn) {
 
                 console.log(`[DanieWatch] 👤 Owner command received in You chat: "${trimmedText.substring(0, 80)}"`);
 
-                const { applyAntiBanPresence, markAsRead, setOfflinePresence } = require('../Utils/anti_ban');
-
-                // Auto-mark incoming message as read
-                await markAsRead(conn, mek);
-
                 const reply = async (textMsg) => {
                     try {
-                        await applyAntiBanPresence(conn, mek, targetJid, 'composing');
-                        const res = await conn.sendMessage(targetJid, { text: textMsg }, { quoted: mek });
-                        await setOfflinePresence(conn);
-                        return res;
+                        return await conn.sendMessage(targetJid, { text: textMsg }, { quoted: mek });
                     } catch (err1) {
                         if (cleanSender && cleanSender !== targetJid) {
                             try {
-                                await applyAntiBanPresence(conn, mek, cleanSender, 'composing');
-                                const res = await conn.sendMessage(cleanSender, { text: textMsg }, { quoted: mek });
-                                await setOfflinePresence(conn);
-                                return res;
+                                return await conn.sendMessage(cleanSender, { text: textMsg }, { quoted: mek });
                             } catch (err2) {}
                         }
-                        await setOfflinePresence(conn);
                         throw err1;
                     }
                 };
@@ -2017,8 +1995,6 @@ function initUpsertListener(conn) {
                         try {
                             await reply(`❌ Command execution failed: ${cmdErr.message}`);
                         } catch (_) {}
-                    } finally {
-                        await setOfflinePresence(conn);
                     }
                 }
                 return;

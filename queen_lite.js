@@ -184,12 +184,6 @@ async function connectToWA() {
                 console.log(`[DanieWatch] 🆔 Bot identity: id=${conn.user.id || 'N/A'}, lid=${conn.user.lid || 'N/A'}, name=${conn.user.name || 'N/A'}`);
             }
 
-            // Anti-Ban: Mark presence as unavailable (offline) immediately upon connecting
-            try {
-                await conn.sendPresenceUpdate('unavailable');
-                console.log('[DanieWatch] 🕶️ Set presence to unavailable (offline).');
-            } catch (_) {}
-
             // ── HANDOVER: Initialize DanieWatch command listener IMMEDIATELY ──
             try {
                 const danie = require('./src/commands/danie_download');
