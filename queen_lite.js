@@ -79,9 +79,23 @@ const AUTO_RESTART_MINUTES = parseInt(process.env.MAX_RUN_TIME_MINUTES || '0', 1
 async function connectToWA() {
     if (!fs.existsSync(SESSION_DIR)) fs.mkdirSync(SESSION_DIR, { recursive: true });
 
-    // ── Step 1: Check/Fetch session keys from Supabase if missing ──
+    // ── Step 1: Check/Fetch session keys from Supabase if missing or corrupted ──
     const credsPath = path.join(SESSION_DIR, 'creds.json');
-    if (!fs.existsSync(credsPath)) {
+    function hasValidLocalCreds() {
+        if (!fs.existsSync(credsPath)) return false;
+        try {
+            const stat = fs.statSync(credsPath);
+            if (stat.size === 0) return false;
+            const content = fs.readFileSync(credsPath, 'utf-8');
+            if (!content || !content.trim()) return false;
+            const parsed = JSON.parse(content);
+            return !!(parsed && (parsed.me || parsed.registered !== false));
+        } catch (_) {
+            return false;
+        }
+    }
+
+    if (!hasValidLocalCreds()) {
         try {
             console.log('☁️ Fetching session keys from Supabase...');
             const downloaded = await downloadSessionFromSupabase(SESSION_DIR);
@@ -93,9 +107,20 @@ async function connectToWA() {
         }
     }
 
-    // Check if creds.json exists — if not, prompt for CLI pairing
-    if (!fs.existsSync(credsPath)) {
-        console.error('❌ No creds.json found in session/ directory or Supabase.');
+    // Secondary local fallback: check sess/ directory
+    if (!hasValidLocalCreds()) {
+        const sessCredsPath = path.join(__dirname, 'sess', 'creds.json');
+        if (fs.existsSync(sessCredsPath) && fs.statSync(sessCredsPath).size > 0) {
+            try {
+                fs.copyFileSync(sessCredsPath, credsPath);
+                console.log('🔄 Restored creds.json from sess/ backup directory.');
+            } catch (_) {}
+        }
+    }
+
+    // Check if creds.json is valid — if not, report and exit
+    if (!hasValidLocalCreds()) {
+        console.error('❌ No valid creds.json found in session/ directory or Supabase.');
         console.error('   Run "npm run pair" or "node pair.js" to generate a fresh pairing code first.');
         console.error('   The bot cannot connect without valid session credentials.');
         process.exit(1);

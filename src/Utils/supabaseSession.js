@@ -80,7 +80,7 @@ async function uploadSessionToSupabase(sessionDir = path.join(__dirname, '../../
             return false;
         }
 
-        // Keep up to 200 pre-key files to prevent Signal E2EE handshake failures
+        // Keep up to 100 pre-key files to prevent Signal E2EE handshake failures
         const preKeyFiles = files.filter(f => f.startsWith('pre-key-') && f.endsWith('.json'))
             .map(f => {
                 const fp = path.join(sessionDir, f);
@@ -90,14 +90,14 @@ async function uploadSessionToSupabase(sessionDir = path.join(__dirname, '../../
             .sort((a, b) => b.mtime - a.mtime);
 
         let prunedCount = 0;
-        if (preKeyFiles.length > 200) {
-            const toDelete = preKeyFiles.slice(200);
+        if (preKeyFiles.length > 100) {
+            const toDelete = preKeyFiles.slice(100);
             for (const item of toDelete) {
                 try { fs.unlinkSync(item.path); prunedCount++; } catch (_) {}
             }
         }
 
-        // Keep up to 500 app-state-sync keys to prevent "failed to find key to decode mutation" errors
+        // Keep up to 100 app-state-sync keys
         const appStateFiles = files.filter(f => f.startsWith('app-state-sync-') && f.endsWith('.json'))
             .map(f => {
                 const fp = path.join(sessionDir, f);
@@ -106,8 +106,40 @@ async function uploadSessionToSupabase(sessionDir = path.join(__dirname, '../../
             .filter(Boolean)
             .sort((a, b) => b.mtime - a.mtime);
 
-        if (appStateFiles.length > 500) {
-            const toDelete = appStateFiles.slice(500);
+        if (appStateFiles.length > 100) {
+            const toDelete = appStateFiles.slice(100);
+            for (const item of toDelete) {
+                try { fs.unlinkSync(item.path); prunedCount++; } catch (_) {}
+            }
+        }
+
+        // Keep up to 100 active session ratchets
+        const sessionRatchetFiles = files.filter(f => f.startsWith('session-') && f.endsWith('.json'))
+            .map(f => {
+                const fp = path.join(sessionDir, f);
+                try { return { file: f, path: fp, mtime: fs.statSync(fp).mtimeMs }; } catch(_) { return null; }
+            })
+            .filter(Boolean)
+            .sort((a, b) => b.mtime - a.mtime);
+
+        if (sessionRatchetFiles.length > 100) {
+            const toDelete = sessionRatchetFiles.slice(100);
+            for (const item of toDelete) {
+                try { fs.unlinkSync(item.path); prunedCount++; } catch (_) {}
+            }
+        }
+
+        // Keep up to 100 sender keys
+        const senderKeyFiles = files.filter(f => f.startsWith('sender-key-') && f.endsWith('.json'))
+            .map(f => {
+                const fp = path.join(sessionDir, f);
+                try { return { file: f, path: fp, mtime: fs.statSync(fp).mtimeMs }; } catch(_) { return null; }
+            })
+            .filter(Boolean)
+            .sort((a, b) => b.mtime - a.mtime);
+
+        if (senderKeyFiles.length > 100) {
+            const toDelete = senderKeyFiles.slice(100);
             for (const item of toDelete) {
                 try { fs.unlinkSync(item.path); prunedCount++; } catch (_) {}
             }
@@ -137,7 +169,7 @@ async function uploadSessionToSupabase(sessionDir = path.join(__dirname, '../../
         }
 
         if (prunedCount > 0) {
-            console.log(`🧹 Pruned ${prunedCount} excess pre-key/app-state session file(s) from memory/disk during upload.`);
+            console.log(`🧹 Pruned ${prunedCount} excess pre-key/app-state/ratchet session file(s) before upload.`);
         }
 
         if (Object.keys(sessionData).length === 0 || !sessionData['creds.json']) {
@@ -157,12 +189,7 @@ async function uploadSessionToSupabase(sessionDir = path.join(__dirname, '../../
             }
         } catch (_) {}
 
-        // Delete all old records from bot_session first
-        const { error: delError } = await supabase.from('bot_session').delete().neq('id', 0);
-        if (delError) {
-            console.warn('⚠️ Warning during deleting old session data:', delError.message);
-        }
-
+        // ATOMIC UPSERT: Never delete before upserting — ON CONFLICT (id) safely replaces row 1
         const payload = {
             id: 1,
             session_data: sessionData,
@@ -195,7 +222,8 @@ async function downloadSessionFromSupabase(sessionDir = path.join(__dirname, '..
         const supabase = getSupabaseClient();
         if (!supabase) return false;
 
-        const { data, error } = await supabase
+        // Try primary session row (id=1)
+        let { data, error } = await supabase
             .from('bot_session')
             .select('session_data, updated_at')
             .eq('id', 1)
@@ -203,10 +231,24 @@ async function downloadSessionFromSupabase(sessionDir = path.join(__dirname, '..
 
         if (error) {
             console.error('❌ Failed to query Supabase bot_session:', error.message);
-            return false;
         }
 
-        if (!data || !data.session_data || Object.keys(data.session_data).length === 0) {
+        // Resilient fallback: if id=1 is missing or lacks creds.json, check any recent row (excluding lock id=2)
+        if (!data || !data.session_data || !data.session_data['creds.json']) {
+            const { data: fallbackRows, error: fallbackErr } = await supabase
+                .from('bot_session')
+                .select('session_data, updated_at')
+                .neq('id', 2)
+                .order('updated_at', { ascending: false })
+                .limit(1);
+
+            if (!fallbackErr && fallbackRows && fallbackRows.length > 0 && fallbackRows[0].session_data?.['creds.json']) {
+                console.log('🔄 Fallback: Restoring session data from alternate Supabase record.');
+                data = fallbackRows[0];
+            }
+        }
+
+        if (!data || !data.session_data || Object.keys(data.session_data).length === 0 || !data.session_data['creds.json']) {
             console.log('ℹ️ No session data found in Supabase bot_session table.');
             return false;
         }
@@ -215,8 +257,14 @@ async function downloadSessionFromSupabase(sessionDir = path.join(__dirname, '..
             fs.mkdirSync(sessionDir, { recursive: true });
         }
 
+        // Clean out any 0-byte or corrupted creds.json so it doesn't block restore
+        const localCredsPath = path.join(sessionDir, 'creds.json');
+        if (fs.existsSync(localCredsPath) && !isValidJsonFile(localCredsPath)) {
+            try { fs.unlinkSync(localCredsPath); } catch (_) {}
+        }
+
         const sessionFiles = data.session_data;
-        const localCredsExist = isValidJsonFile(path.join(sessionDir, 'creds.json'));
+        const localCredsExist = isValidJsonFile(localCredsPath);
         let restoredCount = 0;
 
         for (const [filename, value] of Object.entries(sessionFiles)) {
@@ -259,6 +307,20 @@ async function downloadSessionFromSupabase(sessionDir = path.join(__dirname, '..
             restoredCount++;
         }
 
+        // Also mirror restored files to sess/ backup directory
+        const sessAltDir = path.join(sessionDir, '..', 'sess');
+        if (fs.existsSync(sessAltDir) || restoredCount > 0) {
+            try {
+                if (!fs.existsSync(sessAltDir)) fs.mkdirSync(sessAltDir, { recursive: true });
+                const files = fs.readdirSync(sessionDir);
+                for (const f of files) {
+                    if (f.endsWith('.json')) {
+                        fs.copyFileSync(path.join(sessionDir, f), path.join(sessAltDir, f));
+                    }
+                }
+            } catch (_) {}
+        }
+
         console.log(`📁 Restored ${restoredCount} essential session file(s) from Supabase (Last updated: ${data.updated_at || 'unknown'})`);
         return true;
     } catch (err) {
@@ -271,12 +333,13 @@ async function clearSupabaseSession() {
     try {
         const supabase = getSupabaseClient();
         if (!supabase) return false;
-        const { error } = await supabase.from('bot_session').delete().neq('id', 0);
+        // ONLY delete session row id=1 (never delete bot lock id=2)
+        const { error } = await supabase.from('bot_session').delete().eq('id', 1);
         if (error) {
-            console.warn('⚠️ Warning clearing Supabase session table:', error.message);
+            console.warn('⚠️ Warning clearing Supabase session row:', error.message);
             return false;
         }
-        console.log('🧹 Cleared all remote session data from Supabase bot_session table.');
+        console.log('🧹 Cleared remote session data (id=1) from Supabase bot_session table.');
         return true;
     } catch (e) {
         console.warn('⚠️ Error clearing Supabase session:', e.message);
@@ -380,11 +443,11 @@ async function releaseBotLock() {
 
         const { error } = await supabase
             .from('bot_session')
-            .update({
+            .upsert({
+                id: 2,
                 session_data: { locked_at: null, heartbeat_at: '1970-01-01T00:00:00.000Z', pid: null },
                 updated_at: new Date().toISOString()
-            })
-            .eq('id', 2);
+            }, { onConflict: 'id' });
 
         if (!error) {
             console.log('[BotLock] 🔓 Bot lock released.');

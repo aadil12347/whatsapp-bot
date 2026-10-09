@@ -264,6 +264,14 @@ async function startBot() {
         console.warn('⚠️ Note: Supabase session sync skipped or failed:', e.message || e);
     }
 
+    // Safety fallback: if session/creds.json is still missing or corrupted, restore from sess/
+    const credsFile = path.join(sessionDir, 'creds.json');
+    const sessCredsFile = path.join(sessDir, 'creds.json');
+    if ((!fs.existsSync(credsFile) || fs.statSync(credsFile).size === 0) && fs.existsSync(sessCredsFile) && fs.statSync(sessCredsFile).size > 0) {
+        console.log('🔄 Restored valid session credentials from local sess/ backup.');
+        syncDirectories(sessDir, sessionDir);
+    }
+
     // Auto-restore daily release data from Supabase (separate table, survives re-pairing)
     try {
         await initReleasesFromSupabase();
@@ -345,21 +353,52 @@ async function startBot() {
         } catch (_) {}
     }, 60 * 1000);
 
+    let isShuttingDown = false;
+    async function performGracefulExit(exitCode = 0) {
+        if (isShuttingDown) return;
+        isShuttingDown = true;
+
+        clearInterval(syncInterval);
+        clearInterval(lockHeartbeatInterval);
+
+        // 1. Tell child (queen_lite.js) to shut down gracefully (it will close WS and upload session)
+        if (child && !child.killed) {
+            try { child.kill('SIGTERM'); } catch (_) {}
+
+            // Wait up to 15s for child to finish WS closure and session sync cleanly
+            const childExitPromise = new Promise(resolve => {
+                child.once('exit', resolve);
+            });
+            const timeoutPromise = new Promise(resolve => setTimeout(resolve, 15000));
+            await Promise.race([childExitPromise, timeoutPromise]);
+
+            if (!child.killed) {
+                try { child.kill('SIGKILL'); } catch (_) {}
+            }
+        }
+
+        // 2. Authoritative final backup from parent process
+        try {
+            console.log('☁️ Performing final session backup to Supabase...');
+            await uploadSessionToSupabase(sessionDir);
+        } catch (_) {}
+
+        // 3. Flush daily releases
+        try { await shutdownReleasesSync(); } catch (_) {}
+
+        // 4. Release bot lock
+        try { await releaseBotLock(); } catch (_) {}
+
+        console.log(`✅ DanieWatch runner shutdown sequence complete (code: ${exitCode}).`);
+        process.exit(exitCode);
+    }
+
     const maxRunMinutes = parseInt(process.env.MAX_RUN_TIME_MINUTES || '0', 10);
     if (maxRunMinutes > 0) {
         console.log(`⏱️ Auto-restart timer active: Bot will exit gracefully in ${maxRunMinutes} minutes to save session & end run.`);
         setTimeout(async () => {
-            console.log(`⏰ ${maxRunMinutes} minutes elapsed. Uploading session & stopping bot process...`);
-            clearInterval(syncInterval);
-            clearInterval(lockHeartbeatInterval);
-            try { await uploadSessionToSupabase(sessionDir); } catch (_) {}
-            try { await shutdownReleasesSync(); } catch (_) {}
-            try { await releaseBotLock(); } catch (_) {}
-            child.kill('SIGTERM');
-            setTimeout(() => {
-                if (!child.killed) child.kill('SIGKILL');
-                process.exit(0);
-            }, 3000); // 3s escalation (down from 5s)
+            console.log(`⏰ ${maxRunMinutes} minutes elapsed. Initiating graceful shutdown & handover...`);
+            await performGracefulExit(0);
         }, maxRunMinutes * 60 * 1000);
     }
 
@@ -368,13 +407,10 @@ async function startBot() {
     });
 
     child.on('exit', async (code) => {
-        clearInterval(syncInterval);
-        clearInterval(lockHeartbeatInterval);
-        console.log(`🤖 Bot process exited with code ${code}`);
-        try { await uploadSessionToSupabase(sessionDir); } catch (_) {}
-        try { await shutdownReleasesSync(); } catch (_) {}
-        try { await releaseBotLock(); } catch (_) {}
-        process.exit(code || 0);
+        if (!isShuttingDown) {
+            console.log(`🤖 Bot process exited with code ${code}`);
+            await performGracefulExit(code || 0);
+        }
     });
 }
 

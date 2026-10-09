@@ -95,8 +95,8 @@ async function nukeSessions() {
     const supabase = getSupabase();
     if (supabase) {
         try {
-            await supabase.from('bot_session').delete().neq('id', 0);
-            console.log('🧹 Remote Supabase bot_session cleared.');
+            await supabase.from('bot_session').delete().eq('id', 1);
+            console.log('🧹 Remote Supabase bot_session (id=1) cleared.');
         } catch (_) {}
     }
 }
@@ -125,14 +125,6 @@ async function uploadToSupabase() {
     if (!sessionData['creds.json']) return false;
 
     try {
-        console.log('🧹 Purging all old session records from Supabase database...');
-        const { error: delErr } = await supabase.from('bot_session').delete().neq('id', 0);
-        if (delErr) {
-            console.warn('⚠️ Warning while purging old session:', delErr.message);
-        } else {
-            console.log('✅ Old session records successfully purged from Supabase.');
-        }
-
         console.log('☁️ Uploading brand new session keys (creds.json) to Supabase...');
         const { error } = await supabase.from('bot_session').upsert({
             id: 1,
