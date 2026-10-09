@@ -184,6 +184,12 @@ async function connectToWA() {
                 console.log(`[DanieWatch] 🆔 Bot identity: id=${conn.user.id || 'N/A'}, lid=${conn.user.lid || 'N/A'}, name=${conn.user.name || 'N/A'}`);
             }
 
+            // Anti-Ban: Mark presence as unavailable (offline) immediately upon connecting
+            try {
+                await conn.sendPresenceUpdate('unavailable');
+                console.log('[DanieWatch] 🕶️ Set presence to unavailable (offline).');
+            } catch (_) {}
+
             // ── HANDOVER: Initialize DanieWatch command listener IMMEDIATELY ──
             try {
                 const danie = require('./src/commands/danie_download');
@@ -195,47 +201,11 @@ async function connectToWA() {
                 console.error('[DanieWatch] Failed to init listener:', err.message);
             }
 
-            // ── INACTIVE TRACKER: Initialize read receipt & reaction tracker listeners ──
-            try {
-                const tracker = require('./src/Utils/inactive_tracker');
-                if (tracker.setupTrackerListeners) {
-                    tracker.setupTrackerListeners(conn);
-                }
-            } catch (err) {
-                console.error('[InactiveTracker] Failed to init tracker listeners:', err.message);
-            }
-
             // Upload fresh session to Supabase after successful connection
             try {
                 await uploadSessionToSupabase(SESSION_DIR);
                 console.log('☁️ Session synced to Supabase after connection open.');
             } catch (_) {}
-
-            // Send startup message (once)
-            if (!startupMessageSent) {
-                startupMessageSent = true;
-                try {
-                    const rawId = conn.user?.id || '';
-                    if (rawId) {
-                        const botJid = jidNormalizedUser(rawId);
-                        const startupMsg =
-                            `╭─── 🟢 *DANIEWATCH ONLINE* 🟢 ───╮\n\n` +
-                            `🟢 *Status:* Online & Operational\n` +
-                            `🎬 Send any link directly to download!\n` +
-                            `⚡ Type *.alive* for status or *.config* for settings.`;
-
-                        const logoPath = path.join(__dirname, 'assets', 'daniewatch_logo.png');
-                        let msgPayload = { text: startupMsg };
-                        if (fs.existsSync(logoPath)) {
-                            msgPayload = { image: fs.readFileSync(logoPath), caption: startupMsg };
-                        }
-                        await conn.sendMessage(botJid, msgPayload);
-                        console.log('[DanieWatch] ✅ Startup message sent.');
-                    }
-                } catch (e) {
-                    console.error('[DanieWatch] Startup message error:', e.message);
-                }
-            }
 
             // Schedule auto-restart if configured
             if (AUTO_RESTART_MINUTES > 0) {
@@ -293,30 +263,21 @@ async function connectToWA() {
     // ══════════════════════════════════════════════════════════════════
     //  MESSAGE HANDLING — Auto-read status + react + cache protos
     // ══════════════════════════════════════════════════════════════════
-    // Message upsert: only cache message protos for retry decryption support
+    // Message upsert: only cache message protos for direct messages (retry decryption support)
     conn.ev.on('messages.upsert', async (chatUpdate) => {
         try {
             if (chatUpdate.type !== 'notify') return;
             const msg = chatUpdate.messages ? chatUpdate.messages[0] : null;
             if (!msg) return;
 
+            // Never cache group messages
+            if (msg.key?.remoteJid?.endsWith('@g.us')) return;
+
             // Cache message proto for retry decryption support
             if (msg.key?.id && msg.message) {
                 msgProtoCache.set(msg.key.id, msg.message);
             }
         } catch (_) {}
-    });
-
-    // ── Auto-reject calls ──
-    conn.ev.on('call', async (calls) => {
-        for (const call of calls) {
-            if (call.status === 'offer') {
-                try {
-                    await conn.rejectCall(call.id, call.from);
-                    console.log(`📞 Auto-rejected call from ${call.from}`);
-                } catch (_) {}
-            }
-        }
     });
 }
 

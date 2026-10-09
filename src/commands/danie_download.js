@@ -342,31 +342,20 @@ const execAsync = util.promisify(exec);
 let _activeKeepAliveTimer = null;
 
 function startSocketKeepAlive(conn) {
-    stopSocketKeepAlive();
-    const socket = conn || _connInstance;
-    if (!socket) return;
-    console.log('[DanieWatch] = Active task started: Enabling 30s WhatsApp socket keep-alive ping...');
-    _activeKeepAliveTimer = setInterval(async () => {
-        try {
-            const activeConn = conn || _connInstance;
-            if (activeConn && activeConn.ws && activeConn.ws.readyState === 1) {
-                if (typeof activeConn.sendPresenceUpdate === 'function') {
-                    await activeConn.sendPresenceUpdate('available');
-                }
-            } else {
-                console.warn('[DanieWatch] Keep-alive ping: WhatsApp socket is not currently OPEN (readyState != 1)');
-            }
-        } catch (err) {
-            console.warn('[DanieWatch] Keep-alive ping warning:', err.message);
-        }
-    }, 30000);
+    // Disabled: Sending sendPresenceUpdate('available') every 30s broadcasted user presence
+    // 24/7 to WhatsApp servers, flagging the account and causing bans.
+    // Baileys maintains the underlying WebSocket connection via keepAliveIntervalMs (protocol-level ping)
+    // without altering user presence.
 }
 
 function stopSocketKeepAlive() {
     if (_activeKeepAliveTimer) {
         clearInterval(_activeKeepAliveTimer);
         _activeKeepAliveTimer = null;
-        console.log('[DanieWatch] ⏹ Active task ended: Stopped WhatsApp socket keep-alive ping.');
+    }
+    const activeConn = _connInstance;
+    if (activeConn && typeof activeConn.sendPresenceUpdate === 'function') {
+        activeConn.sendPresenceUpdate('unavailable').catch(() => {});
     }
 }
 
@@ -1817,6 +1806,12 @@ function initUpsertListener(conn) {
                     _botSentMessageIds.delete(firstKey);
                 }
             }
+            // Anti-Ban: Immediately return presence to offline (unavailable) so bot never stays online
+            try {
+                if (typeof conn.sendPresenceUpdate === 'function') {
+                    conn.sendPresenceUpdate('unavailable').catch(() => {});
+                }
+            } catch (_) {}
             return sentMsg;
         };
     }
@@ -1825,32 +1820,6 @@ function initUpsertListener(conn) {
     if (conn.user && conn.user.id) {
         _primedSessions.add(cleanJid(conn.user.id));
     }
-
-    // Listen to WhatsApp sync events to capture active chat threads
-    try {
-        if (conn.ev) {
-            conn.ev.on('chats.delete', (deletedJids) => {
-                const arr = Array.isArray(deletedJids) ? deletedJids : [deletedJids];
-                for (const j of arr) removeActiveChat(j);
-            });
-            conn.ev.on('chats.upsert', (chats) => {
-                const arr = Array.isArray(chats) ? chats : [chats];
-                for (const c of arr) if (c && c.id && !c.read_only) saveActiveChat(c.id, c.name || c.subject, c.notify);
-            });
-            conn.ev.on('chats.update', (chats) => {
-                const arr = Array.isArray(chats) ? chats : [chats];
-                for (const c of arr) if (c && c.id && !c.read_only) saveActiveChat(c.id, c.name || c.subject, c.notify);
-            });
-            conn.ev.on('messaging-history.set', (history) => {
-                if (history && history.chats && Array.isArray(history.chats)) {
-                    for (const c of history.chats) if (c && c.id && !c.read_only) saveActiveChat(c.id, c.name || c.subject, c.notify);
-                }
-                if (history && history.messages && Array.isArray(history.messages)) {
-                    for (const m of history.messages) if (m && m.key && m.key.remoteJid) saveActiveChat(m.key.remoteJid, null, m.pushName);
-                }
-            });
-        }
-    } catch (e) {}
 
     conn.ev.on('messages.upsert', async (chatUpdate) => {
         try {
@@ -1889,254 +1858,108 @@ function initUpsertListener(conn) {
                 const from = mek.key?.remoteJid;
                 if (!from) continue;
 
+                // ── STRICT PRIVACY & ANTI-BAN GATE: YOU (OWN) CHAT ONLY ──
+                // Immediately drop all groups, newsletters, and status broadcasts without any processing.
+                if (from.endsWith('@g.us') || from.endsWith('@broadcast') || from.endsWith('@newsletter')) {
+                    continue;
+                }
+
                 let senderJid = mek.key.participant || mek.key.remoteJid;
                 if (mek.key.fromMe && conn.user && conn.user.id) {
                     senderJid = conn.user.id;
                 }
                 const cleanSender = cleanJid(senderJid);
 
-                if (!mek.message) {
-                    // ALWAYS log undecryptable messages with full sender info for debugging
-                    const undecryptFrom = mek.key?.remoteJid || 'unknown';
-                    const undecryptSender = mek.key?.participant || mek.key?.remoteJid || 'unknown';
-                    const undecryptFromMe = !!mek.key?.fromMe;
-                    console.log(`[DanieWatch] ⚠️ UNDECRYPTABLE message: from="${undecryptFrom}" sender="${undecryptSender}" fromMe=${undecryptFromMe} stubType=${mek.messageStubType || 'none'} id=${mek.key?.id || 'N/A'}`);
+                // Silently drop all non-owners
+                const isOwnerSender = !!(mek.key.fromMe || isOwner(senderJid, mek));
+                if (!isOwnerSender) {
                     continue;
                 }
 
-                // JID routing: Preserve original 'from' (LID thread, Group, or DM) as primary destination
-                // so replies arrive directly in the exact chat thread where the command was typed.
-                const targetJid = from || cleanSender;
-                let sendableFrom = from;
-                if (from && from.includes('@newsletter')) {
-                    sendableFrom = cleanSender;
+                const cleanFromJid = cleanJid(from);
+                const botUserJid = conn.user?.id ? cleanJid(conn.user.id) : '';
+                const botLidJid = conn.user?.lid ? cleanJid(conn.user.lid) : '';
+
+                // A chat is considered "You" (own) chat ONLY IF:
+                // 1) `from` matches the sender's own JID (Message Yourself / self chat where cleanFromJid === cleanSender), OR
+                // 2) `from` matches the connected bot account's user JID or LID, OR
+                // 3) `isOwner(cleanFromJid, mek)` is true (the destination chat JID itself belongs to an owner).
+                const isSelfChat = !!(
+                    cleanFromJid &&
+                    (
+                        cleanFromJid === cleanSender ||
+                        (botUserJid && cleanFromJid === botUserJid) ||
+                        (botLidJid && cleanFromJid === botLidJid) ||
+                        isOwner(cleanFromJid, mek)
+                    )
+                );
+
+                // Silently drop if owner is talking to another person in a DM
+                if (!isSelfChat) {
+                    continue;
                 }
 
-                // Extract body text from all possible message structures
-                let groupMsgText = mek.message?.conversation ||
-                                   mek.message?.extendedTextMessage?.text ||
-                                   mek.message?.imageMessage?.caption ||
-                                   mek.message?.videoMessage?.caption ||
-                                   mek.message?.documentMessage?.caption ||
-                                   mek.message?.buttonsResponseMessage?.selectedButtonId ||
-                                   mek.message?.listResponseMessage?.singleSelectReply?.selectedRowId ||
-                                   mek.message?.templateButtonReplyMessage?.selectedId || '';
+                if (!mek.message) {
+                    continue;
+                }
 
-                if (!groupMsgText && mek.message?.interactiveResponseMessage) {
+                // Handle Incoming Voice Notes (audioMessage) - disabled
+                if (mek.message?.audioMessage) {
+                    continue;
+                }
+
+                const targetJid = from || cleanSender;
+
+                let body = mek.message.conversation ||
+                           mek.message.extendedTextMessage?.text ||
+                           mek.message.imageMessage?.caption ||
+                           mek.message.videoMessage?.caption ||
+                           mek.message.documentMessage?.caption ||
+                           mek.message.buttonsResponseMessage?.selectedButtonId ||
+                           mek.message.listResponseMessage?.singleSelectReply?.selectedRowId ||
+                           mek.message.templateButtonReplyMessage?.selectedId ||
+                           '';
+
+                if (!body && mek.message.interactiveResponseMessage) {
                     try {
                         const resp = mek.message.interactiveResponseMessage;
                         if (resp.nativeFlowResponseMessage?.paramsJson) {
                             const params = JSON.parse(resp.nativeFlowResponseMessage.paramsJson);
-                            groupMsgText = params.id || params.rowId || params.selectedRowId || '';
+                            body = params.id || params.rowId || params.selectedRowId || '';
                         } else if (resp.body?.text) {
-                            groupMsgText = resp.body.text;
+                            body = resp.body.text;
                         }
                     } catch (_) {}
                 }
+                const trimmedText = body.trim();
+                if (!trimmedText) continue;
 
-                // Log EVERY raw message as soon as it is received
-                console.log(`[DanieWatch] 📱 Raw message received: from="${from}" sender="${senderJid}" cleanSender="${cleanSender}" targetJid="${targetJid}" fromMe=${!!mek.key.fromMe} text="${groupMsgText.substring(0, 100)}"`);
+                console.log(`[DanieWatch] 👤 Owner command received in You chat: "${trimmedText.substring(0, 80)}"`);
 
-                // ══════════════════════════════════════════════════════════════════
-                //  GROUP MODERATION ENGINE — Anti-Link & Anti-Spam (Runs BEFORE Owner Filter)
-                // ══════════════════════════════════════════════════════════════════
-                if (from && from.endsWith('@g.us')) {
-                    const { isAntilinkActiveForGroup, containsForbiddenLink } = require('../Utils/antilink');
-                    const { isAntispamActiveForGroup, recordMessageAndCheckSpam } = require('../Utils/antispam');
+                const { applyAntiBanPresence, markAsRead, setOfflinePresence } = require('../Utils/anti_ban');
 
-                    console.log(`[GroupMsg] 📩 Processing group message in "${from}" from "${senderJid}". Text: "${groupMsgText.substring(0, 80)}"`);
+                // Auto-mark incoming message as read
+                await markAsRead(conn, mek);
 
-                    // ── 1. Anti-Link Enforcement (single message delete + kick with cooldown) ──
-                    if (isAntilinkActiveForGroup(from) && groupMsgText && containsForbiddenLink(groupMsgText)) {
-                        console.log(`[AntiLink] ⚡ Forbidden link detected in group ${from} from sender ${senderJid} (fromMe=${!!mek.key.fromMe}). Text: "${groupMsgText.substring(0, 80)}"`);
-                        try {
-                            const isAdmin = await checkIsGroupAdmin(conn, from, senderJid);
-                            if (isAdmin || mek.key.fromMe) {
-                                console.log(`[AntiLink] 🛡️ Ignored — Sender ${cleanSender} is Admin, Bot Owner, or self (fromMe=${!!mek.key.fromMe}).`);
-                            } else {
-                                // Send warning + instant kick
-                                try {
-                                    await conn.sendMessage(from, {
-                                        text: `*Links Allow nahi hain. . . !*\n\n*لنک بھیجنا منع ہے۔*`,
-                                        mentions: [senderJid]
-                                    });
-                                } catch (_) {}
-                                try {
-                                    await conn.groupParticipantsUpdate(from, [senderJid], 'remove');
-                                    console.log(`[AntiLink] 🚪 Instant-kicked ${senderJid} from ${from} for link: "${groupMsgText.substring(0, 60)}"`);
-                                } catch (kickErr) {
-                                    console.error('[AntiLink] Kick failed:', kickErr.message);
-                                }
-
-                                continue; // Stop further processing for this message
-                            }
-                        } catch (err) {
-                            console.error('[AntiLink] Error during enforcement:', err.message);
-                        }
-                    }
-
-                    // ── 2. Anti-Spam Enforcement (single message delete + kick with cooldown) ──
-                    if (isAntispamActiveForGroup(from)) {
-                        const spamCheck = recordMessageAndCheckSpam(senderJid, from, mek.key);
-                        if (spamCheck.isSpam) {
-                            console.log(`[AntiSpam] ⚡ Spam rate threshold exceeded in group ${from} from sender ${senderJid} (${spamCheck.count} msgs/2min).`);
+                const reply = async (textMsg) => {
+                    try {
+                        await applyAntiBanPresence(conn, mek, targetJid, 'composing');
+                        const res = await conn.sendMessage(targetJid, { text: textMsg }, { quoted: mek });
+                        await setOfflinePresence(conn);
+                        return res;
+                    } catch (err1) {
+                        if (cleanSender && cleanSender !== targetJid) {
                             try {
-                                const isAdmin = await checkIsGroupAdmin(conn, from, senderJid);
-                                if (isAdmin || mek.key.fromMe) {
-                                    console.log(`[AntiSpam] 🛡️ Ignored — Sender ${cleanSender} is Admin or Owner in ${from}.`);
-                                } else {
-                                    // Send warning + instant kick (no message deletion)
-                                    const senderNum = (senderJid || cleanSender || '').split('@')[0].split(':')[0].trim();
-                                    try {
-                                        await conn.sendMessage(from, {
-                                            text: `⚠️ *@${senderNum}* Too many messages. Slow down.`,
-                                            mentions: [senderJid]
-                                        });
-                                    } catch (_) {}
-                                    try {
-                                        await conn.groupParticipantsUpdate(from, [senderJid], 'remove');
-                                        console.log(`[AntiSpam] 🚪 Kicked ${senderJid} from ${from} (${spamCheck.count} msgs/2min)`);
-                                    } catch (kickErr) {
-                                        console.error('[AntiSpam] Kick failed:', kickErr.message);
-                                    }
-
-                                    continue; // Stop further processing for this message
-                                }
-                            } catch (err) {
-                                console.error('[AntiSpam] Error during enforcement:', err.message);
-                            }
+                                await applyAntiBanPresence(conn, mek, cleanSender, 'composing');
+                                const res = await conn.sendMessage(cleanSender, { text: textMsg }, { quoted: mek });
+                                await setOfflinePresence(conn);
+                                return res;
+                            } catch (err2) {}
                         }
+                        await setOfflinePresence(conn);
+                        throw err1;
                     }
-                }
-
-            // ══════════════════════════════════════════════════════════════════
-            //  PASSIVE GROUP SCANNER — Records bot's own posts to target groups
-            //  This runs for ALL fromMe group messages BEFORE the owner check.
-            // ══════════════════════════════════════════════════════════════════
-            if (mek.key.fromMe && from && from.endsWith('@g.us')) {
-                try {
-                    const { parseMediaCaption, addDailyRelease } = require('../Utils/daily_releases');
-                    const settings = loadSettings();
-                    // Check if this group is one of the configured target groups
-                    const targetJids = [];
-                    if (settings.targets && settings.targets.length > 0) {
-                        settings.targets.forEach(t => { if (t.jid && t.jid.endsWith('@g.us')) targetJids.push(cleanJid(t.jid)); });
-                    } else if (settings.groupJid) {
-                        targetJids.push(cleanJid(settings.groupJid));
-                    }
-                    const cleanFrom = cleanJid(from);
-                    if (targetJids.includes(cleanFrom)) {
-                        // Extract caption from image/video/document messages
-                        const caption = mek.message?.imageMessage?.caption ||
-                                        mek.message?.videoMessage?.caption ||
-                                        mek.message?.documentMessage?.caption || '';
-                        if (caption && caption.length > 5) {
-                            const parsed = parseMediaCaption(caption);
-                            if (parsed && parsed.title) {
-                                addDailyRelease({
-                                    title: parsed.title,
-                                    year: parsed.year,
-                                    season: parsed.season,
-                                    isSeries: parsed.isSeries,
-                                    groupJid: cleanFrom,
-                                    source: 'group_scan'
-                                });
-                                console.log(`[GroupScan] 📝 Auto-recorded release from group post: "${parsed.title}" (${parsed.year}) ${parsed.season || ''}`);
-                            }
-                        }
-                    }
-                } catch (scanErr) {
-                    // Silent — don't break message processing for scan errors
-                    console.warn('[GroupScan] Error in passive scanner:', scanErr.message);
-                }
-            }
-
-            // OWNER-ONLY ACCESS CHECK: Block all non-owners from messaging/sending commands to the bot
-            if (!mek.key.fromMe && !isOwner(senderJid, mek)) {
-                console.log(`[DanieWatch] 🔒 Access denied: Message from non-owner sender ${cleanSender} (JID: ${senderJid}) ignored.`);
-                return;
-            }
-
-            // Check if current chat is the owner's personal "You" chat (Message Yourself / Own DM)
-            const isGroupChat = !!(from && from.endsWith('@g.us'));
-            const isOwnerSender = !!(mek.key.fromMe || isOwner(senderJid, mek));
-
-            const cleanFromJid = cleanJid(from);
-            const botUserJid = conn.user?.id ? cleanJid(conn.user.id) : '';
-            const botLidJid = conn.user?.lid ? cleanJid(conn.user.lid) : '';
-
-            // A chat is considered "You" (own) chat ONLY IF:
-            // 1) `from` matches the sender's own JID (Message Yourself / self chat where cleanFromJid === cleanSender), OR
-            // 2) `from` matches the connected bot account's user JID or LID, OR
-            // 3) `isOwner(cleanFromJid, mek)` is true (the destination chat JID itself belongs to an owner).
-            const isSelfChat = !!(
-                cleanFromJid &&
-                (
-                    cleanFromJid === cleanSender ||
-                    (botUserJid && cleanFromJid === botUserJid) ||
-                    (botLidJid && cleanFromJid === botLidJid) ||
-                    isOwner(cleanFromJid, mek)
-                )
-            );
-
-            const isYouChat = !isGroupChat && isOwnerSender && isSelfChat;
-
-            // Record incoming/outgoing chat JIDs
-            if (from) saveActiveChat(from, null, mek.pushName);
-            if (senderJid) saveActiveChat(senderJid, null, mek.pushName);
-
-            // Handle Incoming Voice Notes (audioMessage) - COMPLETELY DISABLED
-            if (mek.message?.audioMessage) {
-                console.log(`[DanieWatch] 🎙️ Ignored incoming Voice Note from ${cleanSender}. Voice note feature is disabled.`);
-                return;
-            }
-
-            let body = mek.message.conversation ||
-                         mek.message.extendedTextMessage?.text ||
-                         mek.message.buttonsResponseMessage?.selectedButtonId ||
-                         mek.message.listResponseMessage?.singleSelectReply?.selectedRowId ||
-                         mek.message.templateButtonReplyMessage?.selectedId ||
-                         '';
-
-            if (!body && mek.message.interactiveResponseMessage) {
-                try {
-                    const resp = mek.message.interactiveResponseMessage;
-                    if (resp.nativeFlowResponseMessage?.paramsJson) {
-                        const params = JSON.parse(resp.nativeFlowResponseMessage.paramsJson);
-                        body = params.id || params.rowId || params.selectedRowId || '';
-                    } else if (resp.body?.text) {
-                        body = resp.body.text;
-                    }
-                } catch (_) {}
-            }
-            const trimmedText = body.trim();
-            if (!trimmedText) return;
-
-            // RESTRICT ALL COMMANDS STRICTLY TO YOU (OWN) CHAT ONLY
-            if (!isYouChat) {
-                console.log(`[DanieWatch] 🔒 Access restricted: Command/Message "${trimmedText.substring(0, 50)}" ignored in chat "${from}". All commands work strictly in You (own) chat.`);
-                return;
-            }
-
-            const { applyAntiBanPresence, markAsRead } = require('../Utils/anti_ban');
-
-            // Auto-mark incoming message as read for human presence telemetry
-            await markAsRead(conn, mek);
-
-            const reply = async (textMsg) => {
-                try {
-                    await applyAntiBanPresence(conn, mek, targetJid, 'composing');
-                    return await conn.sendMessage(targetJid, { text: textMsg }, { quoted: mek });
-                } catch (err1) {
-                    if (cleanSender && cleanSender !== targetJid) {
-                        try {
-                            await applyAntiBanPresence(conn, mek, cleanSender, 'composing');
-                            return await conn.sendMessage(cleanSender, { text: textMsg }, { quoted: mek });
-                        } catch (err2) {}
-                    }
-                    throw err1;
-                }
-            };
+                };
 
             // ---- Handle commands starting with PREFIX ----
             if (trimmedText.startsWith(PREFIX)) {
@@ -2194,6 +2017,8 @@ function initUpsertListener(conn) {
                         try {
                             await reply(`❌ Command execution failed: ${cmdErr.message}`);
                         } catch (_) {}
+                    } finally {
+                        await setOfflinePresence(conn);
                     }
                 }
                 return;

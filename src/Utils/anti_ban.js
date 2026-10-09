@@ -49,9 +49,22 @@ async function applyAntiBanPresence(conn, mek, jid, mode = 'composing') {
     await new Promise(resolve => setTimeout(resolve, delayMs));
 }
 
+/**
+ * Sets presence to 'unavailable' (offline) so the bot never stays online on WhatsApp servers.
+ */
+async function setOfflinePresence(conn) {
+    if (!conn) return;
+    try {
+        if (typeof conn.sendPresenceUpdate === 'function') {
+            await conn.sendPresenceUpdate('unavailable');
+        }
+    } catch (_) {}
+}
+
 module.exports = {
     getRandomDelay,
     markAsRead,
     simulateHumanTyping,
+    setOfflinePresence,
     applyAntiBanPresence
 };
